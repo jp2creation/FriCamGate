@@ -1,5 +1,34 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bell, Grid3X3, Home, Image, Loader2, LogOut, RefreshCcw, Settings, Video } from "lucide-react";
+import {
+  AlertCircle,
+  Bell,
+  CheckCircle2,
+  ChevronRight,
+  Code2,
+  ExternalLink,
+  FileCog,
+  FileText,
+  Grid3X3,
+  Home,
+  Image,
+  Info,
+  Loader2,
+  PackageCheck,
+  Power,
+  RefreshCcw,
+  Server,
+  Settings,
+  SlidersHorizontal,
+  Terminal,
+  Video
+} from "lucide-react";
+import { APP_NAME, APP_VERSION } from "./appInfo";
+import {
+  UPDATE_RELEASES_URL,
+  checkForAppUpdate,
+  type UpdateCheckResult,
+  type UpdateStatus
+} from "./updateService";
 import { FrigateApi } from "../frigate/frigateApi";
 import type { CameraSummary, EventSummary, StoredSession } from "../frigate/types";
 import { normalizeServerUrl } from "../lib/url";
@@ -7,6 +36,7 @@ import { clearSession, loadSession, saveSession } from "../session/secureSession
 
 const logoUrl = new URL("../../assets/brand/fricamgate-logo.png", import.meta.url).href;
 const defaultServerUrl = "";
+const autoUpdateChecksKey = "fricamgate_auto_update_checks";
 
 const mockCameras: CameraSummary[] = [
   {
@@ -41,6 +71,14 @@ const mockEvents: EventSummary[] = [
 type View = "home" | "cameras" | "grid" | "events" | "settings";
 type ConnectionStatus = "idle" | "restoring" | "connecting" | "ready" | "error";
 
+function loadAutoUpdateChecks() {
+  try {
+    return window.localStorage.getItem(autoUpdateChecksKey) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export function App() {
   const [serverUrl, setServerUrl] = useState(defaultServerUrl);
   const [username, setUsername] = useState("");
@@ -52,6 +90,9 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const [cameras, setCameras] = useState<CameraSummary[]>(mockCameras);
   const [events, setEvents] = useState<EventSummary[]>(mockEvents);
+  const [autoUpdateChecks, setAutoUpdateChecks] = useState(loadAutoUpdateChecks);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
 
   const canConnect = serverUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0 && status !== "connecting";
 
@@ -87,6 +128,12 @@ export function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (autoUpdateChecks) {
+      void checkUpdates();
+    }
+  }, [autoUpdateChecks]);
 
   const api = useMemo(() => {
     if (session) {
@@ -158,6 +205,34 @@ export function App() {
     setCameras(mockCameras);
     setEvents(mockEvents);
     setMessage("Session effacee.");
+  }
+
+  async function checkUpdates() {
+    setUpdateStatus("checking");
+
+    try {
+      const result = await checkForAppUpdate(APP_VERSION);
+      setUpdateResult(result);
+      setUpdateStatus(result.status);
+    } catch {
+      setUpdateStatus("error");
+      setUpdateResult({
+        status: "error",
+        checkedAt: new Date().toISOString(),
+        currentVersion: APP_VERSION,
+        releaseUrl: UPDATE_RELEASES_URL,
+        message: "Recherche de mise a jour impossible."
+      });
+    }
+  }
+
+  function toggleAutoUpdateChecks(enabled: boolean) {
+    setAutoUpdateChecks(enabled);
+    try {
+      window.localStorage.setItem(autoUpdateChecksKey, enabled ? "1" : "0");
+    } catch {
+      // The toggle remains active for this runtime even when storage is unavailable.
+    }
   }
 
   return (
@@ -233,7 +308,13 @@ export function App() {
             events={events}
             message={message}
             api={api}
+            appVersion={APP_VERSION}
+            autoUpdateChecks={autoUpdateChecks}
+            updateResult={updateResult}
+            updateStatus={updateStatus}
             onRefresh={() => refreshDashboard()}
+            onCheckUpdates={checkUpdates}
+            onToggleAutoUpdateChecks={toggleAutoUpdateChecks}
             onDisconnect={disconnect}
           />
           <BottomNav view={view} onViewChange={setView} />
@@ -250,7 +331,13 @@ function Dashboard({
   events,
   message,
   api,
+  appVersion,
+  autoUpdateChecks,
+  updateResult,
+  updateStatus,
   onRefresh,
+  onCheckUpdates,
+  onToggleAutoUpdateChecks,
   onDisconnect
 }: {
   view: View;
@@ -259,36 +346,47 @@ function Dashboard({
   events: EventSummary[];
   message: string;
   api: FrigateApi | null;
+  appVersion: string;
+  autoUpdateChecks: boolean;
+  updateResult: UpdateCheckResult | null;
+  updateStatus: UpdateStatus;
   onRefresh: () => void;
+  onCheckUpdates: () => void;
+  onToggleAutoUpdateChecks: (enabled: boolean) => void;
   onDisconnect: () => void;
 }) {
   if (view === "settings") {
+    const updateSummary = updateResult?.message ?? "Recherche de mise a jour";
+
     return (
-      <section className="settings-panel">
+      <section className="settings-panel" aria-label="Reglages">
         <h2>Reglages</h2>
-        <dl>
-          <div>
-            <dt>Serveur</dt>
-            <dd>{session?.baseUrl ?? "-"}</dd>
-          </div>
-          <div>
-            <dt>Utilisateur</dt>
-            <dd>{session?.username ?? "-"}</dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd>{session?.role ?? "viewer"}</dd>
-          </div>
-        </dl>
-        <button className="secondary-button" onClick={onRefresh}>
-          <RefreshCcw size={18} />
-          Rafraichir
-        </button>
-        <button className="danger-button" onClick={onDisconnect}>
-          <LogOut size={18} />
-          Log out
-        </button>
-        <p className="status-line">{message}</p>
+
+        <div className="settings-list">
+          <SettingsRow icon={FileCog} label="Configuration" detail={session?.baseUrl ?? "-"} />
+          <SettingsRow icon={FileText} label="Logs" detail={message} />
+          <SettingsRow icon={Code2} label="Console" detail={session?.role ?? "viewer"} />
+          <SettingsRow icon={Terminal} label="Terminal" detail={session?.username ?? "-"} />
+          <SettingsRow icon={PackageCheck} label="Updates" detail={updateSummary} onClick={onCheckUpdates} />
+          <SettingsRow icon={SlidersHorizontal} label="Settings" detail={`${APP_NAME} ${appVersion}`} />
+        </div>
+
+        <UpdateCard
+          autoUpdateChecks={autoUpdateChecks}
+          currentVersion={appVersion}
+          result={updateResult}
+          status={updateStatus}
+          onCheckUpdates={onCheckUpdates}
+          onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
+        />
+
+        <p className="settings-group-title">Actions</p>
+        <div className="settings-list">
+          <SettingsRow icon={Info} label="About" detail={`${APP_NAME} ${appVersion}`} />
+          <SettingsRow icon={RefreshCcw} label="Reload" detail="Actualiser cameras et evenements" onClick={onRefresh} />
+          <SettingsRow icon={Server} label="Switch server" detail={session?.baseUrl ?? "-"} onClick={onDisconnect} />
+          <SettingsRow danger icon={Power} label="Logout" detail="Effacer la session locale" onClick={onDisconnect} />
+        </div>
       </section>
     );
   }
@@ -327,6 +425,121 @@ function Dashboard({
       </div>
     </section>
   );
+}
+
+function SettingsRow({
+  danger = false,
+  detail,
+  icon: Icon,
+  label,
+  onClick
+}: {
+  danger?: boolean;
+  detail: string;
+  icon: typeof Home;
+  label: string;
+  onClick?: () => void;
+}) {
+  const className = danger ? "settings-row is-danger" : "settings-row";
+  const content = (
+    <>
+      <span className="settings-row-icon">
+        <Icon size={22} />
+      </span>
+      <span className="settings-row-text">
+        <strong>{label}</strong>
+        <small>{detail}</small>
+      </span>
+      <ChevronRight className="settings-row-chevron" size={21} />
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button className={className} onClick={onClick} type="button">
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={className}>{content}</div>;
+}
+
+function UpdateCard({
+  autoUpdateChecks,
+  currentVersion,
+  result,
+  status,
+  onCheckUpdates,
+  onToggleAutoUpdateChecks
+}: {
+  autoUpdateChecks: boolean;
+  currentVersion: string;
+  result: UpdateCheckResult | null;
+  status: UpdateStatus;
+  onCheckUpdates: () => void;
+  onToggleAutoUpdateChecks: (enabled: boolean) => void;
+}) {
+  const StatusIcon = getUpdateStatusIcon(status);
+  const latestVersion = result?.latestVersion ?? "-";
+  const message = status === "checking" ? "Recherche en cours..." : (result?.message ?? "Recherche automatique active.");
+
+  return (
+    <div className="settings-update-card" aria-live="polite">
+      <div className={`update-status is-${status}`}>
+        {status === "checking" ? <Loader2 className="spin" size={20} /> : <StatusIcon size={20} />}
+        <div>
+          <strong>{message}</strong>
+          <small>
+            Installee {currentVersion} - Derniere {latestVersion}
+          </small>
+        </div>
+      </div>
+
+      <label className="settings-toggle">
+        <span>
+          <strong>Recherche automatique</strong>
+          <small>Au lancement de l'app</small>
+        </span>
+        <input
+          type="checkbox"
+          checked={autoUpdateChecks}
+          onChange={(event) => onToggleAutoUpdateChecks(event.target.checked)}
+        />
+      </label>
+
+      <div className="settings-actions">
+        <button className="secondary-button" disabled={status === "checking"} onClick={onCheckUpdates} type="button">
+          {status === "checking" ? <Loader2 className="spin" size={18} /> : <RefreshCcw size={18} />}
+          Verifier
+        </button>
+        <button className="secondary-button" onClick={() => openReleases(result?.releaseUrl)} type="button">
+          <ExternalLink size={18} />
+          GitHub
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function getUpdateStatusIcon(status: UpdateStatus) {
+  if (status === "current") {
+    return CheckCircle2;
+  }
+
+  if (status === "available") {
+    return PackageCheck;
+  }
+
+  if (status === "error" || status === "unavailable") {
+    return AlertCircle;
+  }
+
+  return PackageCheck;
+}
+
+function openReleases(url = UPDATE_RELEASES_URL) {
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {

@@ -36,7 +36,7 @@ jobs:
 
       - name: Validate web app
         run: |
-          npm run test -- src/app/App.test.tsx src/lib/url.test.ts src/lib/redact.test.ts
+          npm run test -- src/app/App.test.tsx src/app/updateService.test.ts src/frigate/frigateApi.test.ts src/lib/url.test.ts src/lib/redact.test.ts
           npm run typecheck
           npm run lint
           npm run build

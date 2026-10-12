@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -90,5 +90,60 @@ describe("App", () => {
         })
       );
     });
+  });
+
+  it("renders camera.ui style settings rows and update controls", async () => {
+    mocks.storedSession = {
+      profileId: "default",
+      baseUrl: "http://frigate.example.com",
+      authToken: "token-value",
+      username: "admin",
+      role: "viewer"
+    };
+    mocks.request.mockImplementation(({ url }: { responseType?: string; url: string }) => {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases/latest")) {
+        return Promise.resolve({
+          status: 404,
+          headers: {},
+          url,
+          data: {}
+        });
+      }
+
+      if (url.endsWith("/api/config")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: { cameras: { devant: { enabled: true, friendly_name: "Devant" } } }
+        });
+      }
+
+      if (url.includes("/api/events")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: []
+        });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+        url,
+        data: "ZGVm"
+      });
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Settings$/i }));
+
+    expect(await screen.findByText("Configuration")).toBeInTheDocument();
+    expect(screen.getByText("Updates")).toBeInTheDocument();
+    expect(screen.getByText("Switch server")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /recherche automatique/i })).toBeChecked();
+    expect(screen.getByRole("button", { name: /verifier/i })).toBeInTheDocument();
   });
 });

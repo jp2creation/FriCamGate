@@ -28,16 +28,23 @@ input {
 
 .app-shell {
   min-height: 100vh;
-  padding: max(18px, env(safe-area-inset-top)) 12px max(88px, env(safe-area-inset-bottom));
+  padding: 0 12px max(88px, env(safe-area-inset-bottom));
   background: #08080a;
 }
 
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1180px;
-  margin: 0 auto 22px;
+  width: min(100%, 1180px);
+  margin: 0 auto 18px;
+  padding: max(18px, env(safe-area-inset-top)) 0 12px;
+  border-bottom: 1px solid rgba(29, 29, 36, 0.72);
+  background: rgba(8, 8, 10, 0.94);
+  backdrop-filter: blur(18px);
 }
 
 .brand {
@@ -84,14 +91,12 @@ h2 {
 }
 
 .setup-panel,
-.settings-panel,
 .content-block {
   width: min(100%, 1180px);
   margin: 0 auto;
 }
 
-.setup-panel,
-.settings-panel {
+.setup-panel {
   display: grid;
   gap: 16px;
   max-width: 520px;
@@ -163,6 +168,12 @@ input:focus {
 
 .secondary-button {
   background: #262631;
+}
+
+.secondary-button:disabled {
+  cursor: wait;
+  color: #8f8f99;
+  background: #1d1d24;
 }
 
 .danger-button {
@@ -352,26 +363,148 @@ input:focus {
   color: #a6a6af;
 }
 
-.settings-panel dl {
+.settings-panel {
   display: grid;
-  gap: 10px;
-  margin: 0;
+  gap: 16px;
+  width: min(100%, 620px);
+  margin: 0 auto;
 }
 
-.settings-panel div {
-  min-width: 0;
+.settings-panel h2 {
+  margin-bottom: 0;
 }
 
-.settings-panel dt {
-  color: #9d9da8;
+.settings-group-title {
+  margin: 8px 12px -4px;
+  color: #787884;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 900;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.settings-panel dd {
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
+.settings-list {
+  overflow: hidden;
+  border: 1px solid #25252c;
+  border-radius: 8px;
+  background: #17171b;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 30px;
+  width: 100%;
+  min-height: 78px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid #24242a;
+  background: transparent;
+  color: #f4f4f6;
+  text-align: left;
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row-icon {
+  display: inline-flex;
+  justify-content: center;
+  color: #777781;
+}
+
+.settings-row-text {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-row-text strong {
+  font-size: 1.02rem;
+}
+
+.settings-row-text small {
+  overflow: hidden;
+  color: #8f8f99;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-row-chevron {
+  color: #777781;
+}
+
+.settings-row.is-danger,
+.settings-row.is-danger .settings-row-icon,
+.settings-row.is-danger .settings-row-chevron {
+  color: #ff336c;
+}
+
+.settings-update-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #25252c;
+  border-radius: 8px;
+  background: #121216;
+}
+
+.update-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.update-status svg {
+  flex: 0 0 auto;
+}
+
+.update-status.is-current svg {
+  color: #54d887;
+}
+
+.update-status.is-available svg {
+  color: #ff336c;
+}
+
+.update-status.is-error svg,
+.update-status.is-unavailable svg {
+  color: #ffd08a;
+}
+
+.update-status strong,
+.update-status small,
+.settings-toggle strong,
+.settings-toggle small {
+  display: block;
+}
+
+.update-status small,
+.settings-toggle small {
+  color: #8f8f99;
+  font-size: 0.78rem;
+}
+
+.settings-toggle {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #f4f4f6;
+}
+
+.settings-toggle input {
+  width: 22px;
+  min-height: 22px;
+  accent-color: #ff336c;
+}
+
+.settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .bottom-nav {
