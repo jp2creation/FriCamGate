@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.jks
+*.keystore
+*.apk
+*.aab
+.tooling/
+.superpowers/
+artifacts/
+android/.gradle/
+android/app/build/

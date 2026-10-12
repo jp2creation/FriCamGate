@@ -16,7 +16,7 @@
 - Target platform is Android phone and tablet.
 - V1 is a direct Frigate client; no central FriCamGate backend.
 - Each user enters their own Frigate server URL and credentials.
-- Default private test server is `https://cam.degert.fr`; it may be prefilled only in private debug builds.
+- Default server field is blank in reusable builds; `https://frigate.example.com` is used only as an example in tests and docs.
 - Approved logo master is `assets/brand/fricamgate-logo.png`.
 - No password, JWT, cookie, signing key, `.env`, or Frigate secret may be committed or bundled in the APK.
 - Require HTTPS for normal setup; HTTP is allowed only through an explicit advanced local-lab setting.
@@ -120,7 +120,7 @@ Create `src/app/App.test.tsx` with a test named `renders_private_debug_setup_scr
 render(<App />);
 expect(screen.getByRole("heading", { name: /FriCamGate/i })).toBeInTheDocument();
 expect(screen.getByAltText(/FriCamGate logo/i)).toBeInTheDocument();
-expect(screen.getByLabelText(/server url/i)).toHaveValue("https://cam.degert.fr");
+expect(screen.getByLabelText(/server url/i)).toHaveValue("");
 expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
 ```
 
@@ -136,7 +136,7 @@ Implement `App()` in `src/app/App.tsx` so it renders:
 
 - heading `FriCamGate`
 - logo image imported from `assets/brand/fricamgate-logo.png`
-- labeled server URL input prefilled with `https://cam.degert.fr`
+- labeled server URL input with a generic `https://frigate.example.com` placeholder
 - username and password fields
 - disabled `Test connection` button until required fields are present
 
@@ -287,9 +287,9 @@ git commit -m "feat: add static camera console UI"
 Create tests:
 
 ```ts
-expect(normalizeServerUrl(" https://cam.degert.fr/ ")).toBe("https://cam.degert.fr");
+expect(normalizeServerUrl(" https://frigate.example.com/ ")).toBe("https://frigate.example.com");
 expect(() => normalizeServerUrl("")).toThrow(/server url/i);
-expect(() => normalizeServerUrl("cam.degert.fr")).toThrow(/https/i);
+expect(() => normalizeServerUrl("frigate.example.com")).toThrow(/https/i);
 expect(() => normalizeServerUrl("http://cam.local")).toThrow(/https/i);
 expect(normalizeServerUrl("http://cam.local", { allowInsecureHttp: true })).toBe("http://cam.local");
 ```
@@ -400,9 +400,9 @@ Create `src/frigate/frigateApi.test.ts` with a test named `posts_login_without_l
 
 ```ts
 const http = new FakeHttpClient([{ status: 200, body: { token: "jwt-value" }, headers: {} }]);
-const api = createFrigateApi(http, "https://cam.degert.fr");
+const api = createFrigateApi(http, "https://frigate.example.com");
 await expect(api.login({ username: "admin", password: "secret-password" })).resolves.toMatchObject({ authToken: expect.any(String) });
-expect(http.requests[0].url).toBe("https://cam.degert.fr/api/login");
+expect(http.requests[0].url).toBe("https://frigate.example.com/api/login");
 expect(JSON.stringify(http.requests)).toContain("admin");
 expect(redactSensitiveText(JSON.stringify(http.requests))).not.toContain("secret-password");
 ```
@@ -521,7 +521,7 @@ await user.type(screen.getByLabelText(/username/i), "viewer");
 await user.type(screen.getByLabelText(/password/i), "bad-password");
 await user.click(screen.getByRole("button", { name: /test connection/i }));
 expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({
-  baseUrl: "https://cam.degert.fr",
+  baseUrl: "https://frigate.example.com",
   username: "viewer"
 }));
 ```
@@ -895,7 +895,7 @@ Create `docs/android-test-checklist.md` with:
 
 - install debug APK
 - launch app
-- enter `https://cam.degert.fr`
+- enter `https://frigate.example.com`
 - manually enter credentials
 - verify `/api/auth` and `/api/config` succeed
 - verify at least one camera card shows an image

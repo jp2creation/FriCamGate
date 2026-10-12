@@ -1,0 +1,47 @@
+{
+  "name": "fricamgate",
+  "version": "0.1.0",
+  "description": "FriCamGate is an Android phone and tablet client for Frigate.",
+  "private": true,
+  "type": "module",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint .",
+    "cap:sync": "npm run build && cap sync android",
+    "android:debug": "npm run build && cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor/android": "^8.4.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.4.3",
+    "lucide-react": "^1.55.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.3",
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^10.12.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  }
+}

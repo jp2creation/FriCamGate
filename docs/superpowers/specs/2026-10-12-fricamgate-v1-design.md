@@ -9,7 +9,7 @@ Reader: future implementer of the Android APK
 
 FriCamGate is an Android phone and tablet app for Frigate users. Each user connects the app to their own Frigate server URL and signs in with their own Frigate account. The app provides a dark, camera-first mobile interface inspired by the supplied camera.ui screenshots, without copying camera.ui branding or assets.
 
-The first real test server is `https://cam.degert.fr`. No production secret, password, JWT, or admin credential is stored in the repository or bundled in the APK.
+The reusable build leaves the server field blank and uses only generic example URLs in tests and documentation. No production secret, password, JWT, or admin credential is stored in the repository or bundled in the APK.
 
 The approved brand logo is stored at `assets/brand/fricamgate-logo.png`. It is a square PNG master asset and should be used for the app header, launch branding, and Android icon derivation.
 
@@ -85,7 +85,7 @@ V1 prioritizes dependable display before lowest latency:
 
 Frigate live view can use smart streaming and go2rtc-backed technologies such as MSE and WebRTC. WebRTC may require additional network setup, including port `8555` TCP/UDP for external access. For this reason, V1 must not promise universal zero-latency streaming. It should detect failure, keep the camera usable with refreshed frames, and surface a concise diagnostic. Sources: https://docs.frigate.video/usage/live/ and https://docs.frigate.video/configuration/live/
 
-Implementation note: because a Capacitor WebView can hit cross-origin and credential behavior that differs from normal browser use, API requests should be routed through Capacitor native HTTP when needed. Media playback should be validated on a real Android device against `https://cam.degert.fr` before choosing the final live provider. Source: https://github.com/ionic-team/capacitor/blob/main/core/http.md
+Implementation note: because a Capacitor WebView can hit cross-origin and credential behavior that differs from normal browser use, API requests should be routed through Capacitor native HTTP when needed. Media playback should be validated on a real Android device against `https://frigate.example.com` before choosing the final live provider. Source: https://github.com/ionic-team/capacitor/blob/main/core/http.md
 
 ## Security
 
@@ -180,7 +180,7 @@ The V1 build is not complete until these checks pass:
 
 - Browser UI renders home, setup, events, settings, and camera detail at phone and tablet widths.
 - Android debug APK installs on a real or emulator Android target.
-- Login succeeds against `https://cam.degert.fr` using manually entered credentials.
+- Login succeeds against `https://frigate.example.com` using manually entered credentials.
 - Credentials are not present in source, build files, command history snippets, logs, or APK assets.
 - `/api/auth` and `/api/config` are called successfully after login.
 - At least one camera card displays a current image.
@@ -195,7 +195,7 @@ The V1 build is not complete until these checks pass:
 2. Build static UI shell: responsive camera-console layout with mocked data.
 3. Add Frigate API client: URL normalization, login, auth check, config, events, snapshots.
 4. Add secure storage and session lifecycle.
-5. Connect real data from `https://cam.degert.fr`.
+5. Connect real data from `https://frigate.example.com`.
 6. Add live/snapshot playback fallback.
 7. Package debug APK and test on Android.
 8. Generate app icon variants from the approved logo, then polish release name and signing path.
@@ -204,10 +204,10 @@ The V1 build is not complete until these checks pass:
 
 These are the only remaining product choices:
 
-1. Default server field: prefill `https://cam.degert.fr` for your private test build, or leave blank for the reusable build.
+1. Default server field: leave blank for the reusable build.
 2. V1 live target: start with snapshot refresh plus event playback, or attempt go2rtc/WebRTC in the first APK build.
 
 Recommendation:
 
-- Prefill `https://cam.degert.fr` only in the private debug build.
+- Keep the reusable debug build blank and use `https://frigate.example.com` only as an example placeholder.
 - Build snapshot refresh and event playback first, then add go2rtc/WebRTC once login, camera discovery, and events are verified.
