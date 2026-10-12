@@ -30,7 +30,17 @@ export interface LoginResult {
 }
 
 export interface FrigateConfig {
-  cameras?: Record<string, { enabled?: boolean; name?: string; friendly_name?: string }>;
+  cameras?: Record<
+    string,
+    {
+      enabled?: boolean;
+      name?: string;
+      friendly_name?: string;
+      live?: {
+        streams?: Record<string, string>;
+      };
+    }
+  >;
 }
 
 export interface FrigateEvent {

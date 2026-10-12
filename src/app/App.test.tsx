@@ -16,13 +16,23 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: vi.fn(() => "web"),
+    isPluginAvailable: vi.fn(() => false)
+  },
   CapacitorCookies: {
     deleteCookie: mocks.deleteCookie,
     setCookie: mocks.setCookie
   },
   CapacitorHttp: {
     request: mocks.request
-  }
+  },
+  registerPlugin: vi.fn(() => ({
+    addListener: vi.fn(),
+    close: vi.fn(),
+    connect: vi.fn(),
+    send: vi.fn()
+  }))
 }));
 
 vi.mock("../session/secureSession", () => ({
@@ -37,6 +47,7 @@ describe("App", () => {
     mocks.request.mockReset();
     mocks.setCookie.mockReset();
     mocks.storedSession = null;
+    vi.unstubAllGlobals();
     window.localStorage.clear();
   });
 
@@ -49,14 +60,14 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
   });
 
-  it("shows a camera placeholder when authenticated live frame loading fails", async () => {
+  it("shows a camera placeholder when MSE video is unavailable", async () => {
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
       authToken: "token-value",
       username: "admin"
     };
-    mocks.request.mockImplementation(({ responseType, url }: { responseType?: string; url: string }) => {
+    mocks.request.mockImplementation(({ url }: { responseType?: string; url: string }) => {
       if (url.endsWith("/api/config")) {
         return Promise.resolve({
           status: 200,
@@ -75,10 +86,6 @@ describe("App", () => {
         });
       }
 
-      if (responseType === "arraybuffer" && url.includes("/latest.jpg")) {
-        return Promise.reject(new Error("Live frame unavailable"));
-      }
-
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
 
@@ -89,22 +96,6 @@ describe("App", () => {
     });
     expect(screen.queryByAltText("Live frame for Devant")).not.toBeInTheDocument();
     expect(screen.queryByText("live")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(mocks.request).toHaveBeenCalledWith(
-        expect.objectContaining({
-          responseType: "arraybuffer",
-          url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
-        })
-      );
-    });
-    await waitFor(() => {
-      expect(mocks.request).toHaveBeenCalledWith(
-        expect.objectContaining({
-          responseType: "arraybuffer",
-          url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
-        })
-      );
-    });
     await waitFor(() => {
       expect(mocks.request).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -179,7 +170,8 @@ describe("App", () => {
     expect(screen.getByRole("checkbox", { name: /System collapsible/i })).toBeChecked();
   });
 
-  it("uses authenticated live camera frames and lets settings hide cameras", async () => {
+  it("uses MSE live camera video and lets settings hide cameras", async () => {
+    const sockets = installMseMocks();
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -220,24 +212,6 @@ describe("App", () => {
         });
       }
 
-      if (responseType === "arraybuffer" && url.includes("/api/devant/latest.jpg")) {
-        return Promise.resolve({
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-          url,
-          data: "bGl2ZQ=="
-        });
-      }
-
-      if (responseType === "arraybuffer" && url.includes("/api/allee/latest.jpg")) {
-        return Promise.resolve({
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-          url,
-          data: "YWxsZWU="
-        });
-      }
-
       if (responseType === "arraybuffer") {
         return Promise.resolve({
           status: 200,
@@ -252,25 +226,28 @@ describe("App", () => {
 
     render(<App />);
 
-    const liveStream = await screen.findByAltText("Live frame for Devant");
-    expect(liveStream).toHaveAttribute("src", "data:image/jpeg;base64,bGl2ZQ==");
-    expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
     await waitFor(() => {
-      expect(mocks.request).toHaveBeenCalledWith(
-        expect.objectContaining({
-          responseType: "arraybuffer",
-          url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
-        })
-      );
+      expect(sockets).toHaveLength(2);
     });
+    expect(sockets[0]?.url).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant");
+    sockets[0]?.open();
+    expect(sockets[0]?.send).toHaveBeenCalledWith(expect.stringContaining('"type":"mse"'));
+    sockets[0]?.message('{"type":"mse","value":"video/mp4; codecs=\\"avc1.64001F\\""}');
+
+    const liveStream = await screen.findByLabelText("Live video for Devant");
+    expect(liveStream.tagName).toBe("VIDEO");
+    expect(liveStream).toHaveAttribute("src", "blob:fricamgate-live");
+    expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
+    fireEvent.loadedData(liveStream);
+    expect(screen.getByText("live")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Cameras Visibilite/i }));
     fireEvent.click(await screen.findByRole("checkbox", { name: /show allee/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Home$/i }));
 
-    expect(await screen.findByAltText("Live frame for Devant")).toBeInTheDocument();
-    expect(screen.queryByAltText("Live frame for Allee")).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("Live video for Devant")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Live video for Allee")).not.toBeInTheDocument();
   });
 
   it("opens the APK download directly from the update card", async () => {
@@ -343,3 +320,68 @@ describe("App", () => {
     openSpy.mockRestore();
   });
 });
+
+function installMseMocks() {
+  const sockets: MockWebSocket[] = [];
+  const play = vi.fn(() => Promise.resolve());
+  const load = vi.fn();
+
+  Object.defineProperty(HTMLMediaElement.prototype, "play", {
+    configurable: true,
+    value: play
+  });
+  Object.defineProperty(HTMLMediaElement.prototype, "load", {
+    configurable: true,
+    value: load
+  });
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn(() => "blob:fricamgate-live")
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: vi.fn()
+  });
+
+  class MockSourceBuffer extends EventTarget {
+    mode = "segments";
+    updating = false;
+    appendBuffer = vi.fn(() => {
+      this.dispatchEvent(new Event("updateend"));
+    });
+  }
+
+  class MockMediaSource extends EventTarget {
+    static isTypeSupported = vi.fn(() => true);
+    addSourceBuffer = vi.fn(() => new MockSourceBuffer());
+
+    constructor() {
+      super();
+      queueMicrotask(() => this.dispatchEvent(new Event("sourceopen")));
+    }
+  }
+
+  class MockWebSocket extends EventTarget {
+    binaryType = "";
+    close = vi.fn();
+    send = vi.fn();
+
+    constructor(readonly url: string) {
+      super();
+      sockets.push(this);
+    }
+
+    open() {
+      this.dispatchEvent(new Event("open"));
+    }
+
+    message(data: string | ArrayBuffer) {
+      this.dispatchEvent(new MessageEvent("message", { data }));
+    }
+  }
+
+  vi.stubGlobal("MediaSource", MockMediaSource);
+  vi.stubGlobal("WebSocket", MockWebSocket);
+
+  return sockets;
+}

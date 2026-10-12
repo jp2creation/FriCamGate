@@ -49,9 +49,12 @@ import {
   type UpdateCheckResult,
   type UpdateStatus
 } from "./updateService";
+import { MjpegLiveVideo } from "./MjpegLiveVideo";
+import { MseLiveVideo } from "./MseLiveVideo";
 import { FrigateApi } from "../frigate/frigateApi";
 import type { CameraSummary, EventSummary, StoredSession } from "../frigate/types";
 import { normalizeServerUrl } from "../lib/url";
+import { canUseNativeLive } from "../native/frigateLive";
 import { clearSession, loadSession, saveSession } from "../session/secureSession";
 
 const logoUrl = new URL("../../assets/brand/fricamgate-logo.png", import.meta.url).href;
@@ -546,7 +549,7 @@ function Dashboard({
       <div className={gridClass}>
         {cameras.length > 0 ? (
           cameras.map((camera) => (
-            <CameraCard camera={camera} key={camera.name} api={api} authToken={session?.authToken} />
+            <CameraCard authToken={session?.authToken} camera={camera} key={camera.name} api={api} />
           ))
         ) : (
           <div className="empty-camera-state">
@@ -1197,14 +1200,14 @@ function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: F
   );
 }
 
-function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: FrigateApi | null; authToken?: string }) {
+function CameraCard({ authToken, camera, api }: { authToken?: string; camera: CameraSummary; api: FrigateApi | null }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [liveFailed, setLiveFailed] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
-  const liveFrameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name);
-  const liveFrameRequestUrl = liveFrameUrl ? withCacheBust(liveFrameUrl, refreshKey) : "";
-  const shouldLoadLive = Boolean(liveFrameRequestUrl) && !liveFailed;
+  const liveStreamUrl = camera.liveStreamUrl || api?.liveStreamUrl(camera.name) || "";
+  const shouldLoadLive = Boolean(liveStreamUrl) && !liveFailed;
   const isLive = shouldLoadLive && liveLoaded;
+  const LiveVideo = canUseNativeLive(authToken) ? MjpegLiveVideo : MseLiveVideo;
 
   const handleLiveFailed = useCallback(() => {
     setLiveLoaded(false);
@@ -1218,19 +1221,7 @@ function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: Fr
   useEffect(() => {
     setLiveFailed(false);
     setLiveLoaded(false);
-  }, [camera.name, liveFrameUrl]);
-
-  useEffect(() => {
-    if (!liveFrameUrl || liveFailed) {
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setRefreshKey((key) => key + 1);
-    }, 1200);
-
-    return () => window.clearInterval(intervalId);
-  }, [liveFailed, liveFrameUrl]);
+  }, [camera.name, liveStreamUrl]);
 
   function refreshCamera() {
     setLiveFailed(false);
@@ -1241,15 +1232,14 @@ function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: Fr
   return (
     <article className="camera-card" data-testid="camera-card">
       {shouldLoadLive ? (
-        <AuthenticatedImage
-          alt={`Live frame for ${camera.friendlyName}`}
-          api={api}
-          authToken={authToken}
+        <LiveVideo
+          key={`${liveStreamUrl}:${refreshKey}`}
           className="camera-image"
-          fallback={<div className="camera-placeholder" />}
-          onFailed={handleLiveFailed}
-          onLoaded={handleLiveLoaded}
-          url={liveFrameRequestUrl}
+          authToken={authToken}
+          onError={handleLiveFailed}
+          onPlaying={handleLiveLoaded}
+          title={`Live video for ${camera.friendlyName}`}
+          url={liveStreamUrl}
         />
       ) : (
         <div className="camera-placeholder" />
@@ -1366,11 +1356,6 @@ function AuthenticatedImage({
   }
 
   return <img className={className} src={dataUrl} alt={alt} />;
-}
-
-function withCacheBust(url: string, value: number): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}_=${value}`;
 }
 
 function BottomNav({ view, onViewChange }: { view: View; onViewChange: (view: View) => void }) {

@@ -68,13 +68,32 @@ describe("FrigateApi image loading", () => {
     expect(event.thumbnailUrl).toBe("data:image/jpeg;base64,YWJj");
   });
 
-  it("builds real live stream and event preview URLs", () => {
+  it("builds MSE live stream and event preview URLs", () => {
     const api = new FrigateApi("http://frigate.example.com");
 
     expect(api.liveStreamUrl("porte entree")).toBe(
-      "http://frigate.example.com/api/porte%20entree?fps=5&height=360"
+      "ws://frigate.example.com/live/mse/api/ws?src=porte%20entree"
+    );
+    expect(new FrigateApi("https://frigate.example.com/nvr").liveStreamUrl("devant")).toBe(
+      "wss://frigate.example.com/nvr/live/mse/api/ws?src=devant"
     );
     expect(api.eventPreviewUrl("event-1")).toBe("http://frigate.example.com/api/events/event-1/preview.gif");
+
+    const [camera] = api.mapCameras({
+      cameras: {
+        devant: {
+          friendly_name: "Devant",
+          live: {
+            streams: {
+              Mobile: "devant_sub",
+              Main: "devant"
+            }
+          }
+        }
+      }
+    });
+
+    expect(camera.liveStreamUrl).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant_sub");
 
     const [event] = api.mapEvents([
       {

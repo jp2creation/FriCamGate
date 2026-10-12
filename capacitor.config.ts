@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: "FriCamGate",
   webDir: "dist",
   server: {
-    androidScheme: "https"
+    androidScheme: "http"
   }
 };
 

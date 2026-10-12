@@ -87,7 +87,11 @@ export class FrigateApi {
   }
 
   liveStreamUrl(cameraName: string): string {
-    return `${this.baseUrl}/api/${encodeURIComponent(cameraName)}?fps=5&height=360`;
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/live/mse/api/ws`;
+    url.search = `src=${encodeURIComponent(cameraName)}`;
+    return url.toString();
   }
 
   async syncAuthCookie(authToken: string): Promise<void> {
@@ -131,7 +135,7 @@ export class FrigateApi {
       friendlyName: camera.friendly_name ?? toTitle(name),
       enabled: camera.enabled !== false,
       latestFrameUrl: this.latestFrameUrl(name),
-      liveStreamUrl: this.liveStreamUrl(name)
+      liveStreamUrl: this.liveStreamUrl(getLiveStreamName(name, camera))
     }));
   }
 
@@ -178,6 +182,15 @@ export class FrigateApi {
 
     return response as FrigateHttpResponse<T>;
   }
+}
+
+function getLiveStreamName(name: string, camera: NonNullable<FrigateConfig["cameras"]>[string]): string {
+  const streams = camera.live?.streams;
+  const firstConfiguredStream = streams
+    ? Object.values(streams).find((streamName) => typeof streamName === "string" && streamName.trim().length > 0)
+    : undefined;
+
+  return firstConfiguredStream ?? name;
 }
 
 export function toImageDataUrl(data: FrigateImageResponse["data"], contentType = "image/jpeg"): string {
