@@ -87,7 +87,7 @@ export class FrigateApi {
   }
 
   liveStreamUrl(cameraName: string): string {
-    return `${this.baseUrl}/api/go2rtc/api/stream.mjpeg?src=${encodeURIComponent(cameraName)}`;
+    return `${this.baseUrl}/api/${encodeURIComponent(cameraName)}?fps=5&height=360`;
   }
 
   async syncAuthCookie(authToken: string): Promise<void> {

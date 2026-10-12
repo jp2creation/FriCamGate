@@ -15,6 +15,7 @@ export interface UpdateCheckResult {
   status: Exclude<UpdateStatus, "idle" | "checking">;
   checkedAt: string;
   currentVersion: string;
+  downloadUrl?: string;
   latestVersion?: string;
   releaseUrl?: string;
   message: string;
@@ -79,11 +80,13 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
 
   const latestVersion = latestRelease.version;
   const releaseUrl = latestRelease.release.html_url ?? UPDATE_RELEASES_URL;
+  const downloadUrl = latestRelease.asset.browser_download_url;
   if (compareVersions(latestVersion, currentVersion) > 0) {
     return {
       status: "available",
       checkedAt,
       currentVersion,
+      downloadUrl,
       latestVersion,
       releaseUrl,
       message: `Mise a jour ${latestVersion} disponible.`
@@ -94,6 +97,7 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
     status: "current",
     checkedAt,
     currentVersion,
+    downloadUrl,
     latestVersion,
     releaseUrl,
     message: "Application a jour."
@@ -103,18 +107,23 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
 function findLatestApkRelease(releases: GitHubRelease[] | undefined) {
   const candidates = (Array.isArray(releases) ? releases : [])
     .filter((release) => release.draft !== true)
-    .filter(hasApkAsset)
-    .map((release) => ({
-      release,
-      version: extractVersion(release.tag_name ?? release.name ?? "")
-    }))
-    .filter((release) => release.version);
+    .map((release) => {
+      const asset = findApkAsset(release);
+      return {
+        asset,
+        release,
+        version: extractVersion(release.tag_name ?? release.name ?? "")
+      };
+    })
+    .filter((release): release is { asset: GitHubAsset; release: GitHubRelease; version: string } =>
+      Boolean(release.asset && release.version)
+    );
 
   return candidates.sort((left, right) => compareVersions(right.version, left.version))[0] ?? null;
 }
 
-function hasApkAsset(release: GitHubRelease): boolean {
-  return release.assets?.some((asset) => asset.name?.toLowerCase().endsWith(".apk")) ?? false;
+function findApkAsset(release: GitHubRelease): GitHubAsset | undefined {
+  return release.assets?.find((asset) => asset.name?.toLowerCase().endsWith(".apk") && asset.browser_download_url);
 }
 
 export function extractVersion(input: string): string {

@@ -234,7 +234,7 @@ describe("App", () => {
     const liveStream = await screen.findByAltText("Live stream for Devant");
     expect(liveStream).toHaveAttribute(
       "src",
-      "http://frigate.example.com/api/go2rtc/api/stream.mjpeg?src=devant"
+      "http://frigate.example.com/api/devant?fps=5&height=360"
     );
     expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
 
@@ -245,5 +245,75 @@ describe("App", () => {
 
     expect(await screen.findByAltText("Live stream for Devant")).toBeInTheDocument();
     expect(screen.queryByAltText("Live stream for Allee")).not.toBeInTheDocument();
+  });
+
+  it("opens the APK download directly from the update card", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    mocks.storedSession = {
+      profileId: "default",
+      baseUrl: "http://frigate.example.com",
+      authToken: "token-value",
+      username: "admin",
+      role: "viewer"
+    };
+    mocks.request.mockImplementation(({ url }: { responseType?: string; url: string }) => {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: [
+            {
+              tag_name: "v9.9.9-debug",
+              html_url: "https://github.com/jp2creation/FriCamGate/releases/tag/v9.9.9-debug",
+              assets: [
+                {
+                  name: "FriCamGate-v9.9.9-debug.apk",
+                  browser_download_url:
+                    "https://github.com/jp2creation/FriCamGate/releases/download/v9.9.9-debug/FriCamGate-v9.9.9-debug.apk"
+                }
+              ]
+            }
+          ]
+        });
+      }
+
+      if (url.endsWith("/api/config")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: { cameras: { devant: { enabled: true, friendly_name: "Devant" } } }
+        });
+      }
+
+      if (url.includes("/api/events")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: []
+        });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+        url,
+        data: "ZGVm"
+      });
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Settings$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Mettre a jour/i }));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://github.com/jp2creation/FriCamGate/releases/download/v9.9.9-debug/FriCamGate-v9.9.9-debug.apk",
+      "_blank",
+      "noopener,noreferrer"
+    );
+    openSpy.mockRestore();
   });
 });

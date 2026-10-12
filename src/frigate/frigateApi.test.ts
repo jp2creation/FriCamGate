@@ -72,7 +72,7 @@ describe("FrigateApi image loading", () => {
     const api = new FrigateApi("http://frigate.example.com");
 
     expect(api.liveStreamUrl("porte entree")).toBe(
-      "http://frigate.example.com/api/go2rtc/api/stream.mjpeg?src=porte%20entree"
+      "http://frigate.example.com/api/porte%20entree?fps=5&height=360"
     );
     expect(api.eventPreviewUrl("event-1")).toBe("http://frigate.example.com/api/events/event-1/preview.gif");
 

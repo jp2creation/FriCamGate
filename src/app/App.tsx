@@ -1136,6 +1136,12 @@ function UpdateCard({
       </label>
 
       <div className="settings-actions">
+        {status === "available" && result?.downloadUrl ? (
+          <button className="primary-button" onClick={() => openReleases(result.downloadUrl)} type="button">
+            <PackageCheck size={18} />
+            Mettre a jour
+          </button>
+        ) : null}
         <button className="secondary-button" disabled={status === "checking"} onClick={onCheckUpdates} type="button">
           {status === "checking" ? <Loader2 className="spin" size={18} /> : <RefreshCcw size={18} />}
           Verifier

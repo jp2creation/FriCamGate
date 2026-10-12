@@ -33,7 +33,12 @@ describe("updateService", () => {
           tag_name: "v0.1.5-debug",
           html_url: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug",
           prerelease: true,
-          assets: [{ name: "FriCamGate-v0.1.5-debug.apk" }]
+          assets: [
+            {
+              name: "FriCamGate-v0.1.5-debug.apk",
+              browser_download_url: "https://github.com/jp2creation/FriCamGate/releases/download/v0.1.5-debug/FriCamGate-v0.1.5-debug.apk"
+            }
+          ]
         },
         {
           tag_name: "v0.1.3-debug",
@@ -48,7 +53,8 @@ describe("updateService", () => {
       status: "available",
       currentVersion: "0.1.4",
       latestVersion: "0.1.5",
-      releaseUrl: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug"
+      releaseUrl: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug",
+      downloadUrl: "https://github.com/jp2creation/FriCamGate/releases/download/v0.1.5-debug/FriCamGate-v0.1.5-debug.apk"
     });
 
     expect(mocks.request).toHaveBeenCalledWith(
