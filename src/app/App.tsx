@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
@@ -1199,42 +1199,67 @@ function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: F
 
 function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: FrigateApi | null; authToken?: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [streamFailed, setStreamFailed] = useState(false);
-  const liveUrl = camera.liveStreamUrl || api?.liveStreamUrl(camera.name);
-  const liveRequestUrl = liveUrl && refreshKey > 0 ? withCacheBust(liveUrl, refreshKey) : liveUrl;
-  const frameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name);
-  const frameRequestUrl = frameUrl ? withCacheBust(frameUrl, refreshKey) : "";
-  const isLive = Boolean(liveRequestUrl) && !streamFailed;
+  const [liveFailed, setLiveFailed] = useState(false);
+  const [liveLoaded, setLiveLoaded] = useState(false);
+  const liveFrameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name);
+  const liveFrameRequestUrl = liveFrameUrl ? withCacheBust(liveFrameUrl, refreshKey) : "";
+  const shouldLoadLive = Boolean(liveFrameRequestUrl) && !liveFailed;
+  const isLive = shouldLoadLive && liveLoaded;
+
+  const handleLiveFailed = useCallback(() => {
+    setLiveLoaded(false);
+    setLiveFailed(true);
+  }, []);
+
+  const handleLiveLoaded = useCallback(() => {
+    setLiveLoaded(true);
+  }, []);
 
   useEffect(() => {
-    setStreamFailed(false);
-  }, [camera.name, liveUrl]);
+    setLiveFailed(false);
+    setLiveLoaded(false);
+  }, [camera.name, liveFrameUrl]);
+
+  useEffect(() => {
+    if (!liveFrameUrl || liveFailed) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setRefreshKey((key) => key + 1);
+    }, 1200);
+
+    return () => window.clearInterval(intervalId);
+  }, [liveFailed, liveFrameUrl]);
+
+  function refreshCamera() {
+    setLiveFailed(false);
+    setLiveLoaded(false);
+    setRefreshKey((key) => key + 1);
+  }
 
   return (
     <article className="camera-card" data-testid="camera-card">
-      {isLive ? (
-        <img
-          alt={`Live stream for ${camera.friendlyName}`}
-          className="camera-image"
-          onError={() => setStreamFailed(true)}
-          src={liveRequestUrl}
-        />
-      ) : (
+      {shouldLoadLive ? (
         <AuthenticatedImage
-          alt={`Latest frame for ${camera.friendlyName}`}
+          alt={`Live frame for ${camera.friendlyName}`}
           api={api}
           authToken={authToken}
           className="camera-image"
           fallback={<div className="camera-placeholder" />}
-          url={frameRequestUrl}
+          onFailed={handleLiveFailed}
+          onLoaded={handleLiveLoaded}
+          url={liveFrameRequestUrl}
         />
+      ) : (
+        <div className="camera-placeholder" />
       )}
       <div className="camera-overlay">
         <span className="pill">{camera.friendlyName}</span>
         <span className={isLive ? "age-badge" : "age-badge is-fallback"}>{isLive ? "live" : "image"}</span>
       </div>
       <div className="quick-actions">
-        <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={() => setRefreshKey((key) => key + 1)}>
+        <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={refreshCamera}>
           <RefreshCcw size={18} />
         </button>
         <button className="floating-button" aria-label={`Open ${camera.friendlyName}`}>
@@ -1269,6 +1294,8 @@ function AuthenticatedImage({
   className,
   fallbackUrl,
   fallback,
+  onFailed,
+  onLoaded,
   url
 }: {
   alt: string;
@@ -1277,6 +1304,8 @@ function AuthenticatedImage({
   className: string;
   fallbackUrl?: string;
   fallback: ReactNode;
+  onFailed?: () => void;
+  onLoaded?: () => void;
   url?: string;
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -1294,6 +1323,7 @@ function AuthenticatedImage({
 
     if (!api || !authToken || !sourceUrl) {
       setFailed(true);
+      onFailed?.();
       return () => {
         active = false;
       };
@@ -1301,6 +1331,7 @@ function AuthenticatedImage({
 
     if (sourceUrl.startsWith("data:")) {
       setDataUrl(sourceUrl);
+      onLoaded?.();
       return () => {
         active = false;
       };
@@ -1311,6 +1342,7 @@ function AuthenticatedImage({
       .then((nextDataUrl) => {
         if (active) {
           setDataUrl(nextDataUrl);
+          onLoaded?.();
         }
       })
       .catch(() => {
@@ -1320,13 +1352,14 @@ function AuthenticatedImage({
             return;
           }
           setFailed(true);
+          onFailed?.();
         }
       });
 
     return () => {
       active = false;
     };
-  }, [api, authToken, fallbackUrl, sourceUrl]);
+  }, [api, authToken, fallbackUrl, onFailed, onLoaded, sourceUrl]);
 
   if (!dataUrl || failed) {
     return <>{fallback}</>;

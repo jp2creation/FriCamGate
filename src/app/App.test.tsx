@@ -49,7 +49,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
   });
 
-  it("loads images after restoring an insecure HTTP session", async () => {
+  it("shows a camera placeholder when authenticated live frame loading fails", async () => {
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -76,12 +76,7 @@ describe("App", () => {
       }
 
       if (responseType === "arraybuffer" && url.includes("/latest.jpg")) {
-        return Promise.resolve({
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-          url,
-          data: "ZGVm"
-        });
+        return Promise.reject(new Error("Live frame unavailable"));
       }
 
       return Promise.reject(new Error(`Unexpected request: ${url}`));
@@ -89,11 +84,19 @@ describe("App", () => {
 
     render(<App />);
 
-    const liveStream = await screen.findByAltText("Live stream for Devant");
-    fireEvent.error(liveStream);
-
-    const image = await screen.findByAltText("Latest frame for Devant");
-    expect(image).toHaveAttribute("src", "data:image/jpeg;base64,ZGVm");
+    await waitFor(() => {
+      expect(screen.getByTestId("camera-card")).toBeInTheDocument();
+    });
+    expect(screen.queryByAltText("Live frame for Devant")).not.toBeInTheDocument();
+    expect(screen.queryByText("live")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          responseType: "arraybuffer",
+          url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
+        })
+      );
+    });
     await waitFor(() => {
       expect(mocks.request).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -176,7 +179,7 @@ describe("App", () => {
     expect(screen.getByRole("checkbox", { name: /System collapsible/i })).toBeChecked();
   });
 
-  it("uses live camera streams and lets settings hide cameras", async () => {
+  it("uses authenticated live camera frames and lets settings hide cameras", async () => {
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -217,6 +220,24 @@ describe("App", () => {
         });
       }
 
+      if (responseType === "arraybuffer" && url.includes("/api/devant/latest.jpg")) {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+          url,
+          data: "bGl2ZQ=="
+        });
+      }
+
+      if (responseType === "arraybuffer" && url.includes("/api/allee/latest.jpg")) {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+          url,
+          data: "YWxsZWU="
+        });
+      }
+
       if (responseType === "arraybuffer") {
         return Promise.resolve({
           status: 200,
@@ -231,20 +252,25 @@ describe("App", () => {
 
     render(<App />);
 
-    const liveStream = await screen.findByAltText("Live stream for Devant");
-    expect(liveStream).toHaveAttribute(
-      "src",
-      "http://frigate.example.com/api/devant?fps=5&height=360"
-    );
+    const liveStream = await screen.findByAltText("Live frame for Devant");
+    expect(liveStream).toHaveAttribute("src", "data:image/jpeg;base64,bGl2ZQ==");
     expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
+    await waitFor(() => {
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          responseType: "arraybuffer",
+          url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
+        })
+      );
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Cameras Visibilite/i }));
     fireEvent.click(await screen.findByRole("checkbox", { name: /show allee/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Home$/i }));
 
-    expect(await screen.findByAltText("Live stream for Devant")).toBeInTheDocument();
-    expect(screen.queryByAltText("Live stream for Allee")).not.toBeInTheDocument();
+    expect(await screen.findByAltText("Live frame for Devant")).toBeInTheDocument();
+    expect(screen.queryByAltText("Live frame for Allee")).not.toBeInTheDocument();
   });
 
   it("opens the APK download directly from the update card", async () => {
