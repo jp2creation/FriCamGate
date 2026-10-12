@@ -2,7 +2,12 @@ import { CapacitorHttp, type HttpResponse } from "@capacitor/core";
 
 export const UPDATE_RELEASES_URL = "https://github.com/jp2creation/FriCamGate/releases";
 
-const LATEST_RELEASE_API_URL = "https://api.github.com/repos/jp2creation/FriCamGate/releases/latest";
+const RELEASES_API_URL = "https://api.github.com/repos/jp2creation/FriCamGate/releases?per_page=20";
+const GITHUB_API_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "User-Agent": "FriCamGate",
+  "X-GitHub-Api-Version": "2022-11-28"
+};
 
 export type UpdateStatus = "idle" | "checking" | "current" | "available" | "unavailable" | "error";
 
@@ -19,20 +24,25 @@ interface GitHubRelease {
   tag_name?: string;
   name?: string;
   html_url?: string;
+  draft?: boolean;
+  assets?: GitHubAsset[];
+}
+
+interface GitHubAsset {
+  name?: string;
+  browser_download_url?: string;
 }
 
 type GitHubReleaseResponse = Omit<HttpResponse, "data"> & {
-  data?: GitHubRelease;
+  data?: GitHubRelease[];
 };
 
 export async function checkForAppUpdate(currentVersion: string): Promise<UpdateCheckResult> {
   const checkedAt = new Date().toISOString();
   const response = (await CapacitorHttp.request({
     method: "GET",
-    url: LATEST_RELEASE_API_URL,
-    headers: {
-      Accept: "application/vnd.github+json"
-    },
+    url: RELEASES_API_URL,
+    headers: GITHUB_API_HEADERS,
     responseType: "json"
   })) as GitHubReleaseResponse;
 
@@ -56,18 +66,19 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
     };
   }
 
-  const latestVersion = extractVersion(response.data?.tag_name ?? response.data?.name ?? "");
-  if (!latestVersion) {
+  const latestRelease = findLatestApkRelease(response.data);
+  if (!latestRelease) {
     return {
       status: "error",
       checkedAt,
       currentVersion,
-      releaseUrl: response.data?.html_url ?? UPDATE_RELEASES_URL,
+      releaseUrl: UPDATE_RELEASES_URL,
       message: "Version GitHub introuvable."
     };
   }
 
-  const releaseUrl = response.data?.html_url ?? UPDATE_RELEASES_URL;
+  const latestVersion = latestRelease.version;
+  const releaseUrl = latestRelease.release.html_url ?? UPDATE_RELEASES_URL;
   if (compareVersions(latestVersion, currentVersion) > 0) {
     return {
       status: "available",
@@ -87,6 +98,23 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
     releaseUrl,
     message: "Application a jour."
   };
+}
+
+function findLatestApkRelease(releases: GitHubRelease[] | undefined) {
+  const candidates = (Array.isArray(releases) ? releases : [])
+    .filter((release) => release.draft !== true)
+    .filter(hasApkAsset)
+    .map((release) => ({
+      release,
+      version: extractVersion(release.tag_name ?? release.name ?? "")
+    }))
+    .filter((release) => release.version);
+
+  return candidates.sort((left, right) => compareVersions(right.version, left.version))[0] ?? null;
+}
+
+function hasApkAsset(release: GitHubRelease): boolean {
+  return release.assets?.some((asset) => asset.name?.toLowerCase().endsWith(".apk")) ?? false;
 }
 
 export function extractVersion(input: string): string {

@@ -101,7 +101,7 @@ describe("App", () => {
       role: "viewer"
     };
     mocks.request.mockImplementation(({ url }: { responseType?: string; url: string }) => {
-      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases/latest")) {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases")) {
         return Promise.resolve({
           status: 404,
           headers: {},

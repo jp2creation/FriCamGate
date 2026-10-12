@@ -27,11 +27,21 @@ describe("updateService", () => {
     mocks.request.mockResolvedValue({
       status: 200,
       headers: {},
-      url: "https://api.github.com/repos/jp2creation/FriCamGate/releases/latest",
-      data: {
-        tag_name: "v0.1.5-debug",
-        html_url: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug"
-      }
+      url: "https://api.github.com/repos/jp2creation/FriCamGate/releases?per_page=20",
+      data: [
+        {
+          tag_name: "v0.1.5-debug",
+          html_url: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug",
+          prerelease: true,
+          assets: [{ name: "FriCamGate-v0.1.5-debug.apk" }]
+        },
+        {
+          tag_name: "v0.1.3-debug",
+          html_url: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.3-debug",
+          prerelease: false,
+          assets: [{ name: "FriCamGate-v0.1.3-debug.apk" }]
+        }
+      ]
     });
 
     await expect(checkForAppUpdate("0.1.4")).resolves.toMatchObject({
@@ -40,13 +50,22 @@ describe("updateService", () => {
       latestVersion: "0.1.5",
       releaseUrl: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug"
     });
+
+    expect(mocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "User-Agent": "FriCamGate"
+        }),
+        url: "https://api.github.com/repos/jp2creation/FriCamGate/releases?per_page=20"
+      })
+    );
   });
 
   it("keeps private GitHub release failures safe and explicit", async () => {
     mocks.request.mockResolvedValue({
       status: 404,
       headers: {},
-      url: "https://api.github.com/repos/jp2creation/FriCamGate/releases/latest",
+      url: "https://api.github.com/repos/jp2creation/FriCamGate/releases?per_page=20",
       data: {}
     });
 
