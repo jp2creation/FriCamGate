@@ -3,7 +3,7 @@ export interface CameraSummary {
   friendlyName: string;
   enabled: boolean;
   latestFrameUrl: string;
-  liveAge: string;
+  liveStreamUrl: string;
 }
 
 export interface EventSummary {
@@ -11,6 +11,7 @@ export interface EventSummary {
   camera: string;
   label: string;
   time: string;
+  previewUrl: string;
   thumbnailUrl: string;
 }
 

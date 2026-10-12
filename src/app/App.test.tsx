@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const mocks = vi.hoisted(() => ({
+  deleteCookie: vi.fn(),
   request: vi.fn(),
+  setCookie: vi.fn(),
   storedSession: null as null | {
     profileId: string;
     baseUrl: string;
@@ -14,6 +16,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@capacitor/core", () => ({
+  CapacitorCookies: {
+    deleteCookie: mocks.deleteCookie,
+    setCookie: mocks.setCookie
+  },
   CapacitorHttp: {
     request: mocks.request
   }
@@ -27,8 +33,11 @@ vi.mock("../session/secureSession", () => ({
 
 describe("App", () => {
   beforeEach(() => {
+    mocks.deleteCookie.mockReset();
     mocks.request.mockReset();
+    mocks.setCookie.mockReset();
     mocks.storedSession = null;
+    window.localStorage.clear();
   });
 
   it("renders the FriCamGate setup screen", () => {
@@ -80,6 +89,9 @@ describe("App", () => {
 
     render(<App />);
 
+    const liveStream = await screen.findByAltText("Live stream for Devant");
+    fireEvent.error(liveStream);
+
     const image = await screen.findByAltText("Latest frame for Devant");
     expect(image).toHaveAttribute("src", "data:image/jpeg;base64,ZGVm");
     await waitFor(() => {
@@ -87,6 +99,14 @@ describe("App", () => {
         expect.objectContaining({
           responseType: "arraybuffer",
           url: expect.stringContaining("http://frigate.example.com/api/devant/latest.jpg")
+        })
+      );
+    });
+    await waitFor(() => {
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          responseType: "arraybuffer",
+          url: "http://frigate.example.com/api/events/event-1/preview.gif"
         })
       );
     });
@@ -154,5 +174,76 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByText(/table rows per page/i)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /System collapsible/i })).toBeChecked();
+  });
+
+  it("uses live camera streams and lets settings hide cameras", async () => {
+    mocks.storedSession = {
+      profileId: "default",
+      baseUrl: "http://frigate.example.com",
+      authToken: "token-value",
+      username: "admin",
+      role: "viewer"
+    };
+    mocks.request.mockImplementation(({ responseType, url }: { responseType?: string; url: string }) => {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases")) {
+        return Promise.resolve({
+          status: 404,
+          headers: {},
+          url,
+          data: {}
+        });
+      }
+
+      if (url.endsWith("/api/config")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: {
+            cameras: {
+              devant: { enabled: true, friendly_name: "Devant" },
+              allee: { enabled: true, friendly_name: "Allee" }
+            }
+          }
+        });
+      }
+
+      if (url.includes("/api/events")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: []
+        });
+      }
+
+      if (responseType === "arraybuffer") {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+          url,
+          data: "ZGVm"
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<App />);
+
+    const liveStream = await screen.findByAltText("Live stream for Devant");
+    expect(liveStream).toHaveAttribute(
+      "src",
+      "http://frigate.example.com/api/go2rtc/api/stream.mjpeg?src=devant"
+    );
+    expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cameras Visibilite/i }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /show allee/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Home$/i }));
+
+    expect(await screen.findByAltText("Live stream for Devant")).toBeInTheDocument();
+    expect(screen.queryByAltText("Live stream for Allee")).not.toBeInTheDocument();
   });
 });

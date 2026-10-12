@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Database,
   Eye,
+  EyeOff,
   ExternalLink,
   Grid3X3,
   Home,
@@ -56,6 +57,7 @@ import { clearSession, loadSession, saveSession } from "../session/secureSession
 const logoUrl = new URL("../../assets/brand/fricamgate-logo.png", import.meta.url).href;
 const defaultServerUrl = "";
 const autoUpdateChecksKey = "fricamgate_auto_update_checks";
+const hiddenCamerasKeyPrefix = "fricamgate_hidden_cameras:";
 
 const mockCameras: CameraSummary[] = [
   {
@@ -63,39 +65,65 @@ const mockCameras: CameraSummary[] = [
     friendlyName: "Allee",
     enabled: true,
     latestFrameUrl: "",
-    liveAge: "4s"
+    liveStreamUrl: ""
   },
   {
     name: "devant",
     friendlyName: "Devant",
     enabled: true,
     latestFrameUrl: "",
-    liveAge: "live"
+    liveStreamUrl: ""
   },
   {
     name: "salon",
     friendlyName: "Salon",
     enabled: true,
     latestFrameUrl: "",
-    liveAge: "37s"
+    liveStreamUrl: ""
   }
 ];
 
 const mockEvents: EventSummary[] = [
-  { id: "1", camera: "devant", label: "person", time: "09:16", thumbnailUrl: "" },
-  { id: "2", camera: "allee", label: "car", time: "09:14", thumbnailUrl: "" },
-  { id: "3", camera: "salon", label: "motion", time: "09:12", thumbnailUrl: "" }
+  { id: "1", camera: "devant", label: "person", time: "09:16", previewUrl: "", thumbnailUrl: "" },
+  { id: "2", camera: "allee", label: "car", time: "09:14", previewUrl: "", thumbnailUrl: "" },
+  { id: "3", camera: "salon", label: "motion", time: "09:12", previewUrl: "", thumbnailUrl: "" }
 ];
 
 type View = "home" | "cameras" | "grid" | "events" | "settings";
 type ConnectionStatus = "idle" | "restoring" | "connecting" | "ready" | "error";
-type SettingsPage = "main" | "account" | "appearance" | "permissions" | "notifications" | "faces";
+type SettingsPage = "main" | "account" | "appearance" | "permissions" | "notifications" | "faces" | "cameras";
 
 function loadAutoUpdateChecks() {
   try {
     return window.localStorage.getItem(autoUpdateChecksKey) !== "0";
   } catch {
     return true;
+  }
+}
+
+function hiddenCamerasKey(baseUrl: string) {
+  return `${hiddenCamerasKeyPrefix}${baseUrl}`;
+}
+
+function loadHiddenCameraNames(baseUrl?: string): string[] {
+  if (!baseUrl) {
+    return [];
+  }
+
+  try {
+    const stored = window.localStorage.getItem(hiddenCamerasKey(baseUrl));
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHiddenCameraNames(baseUrl: string, names: string[]) {
+  try {
+    window.localStorage.setItem(hiddenCamerasKey(baseUrl), JSON.stringify(names));
+  } catch {
+    // The preference remains active for this runtime even when storage is unavailable.
   }
 }
 
@@ -110,6 +138,7 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("main");
   const [cameras, setCameras] = useState<CameraSummary[]>(mockCameras);
+  const [hiddenCameraNames, setHiddenCameraNames] = useState<string[]>([]);
   const [events, setEvents] = useState<EventSummary[]>(mockEvents);
   const [autoUpdateChecks, setAutoUpdateChecks] = useState(loadAutoUpdateChecks);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
@@ -134,8 +163,10 @@ export function App() {
         setSession(stored);
         setServerUrl(stored.baseUrl);
         setAllowInsecureHttp(stored.baseUrl.startsWith("http://"));
+        setHiddenCameraNames(loadHiddenCameraNames(stored.baseUrl));
         setStatus("ready");
         setMessage(`Session restauree pour ${stored.username}.`);
+        await new FrigateApi(stored.baseUrl).syncAuthCookie(stored.authToken).catch(() => undefined);
         await refreshDashboard(stored);
       })
       .catch(() => {
@@ -186,9 +217,11 @@ export function App() {
       };
 
       await saveSession(nextSession);
+      await frigate.syncAuthCookie(login.authToken).catch(() => undefined);
       setPassword("");
       setSession(nextSession);
       setServerUrl(baseUrl);
+      setHiddenCameraNames(loadHiddenCameraNames(baseUrl));
       setStatus("ready");
       setMessage(`Connecte a ${baseUrl}`);
       await refreshDashboard(nextSession);
@@ -219,12 +252,16 @@ export function App() {
   }
 
   async function disconnect() {
+    if (session) {
+      await new FrigateApi(session.baseUrl).clearAuthCookie().catch(() => undefined);
+    }
     await clearSession();
     setSession(null);
     setStatus("idle");
     setView("home");
     setSettingsPage("main");
     setCameras(mockCameras);
+    setHiddenCameraNames([]);
     setEvents(mockEvents);
     setMessage("Session effacee.");
   }
@@ -264,6 +301,19 @@ export function App() {
     }
   }
 
+  function toggleCameraVisibility(cameraName: string, visible: boolean) {
+    const baseUrl = session?.baseUrl;
+    setHiddenCameraNames((current) => {
+      const next = visible
+        ? current.filter((name) => name !== cameraName)
+        : Array.from(new Set([...current, cameraName]));
+      if (baseUrl) {
+        saveHiddenCameraNames(baseUrl, next);
+      }
+      return next;
+    });
+  }
+
   function handleSettingsBack() {
     if (settingsPage === "main") {
       setView("home");
@@ -274,6 +324,10 @@ export function App() {
   }
 
   const showSettingsHeader = session && status === "ready" && view === "settings" && settingsPage !== "main";
+  const visibleCameras = useMemo(
+    () => cameras.filter((camera) => !hiddenCameraNames.includes(camera.name)),
+    [cameras, hiddenCameraNames]
+  );
 
   return (
     <main className="app-shell">
@@ -361,7 +415,9 @@ export function App() {
             view={view}
             session={session}
             settingsPage={settingsPage}
-            cameras={cameras}
+            cameras={visibleCameras}
+            allCameras={cameras}
+            hiddenCameraNames={hiddenCameraNames}
             events={events}
             message={message}
             api={api}
@@ -372,6 +428,7 @@ export function App() {
             onRefresh={() => refreshDashboard()}
             onCheckUpdates={checkUpdates}
             onSettingsPageChange={setSettingsPage}
+            onToggleCameraVisibility={toggleCameraVisibility}
             onToggleAutoUpdateChecks={toggleAutoUpdateChecks}
             onDisconnect={disconnect}
           />
@@ -389,7 +446,8 @@ function getSettingsTitle(page: SettingsPage) {
     appearance: "Appearance",
     permissions: "Permissions",
     notifications: "Notifications",
-    faces: "Faces"
+    faces: "Faces",
+    cameras: "Cameras"
   };
 
   return titles[page];
@@ -400,6 +458,8 @@ function Dashboard({
   session,
   settingsPage,
   cameras,
+  allCameras,
+  hiddenCameraNames,
   events,
   message,
   api,
@@ -410,6 +470,7 @@ function Dashboard({
   onRefresh,
   onCheckUpdates,
   onSettingsPageChange,
+  onToggleCameraVisibility,
   onToggleAutoUpdateChecks,
   onDisconnect
 }: {
@@ -417,6 +478,8 @@ function Dashboard({
   session: StoredSession | null;
   settingsPage: SettingsPage;
   cameras: CameraSummary[];
+  allCameras: CameraSummary[];
+  hiddenCameraNames: string[];
   events: EventSummary[];
   message: string;
   api: FrigateApi | null;
@@ -427,6 +490,7 @@ function Dashboard({
   onRefresh: () => void;
   onCheckUpdates: () => void;
   onSettingsPageChange: (page: SettingsPage) => void;
+  onToggleCameraVisibility: (cameraName: string, visible: boolean) => void;
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
   onDisconnect: () => void;
 }) {
@@ -435,6 +499,8 @@ function Dashboard({
       <SettingsScreen
         appVersion={appVersion}
         autoUpdateChecks={autoUpdateChecks}
+        cameras={allCameras}
+        hiddenCameraNames={hiddenCameraNames}
         message={message}
         page={settingsPage}
         session={session}
@@ -444,6 +510,7 @@ function Dashboard({
         onDisconnect={onDisconnect}
         onRefresh={onRefresh}
         onSettingsPageChange={onSettingsPageChange}
+        onToggleCameraVisibility={onToggleCameraVisibility}
         onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
       />
     );
@@ -477,9 +544,17 @@ function Dashboard({
       <EventStrip events={events} api={api} authToken={session?.authToken} />
       <SectionTitle title={view === "cameras" ? "Cameras" : "Accueil"} subtitle={message} />
       <div className={gridClass}>
-        {cameras.map((camera) => (
-          <CameraCard camera={camera} key={camera.name} api={api} authToken={session?.authToken} />
-        ))}
+        {cameras.length > 0 ? (
+          cameras.map((camera) => (
+            <CameraCard camera={camera} key={camera.name} api={api} authToken={session?.authToken} />
+          ))
+        ) : (
+          <div className="empty-camera-state">
+            <EyeOff size={28} />
+            <strong>Aucune camera affichee</strong>
+            <span>Reviens dans Reglages puis Cameras pour en reactiver.</span>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -488,6 +563,8 @@ function Dashboard({
 function SettingsScreen({
   appVersion,
   autoUpdateChecks,
+  cameras,
+  hiddenCameraNames,
   message,
   page,
   session,
@@ -497,10 +574,13 @@ function SettingsScreen({
   onDisconnect,
   onRefresh,
   onSettingsPageChange,
+  onToggleCameraVisibility,
   onToggleAutoUpdateChecks
 }: {
   appVersion: string;
   autoUpdateChecks: boolean;
+  cameras: CameraSummary[];
+  hiddenCameraNames: string[];
   message: string;
   page: SettingsPage;
   session: StoredSession | null;
@@ -510,6 +590,7 @@ function SettingsScreen({
   onDisconnect: () => void;
   onRefresh: () => void;
   onSettingsPageChange: (page: SettingsPage) => void;
+  onToggleCameraVisibility: (cameraName: string, visible: boolean) => void;
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
 }) {
   if (page === "account") {
@@ -530,6 +611,16 @@ function SettingsScreen({
 
   if (page === "faces") {
     return <FacesSettings />;
+  }
+
+  if (page === "cameras") {
+    return (
+      <CameraVisibilitySettings
+        cameras={cameras}
+        hiddenCameraNames={hiddenCameraNames}
+        onToggleCameraVisibility={onToggleCameraVisibility}
+      />
+    );
   }
 
   return (
@@ -587,6 +678,7 @@ function SettingsHome({
       <SettingsSection title="Manage">
         <SettingsRow icon={Bot} label="Assistant" detail="Automatisations et aide locale" />
         <SettingsRow icon={Activity} label="Sensors" detail="Etats et capteurs Frigate" />
+        <SettingsRow icon={Video} label="Cameras" detail="Visibilite sur l'accueil" onClick={() => onSettingsPageChange("cameras")} />
         <SettingsRow icon={Map} label="Floor Plan" detail="Plan et zones cameras" />
         <SettingsRow icon={ScanFace} label="Faces" detail="Visages connus et inconnus" onClick={() => onSettingsPageChange("faces")} />
         <SettingsRow icon={BrainCircuit} label="Training" detail="Reconnaissance et apprentissage" />
@@ -617,6 +709,61 @@ function SettingsHome({
         <SettingsRow icon={RefreshCcw} label="Reload" detail={message} onClick={onRefresh} />
         <SettingsRow icon={Server} label="Switch server" detail={session?.baseUrl ?? "-"} onClick={onDisconnect} />
         <SettingsRow danger icon={Power} label="Logout" detail="Effacer la session locale" onClick={onDisconnect} />
+      </SettingsSection>
+    </section>
+  );
+}
+
+function CameraVisibilitySettings({
+  cameras,
+  hiddenCameraNames,
+  onToggleCameraVisibility
+}: {
+  cameras: CameraSummary[];
+  hiddenCameraNames: string[];
+  onToggleCameraVisibility: (cameraName: string, visible: boolean) => void;
+}) {
+  const visibleCount = cameras.filter((camera) => !hiddenCameraNames.includes(camera.name)).length;
+
+  return (
+    <section className="settings-panel settings-page" aria-label="Cameras">
+      <SettingsSection title="Home">
+        <div className="settings-card camera-visibility-card">
+          <p className="lead-text">
+            Choisis les cameras affichees sur l'accueil. Les flux restent disponibles dans Frigate; ce reglage ne masque que cette app.
+          </p>
+          <div className="camera-visibility-summary">
+            <Video size={18} />
+            <span>
+              {visibleCount} / {cameras.length} affichees
+            </span>
+          </div>
+          <div className="camera-visibility-list">
+            {cameras.map((camera) => {
+              const visible = !hiddenCameraNames.includes(camera.name);
+              const Icon = visible ? Eye : EyeOff;
+
+              return (
+                <label className="camera-visibility-row" key={camera.name}>
+                  <span className="camera-visibility-icon">
+                    <Icon size={21} />
+                  </span>
+                  <span className="camera-visibility-text">
+                    <strong>{camera.friendlyName}</strong>
+                    <small>{camera.name}</small>
+                  </span>
+                  <input
+                    aria-label={`Show ${camera.friendlyName}`}
+                    checked={visible}
+                    onChange={(event) => onToggleCameraVisibility(camera.name, event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span className="switch-control" aria-hidden="true" />
+                </label>
+              );
+            })}
+          </div>
+        </div>
       </SettingsSection>
     </section>
   );
@@ -810,7 +957,7 @@ function SettingsRow({
 
   if (onClick) {
     return (
-      <button className={className} onClick={onClick} type="button">
+      <button aria-label={`${label} ${detail}`} className={className} onClick={onClick} type="button">
         {content}
       </button>
     );
@@ -1046,22 +1193,39 @@ function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: F
 
 function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: FrigateApi | null; authToken?: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [streamFailed, setStreamFailed] = useState(false);
+  const liveUrl = camera.liveStreamUrl || api?.liveStreamUrl(camera.name);
+  const liveRequestUrl = liveUrl && refreshKey > 0 ? withCacheBust(liveUrl, refreshKey) : liveUrl;
   const frameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name);
   const frameRequestUrl = frameUrl ? withCacheBust(frameUrl, refreshKey) : "";
+  const isLive = Boolean(liveRequestUrl) && !streamFailed;
+
+  useEffect(() => {
+    setStreamFailed(false);
+  }, [camera.name, liveUrl]);
 
   return (
     <article className="camera-card" data-testid="camera-card">
-      <AuthenticatedImage
-        alt={`Latest frame for ${camera.friendlyName}`}
-        api={api}
-        authToken={authToken}
-        className="camera-image"
-        fallback={<div className="camera-placeholder" />}
-        url={frameRequestUrl}
-      />
+      {isLive ? (
+        <img
+          alt={`Live stream for ${camera.friendlyName}`}
+          className="camera-image"
+          onError={() => setStreamFailed(true)}
+          src={liveRequestUrl}
+        />
+      ) : (
+        <AuthenticatedImage
+          alt={`Latest frame for ${camera.friendlyName}`}
+          api={api}
+          authToken={authToken}
+          className="camera-image"
+          fallback={<div className="camera-placeholder" />}
+          url={frameRequestUrl}
+        />
+      )}
       <div className="camera-overlay">
         <span className="pill">{camera.friendlyName}</span>
-        <span className="age-badge">{camera.liveAge}</span>
+        <span className={isLive ? "age-badge" : "age-badge is-fallback"}>{isLive ? "live" : "image"}</span>
       </div>
       <div className="quick-actions">
         <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={() => setRefreshKey((key) => key + 1)}>
@@ -1085,8 +1249,9 @@ function EventThumb({ event, api, authToken }: { event: EventSummary; api: Friga
       api={api}
       authToken={authToken}
       className="event-thumb"
+      fallbackUrl={event.previewUrl ? event.thumbnailUrl : undefined}
       fallback={<div className="event-thumb event-thumb-empty" />}
-      url={event.thumbnailUrl}
+      url={event.previewUrl || event.thumbnailUrl}
     />
   );
 }
@@ -1096,6 +1261,7 @@ function AuthenticatedImage({
   api,
   authToken,
   className,
+  fallbackUrl,
   fallback,
   url
 }: {
@@ -1103,33 +1269,39 @@ function AuthenticatedImage({
   api: FrigateApi | null;
   authToken?: string;
   className: string;
+  fallbackUrl?: string;
   fallback: ReactNode;
   url?: string;
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState(url || fallbackUrl);
+
+  useEffect(() => {
+    setSourceUrl(url || fallbackUrl);
+  }, [fallbackUrl, url]);
 
   useEffect(() => {
     let active = true;
     setDataUrl(null);
     setFailed(false);
 
-    if (!api || !authToken || !url) {
+    if (!api || !authToken || !sourceUrl) {
       setFailed(true);
       return () => {
         active = false;
       };
     }
 
-    if (url.startsWith("data:")) {
-      setDataUrl(url);
+    if (sourceUrl.startsWith("data:")) {
+      setDataUrl(sourceUrl);
       return () => {
         active = false;
       };
     }
 
     api
-      .getImageDataUrl(authToken, url)
+      .getImageDataUrl(authToken, sourceUrl)
       .then((nextDataUrl) => {
         if (active) {
           setDataUrl(nextDataUrl);
@@ -1137,6 +1309,10 @@ function AuthenticatedImage({
       })
       .catch(() => {
         if (active) {
+          if (fallbackUrl && sourceUrl !== fallbackUrl) {
+            setSourceUrl(fallbackUrl);
+            return;
+          }
           setFailed(true);
         }
       });
@@ -1144,7 +1320,7 @@ function AuthenticatedImage({
     return () => {
       active = false;
     };
-  }, [api, authToken, url]);
+  }, [api, authToken, fallbackUrl, sourceUrl]);
 
   if (!dataUrl || failed) {
     return <>{fallback}</>;

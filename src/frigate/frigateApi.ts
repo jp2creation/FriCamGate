@@ -1,4 +1,4 @@
-import { CapacitorHttp, type HttpOptions, type HttpResponse } from "@capacitor/core";
+import { CapacitorCookies, CapacitorHttp, type HttpOptions, type HttpResponse } from "@capacitor/core";
 import type { CameraSummary, EventSummary, FrigateConfig, FrigateEvent, LoginResult } from "./types";
 
 type FrigateHttpResponse<T> = Omit<HttpResponse, "data"> & {
@@ -82,6 +82,30 @@ export class FrigateApi {
     return `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/snapshot.jpg?h=180`;
   }
 
+  eventPreviewUrl(eventId: string): string {
+    return `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/preview.gif`;
+  }
+
+  liveStreamUrl(cameraName: string): string {
+    return `${this.baseUrl}/api/go2rtc/api/stream.mjpeg?src=${encodeURIComponent(cameraName)}`;
+  }
+
+  async syncAuthCookie(authToken: string): Promise<void> {
+    await CapacitorCookies.setCookie({
+      url: this.baseUrl,
+      key: "frigate_token",
+      value: authToken,
+      path: "/"
+    });
+  }
+
+  async clearAuthCookie(): Promise<void> {
+    await CapacitorCookies.deleteCookie({
+      url: this.baseUrl,
+      key: "frigate_token"
+    });
+  }
+
   async getImageDataUrl(authToken: string, url: string): Promise<string> {
     const response = (await CapacitorHttp.request({
       method: "GET",
@@ -107,7 +131,7 @@ export class FrigateApi {
       friendlyName: camera.friendly_name ?? toTitle(name),
       enabled: camera.enabled !== false,
       latestFrameUrl: this.latestFrameUrl(name),
-      liveAge: "live"
+      liveStreamUrl: this.liveStreamUrl(name)
     }));
   }
 
@@ -117,6 +141,7 @@ export class FrigateApi {
       camera: event.camera,
       label: event.sub_label ?? event.label ?? "motion",
       time: formatEventTime(event.start_time),
+      previewUrl: this.eventPreviewUrl(event.id),
       thumbnailUrl: event.thumbnail ? toImageDataUrl(event.thumbnail) : this.eventSnapshotUrl(event.id)
     }));
   }

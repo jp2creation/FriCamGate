@@ -336,6 +336,10 @@ input:focus {
   font-size: 0.78rem;
 }
 
+.age-badge.is-fallback {
+  color: #cfcfd6;
+}
+
 .quick-actions {
   position: absolute;
   right: 12px;
@@ -354,6 +358,28 @@ input:focus {
 .event-list {
   display: grid;
   gap: 8px;
+}
+
+.empty-camera-state {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  gap: 8px;
+  padding: 24px;
+  border: 1px solid #25252c;
+  border-radius: 8px;
+  background: #15151a;
+  color: #8f8f99;
+  text-align: center;
+}
+
+.empty-camera-state strong {
+  color: #f4f4f6;
+  font-size: 1.05rem;
+}
+
+.empty-camera-state span {
+  max-width: 280px;
 }
 
 .event-row {
@@ -590,6 +616,86 @@ input:focus {
   padding: 28px 30px 30px;
 }
 
+.camera-visibility-card {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.camera-visibility-summary {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #111114;
+  color: #d5d5dc;
+  font-weight: 850;
+}
+
+.camera-visibility-summary svg,
+.camera-visibility-icon {
+  color: #ff336c;
+}
+
+.camera-visibility-list {
+  display: grid;
+  gap: 8px;
+}
+
+.camera-visibility-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  min-height: 74px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #1c1c21;
+  color: #f1f1f3;
+}
+
+.camera-visibility-icon {
+  display: inline-flex;
+}
+
+.camera-visibility-text {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.camera-visibility-text strong {
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-visibility-text small {
+  overflow: hidden;
+  color: #85858e;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-visibility-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.camera-visibility-row input:checked + .switch-control {
+  background: #ed1f57;
+}
+
+.camera-visibility-row input:checked + .switch-control::after {
+  background: #fff;
+  transform: translateX(20px);
+}
+
 .profile-card-logo {
   position: absolute;
   top: -46px;
@@ -768,6 +874,7 @@ input:focus {
 }
 
 .switch-item:focus-within,
+.camera-visibility-row:focus-within,
 .settings-select-button:focus-visible,
 .permission-action:focus-visible,
 .inline-action:focus-visible,
