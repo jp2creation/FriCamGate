@@ -196,7 +196,16 @@ describe("App", () => {
           url,
           data: {
             cameras: {
-              devant: { enabled: true, friendly_name: "Devant" },
+              devant: {
+                enabled: true,
+                friendly_name: "Devant",
+                live: {
+                  streams: {
+                    Mobile: "devant_sub",
+                    Main: "devant_main"
+                  }
+                }
+              },
               allee: { enabled: true, friendly_name: "Allee" }
             }
           }
@@ -229,7 +238,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(sockets).toHaveLength(2);
     });
-    expect(sockets[0]?.url).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant");
+    expect(sockets[0]?.url).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant_sub");
     sockets[0]?.open();
     expect(sockets[0]?.send).toHaveBeenCalledWith(expect.stringContaining('"type":"mse"'));
     sockets[0]?.message('{"type":"mse","value":"video/mp4; codecs=\\"avc1.64001F\\""}');
@@ -238,8 +247,25 @@ describe("App", () => {
     expect(liveStream.tagName).toBe("VIDEO");
     expect(liveStream).toHaveAttribute("src", "blob:fricamgate-live");
     expect(liveStream).not.toHaveAttribute("src", expect.stringContaining("latest.jpg"));
+    expect(liveStream).toHaveProperty("muted", true);
+    Object.defineProperty(liveStream, "videoWidth", { configurable: true, value: 640 });
+    Object.defineProperty(liveStream, "videoHeight", { configurable: true, value: 360 });
     fireEvent.loadedData(liveStream);
-    expect(screen.getByText("live")).toBeInTheDocument();
+    expect(await screen.findByText("live")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Unmute Devant/i }));
+    await waitFor(() => {
+      expect(sockets).toHaveLength(3);
+    });
+    expect(sockets[2]?.url).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant_main");
+    sockets[2]?.open();
+    sockets[2]?.message('{"type":"mse","value":"video/mp4; codecs=\\"avc1.64001F,mp4a.40.2\\""}');
+    const audioStream = await screen.findByLabelText("Live video for Devant");
+    expect(audioStream).toHaveProperty("muted", false);
+    Object.defineProperty(audioStream, "videoWidth", { configurable: true, value: 640 });
+    Object.defineProperty(audioStream, "videoHeight", { configurable: true, value: 360 });
+    fireEvent.loadedData(audioStream);
+    expect(screen.getByRole("button", { name: /Mute Devant/i })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Cameras Visibilite/i }));

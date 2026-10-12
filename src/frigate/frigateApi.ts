@@ -134,8 +134,9 @@ export class FrigateApi {
       name,
       friendlyName: camera.friendly_name ?? toTitle(name),
       enabled: camera.enabled !== false,
+      audioStreamUrl: this.liveStreamUrl(selectLiveStreamName(name, camera, "audio")),
       latestFrameUrl: this.latestFrameUrl(name),
-      liveStreamUrl: this.liveStreamUrl(getLiveStreamName(name, camera))
+      liveStreamUrl: this.liveStreamUrl(selectLiveStreamName(name, camera, "grid"))
     }));
   }
 
@@ -184,13 +185,25 @@ export class FrigateApi {
   }
 }
 
-function getLiveStreamName(name: string, camera: NonNullable<FrigateConfig["cameras"]>[string]): string {
+function selectLiveStreamName(name: string, camera: NonNullable<FrigateConfig["cameras"]>[string], purpose: "audio" | "grid"): string {
   const streams = camera.live?.streams;
-  const firstConfiguredStream = streams
-    ? Object.values(streams).find((streamName) => typeof streamName === "string" && streamName.trim().length > 0)
-    : undefined;
+  const candidates = streams
+    ? Object.entries(streams)
+        .map(([label, streamName]) => ({ label, streamName }))
+        .filter((stream): stream is { label: string; streamName: string } => typeof stream.streamName === "string" && stream.streamName.trim().length > 0)
+    : [];
 
-  return firstConfiguredStream ?? name;
+  const firstConfiguredStream = candidates[0]?.streamName;
+  const preferredTerms =
+    purpose === "audio"
+      ? ["hd", "main", "high", "record", "full"]
+      : ["grid", "sub", "low", "detect", "sd", "mobile"];
+  const preferredStream = candidates.find(({ label, streamName }) => {
+    const searchable = `${label} ${streamName}`.toLowerCase();
+    return preferredTerms.some((term) => searchable.includes(term));
+  })?.streamName;
+
+  return preferredStream ?? firstConfiguredStream ?? name;
 }
 
 export function toImageDataUrl(data: FrigateImageResponse["data"], contentType = "image/jpeg"): string {

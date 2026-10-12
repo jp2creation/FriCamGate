@@ -94,6 +94,7 @@ describe("FrigateApi image loading", () => {
     });
 
     expect(camera.liveStreamUrl).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant_sub");
+    expect(camera.audioStreamUrl).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant");
 
     const [event] = api.mapEvents([
       {

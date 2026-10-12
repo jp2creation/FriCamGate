@@ -3,6 +3,7 @@ export interface CameraSummary {
   friendlyName: string;
   enabled: boolean;
   latestFrameUrl: string;
+  audioStreamUrl: string;
   liveStreamUrl: string;
 }
 

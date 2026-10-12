@@ -40,6 +40,8 @@ import {
   SlidersHorizontal,
   UserCircle,
   Video,
+  Volume2,
+  VolumeX,
   Workflow
 } from "lucide-react";
 import { APP_NAME, APP_VERSION } from "./appInfo";
@@ -67,6 +69,7 @@ const mockCameras: CameraSummary[] = [
     name: "allee",
     friendlyName: "Allee",
     enabled: true,
+    audioStreamUrl: "",
     latestFrameUrl: "",
     liveStreamUrl: ""
   },
@@ -74,6 +77,7 @@ const mockCameras: CameraSummary[] = [
     name: "devant",
     friendlyName: "Devant",
     enabled: true,
+    audioStreamUrl: "",
     latestFrameUrl: "",
     liveStreamUrl: ""
   },
@@ -81,6 +85,7 @@ const mockCameras: CameraSummary[] = [
     name: "salon",
     friendlyName: "Salon",
     enabled: true,
+    audioStreamUrl: "",
     latestFrameUrl: "",
     liveStreamUrl: ""
   }
@@ -1201,49 +1206,101 @@ function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: F
 }
 
 function CameraCard({ authToken, camera, api }: { authToken?: string; camera: CameraSummary; api: FrigateApi | null }) {
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioLiveFailed, setAudioLiveFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [liveFailed, setLiveFailed] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
   const liveStreamUrl = camera.liveStreamUrl || api?.liveStreamUrl(camera.name) || "";
-  const shouldLoadLive = Boolean(liveStreamUrl) && !liveFailed;
+  const audioStreamUrl = camera.audioStreamUrl || liveStreamUrl;
+  const nativeLiveAvailable = canUseNativeLive(authToken);
+  const useAudioStream = audioEnabled && !audioLiveFailed && Boolean(audioStreamUrl);
+  const playbackUrl = useAudioStream ? audioStreamUrl : liveStreamUrl;
+  const shouldLoadLive = Boolean(playbackUrl) && !liveFailed;
   const isLive = shouldLoadLive && liveLoaded;
-  const LiveVideo = canUseNativeLive(authToken) ? MjpegLiveVideo : MseLiveVideo;
 
   const handleLiveFailed = useCallback(() => {
+    if (useAudioStream) {
+      setAudioEnabled(false);
+      setAudioLiveFailed(true);
+      setLiveLoaded(false);
+      setRefreshKey((key) => key + 1);
+      return;
+    }
+
     setLiveLoaded(false);
     setLiveFailed(true);
-  }, []);
+  }, [useAudioStream]);
 
   const handleLiveLoaded = useCallback(() => {
     setLiveLoaded(true);
   }, []);
 
   useEffect(() => {
+    setAudioEnabled(false);
+    setAudioLiveFailed(false);
     setLiveFailed(false);
     setLiveLoaded(false);
-  }, [camera.name, liveStreamUrl]);
+  }, [camera.name, liveStreamUrl, audioStreamUrl]);
 
   function refreshCamera() {
+    setAudioLiveFailed(false);
     setLiveFailed(false);
     setLiveLoaded(false);
     setRefreshKey((key) => key + 1);
   }
 
+  function toggleAudio() {
+    setAudioLiveFailed(false);
+    setLiveFailed(false);
+    setLiveLoaded(false);
+    setAudioEnabled((enabled) => !enabled);
+    setRefreshKey((key) => key + 1);
+  }
+
+  const VolumeIcon = audioEnabled && !audioLiveFailed ? Volume2 : VolumeX;
+  const volumeLabel = audioEnabled && !audioLiveFailed ? `Mute ${camera.friendlyName}` : `Unmute ${camera.friendlyName}`;
+
   return (
     <article className="camera-card" data-testid="camera-card">
-      {shouldLoadLive ? (
-        <LiveVideo
-          key={`${liveStreamUrl}:${refreshKey}`}
+      {shouldLoadLive && useAudioStream ? (
+        <MseLiveVideo
+          key={`${playbackUrl}:audio:${refreshKey}`}
+          className="camera-image"
+          authToken={authToken}
+          muted={false}
+          onError={handleLiveFailed}
+          onPlaying={handleLiveLoaded}
+          title={`Live video for ${camera.friendlyName}`}
+          url={playbackUrl}
+        />
+      ) : null}
+      {shouldLoadLive && !useAudioStream && nativeLiveAvailable ? (
+        <MjpegLiveVideo
+          key={`${playbackUrl}:mjpeg:${refreshKey}`}
           className="camera-image"
           authToken={authToken}
           onError={handleLiveFailed}
           onPlaying={handleLiveLoaded}
           title={`Live video for ${camera.friendlyName}`}
-          url={liveStreamUrl}
+          url={playbackUrl}
         />
-      ) : (
+      ) : null}
+      {shouldLoadLive && !useAudioStream && !nativeLiveAvailable ? (
+        <MseLiveVideo
+          key={`${playbackUrl}:mse:${refreshKey}`}
+          className="camera-image"
+          authToken={authToken}
+          muted
+          onError={handleLiveFailed}
+          onPlaying={handleLiveLoaded}
+          title={`Live video for ${camera.friendlyName}`}
+          url={playbackUrl}
+        />
+      ) : null}
+      {!shouldLoadLive ? (
         <div className="camera-placeholder" />
-      )}
+      ) : null}
       <div className="camera-overlay">
         <span className="pill">{camera.friendlyName}</span>
         <span className={isLive ? "age-badge" : "age-badge is-fallback"}>{isLive ? "live" : "image"}</span>
@@ -1254,6 +1311,16 @@ function CameraCard({ authToken, camera, api }: { authToken?: string; camera: Ca
         </button>
         <button className="floating-button" aria-label={`Open ${camera.friendlyName}`}>
           <Video size={18} />
+        </button>
+        <button
+          aria-label={volumeLabel}
+          aria-pressed={audioEnabled && !audioLiveFailed}
+          className={audioEnabled && !audioLiveFailed ? "floating-button is-active" : "floating-button"}
+          onClick={toggleAudio}
+          title={audioLiveFailed ? "Audio indisponible pour ce flux" : undefined}
+          type="button"
+        >
+          <VolumeIcon size={18} />
         </button>
         <button className="floating-button" aria-label={`Settings ${camera.friendlyName}`}>
           <Settings size={18} />

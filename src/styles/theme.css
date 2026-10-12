@@ -356,6 +356,11 @@ input:focus {
   background: rgba(12, 12, 16, 0.78);
 }
 
+.floating-button.is-active {
+  color: #ff336c;
+  background: rgba(69, 22, 37, 0.88);
+}
+
 .event-list {
   display: grid;
   gap: 8px;

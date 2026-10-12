@@ -23,12 +23,14 @@ type ManagedMediaSourceWindow = Window & {
 const maxReconnectAttempts = 4;
 const reconnectDelayMs = 1200;
 const startupTimeoutMs = 5000;
+const videoDimensionTimeoutMs = 900;
 const bufferedWindowSeconds = 15;
 const segmentBufferSize = 2 * 1024 * 1024;
 
 export function MseLiveVideo({
   authToken,
   className,
+  muted = true,
   onError,
   onPlaying,
   title,
@@ -36,12 +38,25 @@ export function MseLiveVideo({
 }: {
   authToken?: string;
   className: string;
+  muted?: boolean;
   onError?: () => void;
   onPlaying?: () => void;
   title: string;
   url: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.muted = muted;
+    if (!muted) {
+      void video.play().catch(() => undefined);
+    }
+  }, [muted]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -61,6 +76,7 @@ export function MseLiveVideo({
     let sourceBuffer: SourceBuffer | null = null;
     let websocket: WebSocket | null = null;
     let nativeConnection: NativeLiveConnection | null = null;
+    let videoDimensionTimeout: number | undefined;
     let startupTimeout: number | undefined;
     let reconnectTimeout: number | undefined;
     let reconnectAttempts = 0;
@@ -72,6 +88,7 @@ export function MseLiveVideo({
     const cleanupConnection = () => {
       window.clearTimeout(startupTimeout);
       window.clearTimeout(reconnectTimeout);
+      window.clearTimeout(videoDimensionTimeout);
       websocket?.close();
       nativeConnection?.close();
       websocket = null;
@@ -311,9 +328,21 @@ export function MseLiveVideo({
     }
 
     const handleLoadedData = () => {
-      liveFrameLoaded = true;
-      reconnectAttempts = 0;
-      onPlaying?.();
+      window.clearTimeout(videoDimensionTimeout);
+      videoDimensionTimeout = window.setTimeout(() => {
+        if (!active) {
+          return;
+        }
+
+        if (currentVideo.videoWidth > 0 || currentVideo.videoHeight > 0) {
+          liveFrameLoaded = true;
+          reconnectAttempts = 0;
+          onPlaying?.();
+          return;
+        }
+
+        failLive(true);
+      }, videoDimensionTimeoutMs);
     };
 
     const handleVideoError = () => {
@@ -364,7 +393,7 @@ export function MseLiveVideo({
     };
   }, [authToken, onError, onPlaying, url]);
 
-  return <video ref={videoRef} aria-label={title} autoPlay className={className} muted playsInline preload="auto" />;
+  return <video ref={videoRef} aria-label={title} autoPlay className={className} muted={muted} playsInline preload="auto" />;
 }
 
 export function getSupportedMseCodecs(MediaSourceClass = getMediaSourceConstructor()): string {
