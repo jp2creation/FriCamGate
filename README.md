@@ -6,7 +6,14 @@ Each user connects the app to their own Frigate server URL and signs in with the
 
 ## Current Status
 
-This repository currently contains the approved V1 design and implementation plan. The APK implementation has not started yet.
+This repository contains the V1 debug Android APK project built with React, Vite, TypeScript, and Capacitor Android.
+
+The debug APK can be built locally with:
+
+```bash
+npm ci
+npm run android:debug
+```
 
 ## Brand
 
@@ -21,4 +28,6 @@ The approved logo master is stored at:
 
 ## Security Note
 
-Do not commit Frigate credentials, JWTs, cookies, `.env` files, signing keys, or generated release keystores. Users will enter their own Frigate server URL and credentials inside the app.
+Do not commit Frigate credentials, JWTs, cookies, `.env` files, signing keys, or generated release keystores. Users enter their own Frigate server URL and credentials inside the app.
+
+HTTPS is the default. HTTP is available only when the user explicitly enables the insecure HTTP option in the setup screen, because usernames and passwords may travel in clear text over HTTP.

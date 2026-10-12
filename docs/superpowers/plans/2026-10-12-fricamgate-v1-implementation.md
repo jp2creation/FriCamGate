@@ -19,7 +19,7 @@
 - Default server field is blank in reusable builds; `https://frigate.example.com` is used only as an example in tests and docs.
 - Approved logo master is `assets/brand/fricamgate-logo.png`.
 - No password, JWT, cookie, signing key, `.env`, or Frigate secret may be committed or bundled in the APK.
-- Require HTTPS for normal setup; HTTP is allowed only through an explicit advanced local-lab setting.
+- Require HTTPS for normal setup; HTTP is allowed only through an explicit insecure setting with warning text.
 - Store session material in Android secure storage, not ordinary local storage.
 - Do not copy camera.ui branding, logo, icon, or exact assets.
 - V1 must keep cameras usable with latest-frame refresh when live playback fails.

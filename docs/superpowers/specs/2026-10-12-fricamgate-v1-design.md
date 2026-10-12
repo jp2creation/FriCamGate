@@ -60,7 +60,7 @@ The app has four internal layers:
 
 ## Frigate Integration
 
-FriCamGate targets authenticated Frigate instances exposed over HTTPS. Frigate supports user/password login through `POST /api/login`, returns a JWT session cookie, and can also use the token as an Authorization bearer token. Frigate exposes `/api/auth` to validate or refresh authentication state. Source: https://docs.frigate.video/configuration/authentication/ and https://docs.frigate.video/integrations/api/auth-auth-get/
+FriCamGate targets authenticated Frigate instances exposed over HTTPS by default. HTTP is available only when the user explicitly enables the insecure HTTP option, because credentials may travel in clear text. Frigate supports user/password login through `POST /api/login`, returns a JWT session cookie, and can also use the token as an Authorization bearer token. Frigate exposes `/api/auth` to validate or refresh authentication state. Source: https://docs.frigate.video/configuration/authentication/ and https://docs.frigate.video/integrations/api/auth-auth-get/
 
 The first connection flow is:
 
@@ -97,7 +97,7 @@ Rules:
 - Do not commit `.env` files, tokens, cookies, generated APK signing keys, or Frigate secrets.
 - Do not log passwords, JWTs, cookies, Authorization headers, or full request headers.
 - Require HTTPS for normal setup.
-- Allow HTTP only behind an explicit advanced setting for local lab use, with warning text.
+- Allow HTTP only behind an explicit insecure setting, with warning text.
 - Store session material in Android secure storage.
 - Offer "Forget server" and "Log out" actions that clear stored session material.
 - Treat camera names, event labels, snapshots, and clips as private data.

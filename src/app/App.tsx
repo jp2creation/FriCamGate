@@ -206,8 +206,13 @@ export function App() {
               checked={allowInsecureHttp}
               onChange={(event) => setAllowInsecureHttp(event.target.checked)}
             />
-            <span>Autoriser HTTP local uniquement</span>
+            <span>Autoriser HTTP non securise</span>
           </label>
+          {allowInsecureHttp ? (
+            <p className="warning-line">
+              Attention: en HTTP, le serveur et les identifiants peuvent transiter en clair. Utilise HTTPS des que possible.
+            </p>
+          ) : null}
           <button className="primary-button" disabled={!canConnect} onClick={connect}>
             {status === "connecting" ? <Loader2 className="spin" size={18} /> : <RefreshCcw size={18} />}
             Test connection
