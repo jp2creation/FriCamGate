@@ -71,6 +71,7 @@ export function App() {
 
         setSession(stored);
         setServerUrl(stored.baseUrl);
+        setAllowInsecureHttp(stored.baseUrl.startsWith("http://"));
         setStatus("ready");
         setMessage(`Session restauree pour ${stored.username}.`);
         await refreshDashboard(stored);
@@ -88,12 +89,16 @@ export function App() {
   }, []);
 
   const api = useMemo(() => {
+    if (session) {
+      return new FrigateApi(session.baseUrl);
+    }
+
     try {
       return new FrigateApi(normalizeServerUrl(serverUrl, { allowInsecureHttp }));
     } catch {
       return null;
     }
-  }, [allowInsecureHttp, serverUrl]);
+  }, [allowInsecureHttp, serverUrl, session]);
 
   async function connect() {
     setStatus("connecting");
