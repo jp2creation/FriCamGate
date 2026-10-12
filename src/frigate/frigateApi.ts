@@ -5,6 +5,10 @@ type FrigateHttpResponse<T> = Omit<HttpResponse, "data"> & {
   data?: T;
 };
 
+type FrigateImageResponse = Omit<HttpResponse, "data"> & {
+  data?: string | ArrayBuffer | number[] | Uint8Array;
+};
+
 export class FrigateApiError extends Error {
   constructor(
     message: string,
@@ -78,6 +82,25 @@ export class FrigateApi {
     return `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/snapshot.jpg?h=180`;
   }
 
+  async getImageDataUrl(authToken: string, url: string): Promise<string> {
+    const response = (await CapacitorHttp.request({
+      method: "GET",
+      url,
+      headers: {
+        Accept: "image/*",
+        Authorization: `Bearer ${authToken}`
+      },
+      responseType: "arraybuffer"
+    })) as FrigateImageResponse;
+
+    if (response.status >= 400) {
+      throw new FrigateApiError(response.status === 401 ? "Image Frigate non autorisee" : "Image Frigate indisponible", response.status);
+    }
+
+    const contentType = getHeader(response.headers, "content-type")?.split(";")[0].trim() || "image/jpeg";
+    return toImageDataUrl(response.data, contentType);
+  }
+
   mapCameras(config: FrigateConfig): CameraSummary[] {
     return Object.entries(config.cameras ?? {}).map(([name, camera]) => ({
       name,
@@ -94,7 +117,7 @@ export class FrigateApi {
       camera: event.camera,
       label: event.sub_label ?? event.label ?? "motion",
       time: formatEventTime(event.start_time),
-      thumbnailUrl: this.eventSnapshotUrl(event.id)
+      thumbnailUrl: event.thumbnail ? toImageDataUrl(event.thumbnail) : this.eventSnapshotUrl(event.id)
     }));
   }
 
@@ -130,6 +153,40 @@ export class FrigateApi {
 
     return response as FrigateHttpResponse<T>;
   }
+}
+
+export function toImageDataUrl(data: FrigateImageResponse["data"], contentType = "image/jpeg"): string {
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    if (trimmed.startsWith("data:")) {
+      return trimmed;
+    }
+
+    return `data:${contentType};base64,${trimmed.replace(/\s/g, "")}`;
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return `data:${contentType};base64,${base64FromBytes(new Uint8Array(data))}`;
+  }
+
+  if (data instanceof Uint8Array) {
+    return `data:${contentType};base64,${base64FromBytes(data)}`;
+  }
+
+  if (Array.isArray(data)) {
+    return `data:${contentType};base64,${base64FromBytes(Uint8Array.from(data))}`;
+  }
+
+  throw new FrigateApiError("Image Frigate vide");
+}
+
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary);
 }
 
 function extractTokenFromHeaders(headers: HttpResponse["headers"]): string | undefined {

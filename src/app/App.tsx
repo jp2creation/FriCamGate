@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Bell, Grid3X3, Home, Image, Loader2, LogOut, RefreshCcw, Settings, Video } from "lucide-react";
 import { FrigateApi } from "../frigate/frigateApi";
 import type { CameraSummary, EventSummary, StoredSession } from "../frigate/types";
@@ -295,7 +295,7 @@ function Dashboard({
         <div className="event-list">
           {events.map((event) => (
             <article className="event-row" key={event.id}>
-              <EventThumb event={event} />
+              <EventThumb event={event} api={api} authToken={session?.authToken} />
               <div>
                 <strong>{event.label}</strong>
                 <span>
@@ -313,11 +313,11 @@ function Dashboard({
 
   return (
     <section className="content-block">
-      <EventStrip events={events} />
+      <EventStrip events={events} api={api} authToken={session?.authToken} />
       <SectionTitle title={view === "cameras" ? "Cameras" : "Accueil"} subtitle={message} />
       <div className={gridClass}>
         {cameras.map((camera) => (
-          <CameraCard camera={camera} key={camera.name} api={api} />
+          <CameraCard camera={camera} key={camera.name} api={api} authToken={session?.authToken} />
         ))}
       </div>
     </section>
@@ -333,12 +333,12 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function EventStrip({ events }: { events: EventSummary[] }) {
+function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: FrigateApi | null; authToken?: string }) {
   return (
     <div className="event-strip" aria-label="Recent events">
       {events.slice(0, 8).map((event) => (
         <div className="event-chip" key={event.id}>
-          <EventThumb event={event} />
+          <EventThumb event={event} api={api} authToken={authToken} />
           <span>{event.time}</span>
         </div>
       ))}
@@ -346,18 +346,27 @@ function EventStrip({ events }: { events: EventSummary[] }) {
   );
 }
 
-function CameraCard({ camera, api }: { camera: CameraSummary; api: FrigateApi | null }) {
+function CameraCard({ camera, api, authToken }: { camera: CameraSummary; api: FrigateApi | null; authToken?: string }) {
+  const [refreshKey, setRefreshKey] = useState(0);
   const frameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name);
+  const frameRequestUrl = frameUrl ? withCacheBust(frameUrl, refreshKey) : "";
 
   return (
     <article className="camera-card" data-testid="camera-card">
-      {frameUrl ? <img src={frameUrl} alt={`Latest frame for ${camera.friendlyName}`} /> : <div className="camera-placeholder" />}
+      <AuthenticatedImage
+        alt={`Latest frame for ${camera.friendlyName}`}
+        api={api}
+        authToken={authToken}
+        className="camera-image"
+        fallback={<div className="camera-placeholder" />}
+        url={frameRequestUrl}
+      />
       <div className="camera-overlay">
         <span className="pill">{camera.friendlyName}</span>
         <span className="age-badge">{camera.liveAge}</span>
       </div>
       <div className="quick-actions">
-        <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`}>
+        <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={() => setRefreshKey((key) => key + 1)}>
           <RefreshCcw size={18} />
         </button>
         <button className="floating-button" aria-label={`Open ${camera.friendlyName}`}>
@@ -371,12 +380,84 @@ function CameraCard({ camera, api }: { camera: CameraSummary; api: FrigateApi | 
   );
 }
 
-function EventThumb({ event }: { event: EventSummary }) {
-  if (event.thumbnailUrl) {
-    return <img className="event-thumb" src={event.thumbnailUrl} alt={`${event.label} on ${event.camera}`} />;
+function EventThumb({ event, api, authToken }: { event: EventSummary; api: FrigateApi | null; authToken?: string }) {
+  return (
+    <AuthenticatedImage
+      alt={`${event.label} on ${event.camera}`}
+      api={api}
+      authToken={authToken}
+      className="event-thumb"
+      fallback={<div className="event-thumb event-thumb-empty" />}
+      url={event.thumbnailUrl}
+    />
+  );
+}
+
+function AuthenticatedImage({
+  alt,
+  api,
+  authToken,
+  className,
+  fallback,
+  url
+}: {
+  alt: string;
+  api: FrigateApi | null;
+  authToken?: string;
+  className: string;
+  fallback: ReactNode;
+  url?: string;
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setDataUrl(null);
+    setFailed(false);
+
+    if (!api || !authToken || !url) {
+      setFailed(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (url.startsWith("data:")) {
+      setDataUrl(url);
+      return () => {
+        active = false;
+      };
+    }
+
+    api
+      .getImageDataUrl(authToken, url)
+      .then((nextDataUrl) => {
+        if (active) {
+          setDataUrl(nextDataUrl);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFailed(true);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api, authToken, url]);
+
+  if (!dataUrl || failed) {
+    return <>{fallback}</>;
   }
 
-  return <div className="event-thumb event-thumb-empty" />;
+  return <img className={className} src={dataUrl} alt={alt} />;
+}
+
+function withCacheBust(url: string, value: number): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}_=${value}`;
 }
 
 function BottomNav({ view, onViewChange }: { view: View; onViewChange: (view: View) => void }) {

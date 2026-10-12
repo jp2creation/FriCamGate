@@ -40,4 +40,5 @@ export interface FrigateEvent {
   start_time?: number;
   end_time?: number | null;
   has_snapshot?: boolean;
+  thumbnail?: string;
 }
