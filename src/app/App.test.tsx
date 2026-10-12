@@ -276,6 +276,79 @@ describe("App", () => {
     expect(screen.queryByLabelText("Live video for Allee")).not.toBeInTheDocument();
   });
 
+  it("opens a camera detail timeline from the home camera card", async () => {
+    installMseMocks();
+    mocks.storedSession = {
+      profileId: "default",
+      baseUrl: "http://frigate.example.com",
+      authToken: "token-value",
+      username: "admin",
+      role: "viewer"
+    };
+    mocks.request.mockImplementation(({ responseType, url }: { responseType?: string; url: string }) => {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases")) {
+        return Promise.resolve({
+          status: 404,
+          headers: {},
+          url,
+          data: {}
+        });
+      }
+
+      if (url.endsWith("/api/config")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: { cameras: { devant: { enabled: true, friendly_name: "Devant" } } }
+        });
+      }
+
+      if (url.includes("/api/events")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: [
+            {
+              id: "event-1",
+              camera: "devant",
+              label: "person",
+              thumbnail: "YWJj",
+              start_time: 1_790_000_000,
+              end_time: 1_790_000_053
+            }
+          ]
+        });
+      }
+
+      if (responseType === "arraybuffer") {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+          url,
+          data: "ZGVm"
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<App />);
+
+    const cameraCard = await screen.findByTestId("camera-card");
+    fireEvent.click(cameraCard);
+
+    expect(await screen.findByTestId("camera-detail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Back to home/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Timeline Devant")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Unmute Devant/i })).toBeInTheDocument();
+    expect(screen.getByText("53s")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Back to home/i }));
+    expect(await screen.findByTestId("camera-card")).toBeInTheDocument();
+  });
+
   it("opens the APK download directly from the update card", async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     mocks.storedSession = {

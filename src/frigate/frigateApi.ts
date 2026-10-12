@@ -146,6 +146,8 @@ export class FrigateApi {
       camera: event.camera,
       label: event.sub_label ?? event.label ?? "motion",
       time: formatEventTime(event.start_time),
+      startTime: event.start_time,
+      endTime: event.end_time,
       previewUrl: this.eventPreviewUrl(event.id),
       thumbnailUrl: event.thumbnail ? toImageDataUrl(event.thumbnail) : this.eventSnapshotUrl(event.id)
     }));

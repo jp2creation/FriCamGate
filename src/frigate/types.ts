@@ -12,6 +12,8 @@ export interface EventSummary {
   camera: string;
   label: string;
   time: string;
+  startTime?: number;
+  endTime?: number | null;
   previewUrl: string;
   thumbnailUrl: string;
 }

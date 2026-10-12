@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
@@ -7,10 +7,14 @@ import {
   BellRing,
   Bot,
   BrainCircuit,
+  CalendarDays,
+  Camera as CameraIcon,
   CheckCircle2,
   ChevronRight,
   ChevronDown,
   Database,
+  Download,
+  Eraser,
   Eye,
   EyeOff,
   ExternalLink,
@@ -19,10 +23,13 @@ import {
   Image,
   Info,
   Languages,
+  List,
   Loader2,
   Map,
   MapPin,
   Mic,
+  MicOff,
+  MoreVertical,
   PackageCheck,
   Palette,
   PanelTop,
@@ -33,16 +40,19 @@ import {
   RotateCw,
   Rows3,
   ScanFace,
+  Search,
   Server,
   ServerCog,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Share2,
   UserCircle,
   Video,
   Volume2,
   VolumeX,
-  Workflow
+  Workflow,
+  ZoomIn
 } from "lucide-react";
 import { APP_NAME, APP_VERSION } from "./appInfo";
 import {
@@ -92,9 +102,9 @@ const mockCameras: CameraSummary[] = [
 ];
 
 const mockEvents: EventSummary[] = [
-  { id: "1", camera: "devant", label: "person", time: "09:16", previewUrl: "", thumbnailUrl: "" },
-  { id: "2", camera: "allee", label: "car", time: "09:14", previewUrl: "", thumbnailUrl: "" },
-  { id: "3", camera: "salon", label: "motion", time: "09:12", previewUrl: "", thumbnailUrl: "" }
+  { id: "1", camera: "devant", label: "person", time: "09:16", startTime: 1, previewUrl: "", thumbnailUrl: "" },
+  { id: "2", camera: "allee", label: "car", time: "09:14", startTime: 1, previewUrl: "", thumbnailUrl: "" },
+  { id: "3", camera: "salon", label: "motion", time: "09:12", startTime: 1, previewUrl: "", thumbnailUrl: "" }
 ];
 
 type View = "home" | "cameras" | "grid" | "events" | "settings";
@@ -147,6 +157,7 @@ export function App() {
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("main");
   const [cameras, setCameras] = useState<CameraSummary[]>(mockCameras);
   const [hiddenCameraNames, setHiddenCameraNames] = useState<string[]>([]);
+  const [selectedCameraName, setSelectedCameraName] = useState<string | null>(null);
   const [events, setEvents] = useState<EventSummary[]>(mockEvents);
   const [autoUpdateChecks, setAutoUpdateChecks] = useState(loadAutoUpdateChecks);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
@@ -268,6 +279,7 @@ export function App() {
     setStatus("idle");
     setView("home");
     setSettingsPage("main");
+    setSelectedCameraName(null);
     setCameras(mockCameras);
     setHiddenCameraNames([]);
     setEvents(mockEvents);
@@ -303,6 +315,7 @@ export function App() {
   }
 
   function changeView(nextView: View) {
+    setSelectedCameraName(null);
     setView(nextView);
     if (nextView === "settings") {
       setSettingsPage("main");
@@ -336,10 +349,18 @@ export function App() {
     () => cameras.filter((camera) => !hiddenCameraNames.includes(camera.name)),
     [cameras, hiddenCameraNames]
   );
+  const selectedCamera = useMemo(() => {
+    if (!selectedCameraName) {
+      return null;
+    }
+
+    return visibleCameras.find((camera) => camera.name === selectedCameraName) ?? cameras.find((camera) => camera.name === selectedCameraName) ?? null;
+  }, [cameras, selectedCameraName, visibleCameras]);
+  const showingCameraDetail = Boolean(session && status === "ready" && selectedCamera);
 
   return (
-    <main className="app-shell">
-      {view === "settings" && settingsPage === "main" && session ? null : (
+    <main className={showingCameraDetail ? "app-shell is-camera-detail" : "app-shell"}>
+      {showingCameraDetail || (view === "settings" && settingsPage === "main" && session) ? null : (
         <header className={showSettingsHeader ? "app-header is-title" : "app-header"}>
           {showSettingsHeader ? (
             <>
@@ -418,7 +439,16 @@ export function App() {
           <p className={`status-line ${status === "error" ? "is-error" : ""}`}>{message}</p>
         </section>
       ) : (
-        <>
+        selectedCamera ? (
+          <CameraDetail
+            api={api}
+            authToken={session?.authToken}
+            camera={selectedCamera}
+            events={events}
+            onBack={() => setSelectedCameraName(null)}
+          />
+        ) : (
+          <>
           <Dashboard
             view={view}
             session={session}
@@ -435,13 +465,15 @@ export function App() {
             updateStatus={updateStatus}
             onRefresh={() => refreshDashboard()}
             onCheckUpdates={checkUpdates}
+            onCameraSelect={setSelectedCameraName}
             onSettingsPageChange={setSettingsPage}
             onToggleCameraVisibility={toggleCameraVisibility}
             onToggleAutoUpdateChecks={toggleAutoUpdateChecks}
             onDisconnect={disconnect}
           />
           <BottomNav view={view} onViewChange={changeView} />
-        </>
+          </>
+        )
       )}
     </main>
   );
@@ -477,6 +509,7 @@ function Dashboard({
   updateStatus,
   onRefresh,
   onCheckUpdates,
+  onCameraSelect,
   onSettingsPageChange,
   onToggleCameraVisibility,
   onToggleAutoUpdateChecks,
@@ -497,6 +530,7 @@ function Dashboard({
   updateStatus: UpdateStatus;
   onRefresh: () => void;
   onCheckUpdates: () => void;
+  onCameraSelect: (cameraName: string) => void;
   onSettingsPageChange: (page: SettingsPage) => void;
   onToggleCameraVisibility: (cameraName: string, visible: boolean) => void;
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
@@ -554,7 +588,13 @@ function Dashboard({
       <div className={gridClass}>
         {cameras.length > 0 ? (
           cameras.map((camera) => (
-            <CameraCard authToken={session?.authToken} camera={camera} key={camera.name} api={api} />
+            <CameraCard
+              authToken={session?.authToken}
+              camera={camera}
+              key={camera.name}
+              api={api}
+              onOpenCamera={() => onCameraSelect(camera.name)}
+            />
           ))
         ) : (
           <div className="empty-camera-state">
@@ -1205,7 +1245,29 @@ function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: F
   );
 }
 
-function CameraCard({ authToken, camera, api }: { authToken?: string; camera: CameraSummary; api: FrigateApi | null }) {
+type CameraLiveControls = {
+  audioEnabled: boolean;
+  audioLiveFailed: boolean;
+  isLive: boolean;
+  refreshCamera: () => void;
+  toggleAudio: () => void;
+};
+
+function CameraLiveSurface({
+  api,
+  authToken,
+  camera,
+  children,
+  className,
+  title
+}: {
+  api: FrigateApi | null;
+  authToken?: string;
+  camera: CameraSummary;
+  children: (controls: CameraLiveControls) => ReactNode;
+  className: string;
+  title: string;
+}) {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioLiveFailed, setAudioLiveFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1258,90 +1320,386 @@ function CameraCard({ authToken, camera, api }: { authToken?: string; camera: Ca
     setRefreshKey((key) => key + 1);
   }
 
-  const VolumeIcon = audioEnabled && !audioLiveFailed ? Volume2 : VolumeX;
-  const volumeLabel = audioEnabled && !audioLiveFailed ? `Mute ${camera.friendlyName}` : `Unmute ${camera.friendlyName}`;
-
   return (
-    <article className="camera-card" data-testid="camera-card">
+    <>
       {shouldLoadLive && useAudioStream ? (
         <MseLiveVideo
           key={`${playbackUrl}:audio:${refreshKey}`}
-          className="camera-image"
+          className={className}
           authToken={authToken}
           muted={false}
           onError={handleLiveFailed}
           onPlaying={handleLiveLoaded}
-          title={`Live video for ${camera.friendlyName}`}
+          title={title}
           url={playbackUrl}
         />
       ) : null}
       {shouldLoadLive && !useAudioStream && nativeLiveAvailable ? (
         <MjpegLiveVideo
           key={`${playbackUrl}:mjpeg:${refreshKey}`}
-          className="camera-image"
+          className={className}
           authToken={authToken}
           onError={handleLiveFailed}
           onPlaying={handleLiveLoaded}
-          title={`Live video for ${camera.friendlyName}`}
+          title={title}
           url={playbackUrl}
         />
       ) : null}
       {shouldLoadLive && !useAudioStream && !nativeLiveAvailable ? (
         <MseLiveVideo
           key={`${playbackUrl}:mse:${refreshKey}`}
-          className="camera-image"
+          className={className}
           authToken={authToken}
           muted
           onError={handleLiveFailed}
           onPlaying={handleLiveLoaded}
-          title={`Live video for ${camera.friendlyName}`}
+          title={title}
           url={playbackUrl}
         />
       ) : null}
       {!shouldLoadLive ? (
-        <div className="camera-placeholder" />
+        <div aria-label={title} className={`${className} camera-placeholder`} role="img" />
       ) : null}
-      <div className="camera-overlay">
-        <span className="pill">{camera.friendlyName}</span>
-        <span className={isLive ? "age-badge" : "age-badge is-fallback"}>{isLive ? "live" : "image"}</span>
-      </div>
-      <div className="quick-actions">
-        <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={refreshCamera}>
-          <RefreshCcw size={18} />
-        </button>
-        <button className="floating-button" aria-label={`Open ${camera.friendlyName}`}>
-          <Video size={18} />
-        </button>
-        <button
-          aria-label={volumeLabel}
-          aria-pressed={audioEnabled && !audioLiveFailed}
-          className={audioEnabled && !audioLiveFailed ? "floating-button is-active" : "floating-button"}
-          onClick={toggleAudio}
-          title={audioLiveFailed ? "Audio indisponible pour ce flux" : undefined}
-          type="button"
+      {children({ audioEnabled, audioLiveFailed, isLive, refreshCamera, toggleAudio })}
+    </>
+  );
+}
+
+function CameraDetail({
+  api,
+  authToken,
+  camera,
+  events,
+  onBack
+}: {
+  api: FrigateApi | null;
+  authToken?: string;
+  camera: CameraSummary;
+  events: EventSummary[];
+  onBack: () => void;
+}) {
+  const cameraEvents = useMemo(
+    () => events.filter((event) => event.camera === camera.name).slice(0, 7),
+    [camera.name, events]
+  );
+  const anchorDate = getEventDate(cameraEvents[0]);
+
+  return (
+    <section className="camera-detail-view" aria-label={`Camera ${camera.friendlyName}`} data-testid="camera-detail">
+      <div className="detail-live-pane">
+        <CameraLiveSurface
+          api={api}
+          authToken={authToken}
+          camera={camera}
+          className="detail-live-media"
+          title={`Live video for ${camera.friendlyName}`}
         >
-          <VolumeIcon size={18} />
-        </button>
-        <button className="floating-button" aria-label={`Settings ${camera.friendlyName}`}>
-          <Settings size={18} />
-        </button>
+          {({ audioEnabled, audioLiveFailed, isLive, refreshCamera, toggleAudio }) => {
+            const VolumeIcon = audioEnabled && !audioLiveFailed ? Volume2 : VolumeX;
+            const volumeLabel = audioEnabled && !audioLiveFailed ? `Mute ${camera.friendlyName}` : `Unmute ${camera.friendlyName}`;
+
+            return (
+              <>
+                <button className="detail-back-button" aria-label="Back to home" onClick={onBack} type="button">
+                  <ArrowLeft size={28} />
+                </button>
+                <span className="detail-video-clock">{formatCameraTimestamp()}</span>
+                <span className="detail-video-name">{camera.friendlyName}</span>
+                <span className={isLive ? "detail-live-state is-live" : "detail-live-state"}>{isLive ? "live" : "image"}</span>
+                <div className="detail-live-actions">
+                  <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={refreshCamera} type="button">
+                    <RefreshCcw size={18} />
+                  </button>
+                  <button
+                    aria-label={volumeLabel}
+                    aria-pressed={audioEnabled && !audioLiveFailed}
+                    className={audioEnabled && !audioLiveFailed ? "floating-button is-active" : "floating-button"}
+                    onClick={toggleAudio}
+                    title={audioLiveFailed ? "Audio indisponible pour ce flux" : undefined}
+                    type="button"
+                  >
+                    <VolumeIcon size={18} />
+                  </button>
+                </div>
+              </>
+            );
+          }}
+        </CameraLiveSurface>
       </div>
+
+      <div className="detail-toolbar" aria-label="Camera controls">
+        <span className="detail-grip" />
+        <div className="detail-title-row">
+          <span className="detail-status-dot" />
+          <strong>{camera.friendlyName}</strong>
+          <div className="detail-toolbar-actions">
+            <button className="icon-button" aria-label="Share camera" type="button">
+              <Share2 size={21} />
+            </button>
+            <button className="icon-button" aria-label="Snapshot" type="button">
+              <CameraIcon size={21} />
+            </button>
+            <button className="icon-button" aria-label="Grid" type="button">
+              <Grid3X3 size={21} />
+            </button>
+            <button className="icon-button" aria-label="More" type="button">
+              <MoreVertical size={22} />
+            </button>
+            <button className="icon-button" aria-label="Camera settings" type="button">
+              <Settings size={21} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="detail-timeline" aria-label={`Timeline ${camera.friendlyName}`}>
+        <div className="timeline-date-row">
+          <span className="timeline-date-pill">
+            <CalendarDays size={16} />
+            {formatShortTimelineDate(anchorDate)}
+          </span>
+          <span className="timeline-date-pill is-right">{formatLongTimelineDate(anchorDate)}</span>
+        </div>
+
+        <div className="timeline-track">
+          <div className="timeline-scale" aria-hidden="true">
+            <span>{formatTimelineTick(anchorDate, 2)}</span>
+            <span>{formatTimelineTick(anchorDate, 1)}</span>
+            <span>{formatTimelineTick(anchorDate, 0)}</span>
+          </div>
+          <div className="timeline-rail" aria-hidden="true">
+            {cameraEvents.length > 0 ? (
+              cameraEvents.map((event, index) => (
+                <span
+                  className="timeline-rail-segment"
+                  key={event.id}
+                  style={{ "--event-top": timelineEventTop(index) } as CSSProperties}
+                />
+              ))
+            ) : (
+              <span className="timeline-rail-segment is-empty" />
+            )}
+          </div>
+          <div className="timeline-now-line">
+            <span>{cameraEvents[0]?.time ?? "Live"}</span>
+          </div>
+          <div className="timeline-events">
+            {cameraEvents.length > 0 ? (
+              cameraEvents.map((event, index) => (
+                <article
+                  className="timeline-event"
+                  key={event.id}
+                  style={{ "--event-top": timelineEventTop(index) } as CSSProperties}
+                >
+                  <span className="timeline-person-dot" aria-hidden="true" />
+                  <EventThumb api={api} authToken={authToken} className="timeline-thumb" event={event} />
+                  <span className="timeline-event-meta">
+                    <strong>{event.label}</strong>
+                    <small>{formatEventDuration(event)}</small>
+                  </span>
+                </article>
+              ))
+            ) : (
+              <p className="timeline-empty">Aucun evenement recent pour cette camera.</p>
+            )}
+          </div>
+
+          <div className="timeline-left-actions">
+            <button className="floating-button" aria-label="Filter timeline" type="button">
+              <SlidersHorizontal size={18} />
+            </button>
+            <button className="floating-button" aria-label="Download clip" type="button">
+              <Download size={18} />
+            </button>
+            <button className="floating-button is-active" aria-label="Clear selection" type="button">
+              <Eraser size={18} />
+            </button>
+          </div>
+          <div className="timeline-right-actions">
+            <button className="floating-button" aria-label="Search timeline" type="button">
+              <Search size={20} />
+            </button>
+            <button className="floating-button" aria-label="Zoom timeline" type="button">
+              <ZoomIn size={20} />
+            </button>
+            <button className="floating-button" aria-label="Timeline menu" type="button">
+              <List size={22} />
+            </button>
+            <button className="primary-fab is-muted" aria-label="Talk muted" type="button">
+              <MicOff size={27} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CameraCard({
+  authToken,
+  camera,
+  api,
+  onOpenCamera
+}: {
+  authToken?: string;
+  camera: CameraSummary;
+  api: FrigateApi | null;
+  onOpenCamera: () => void;
+}) {
+  function handleCardKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpenCamera();
+    }
+  }
+
+  return (
+    <article
+      aria-label={`Open ${camera.friendlyName}`}
+      className="camera-card"
+      data-testid="camera-card"
+      onClick={onOpenCamera}
+      onKeyDown={handleCardKeyDown}
+      role="button"
+      tabIndex={0}
+    >
+      <CameraLiveSurface
+        api={api}
+        authToken={authToken}
+        camera={camera}
+        className="camera-image"
+        title={`Live video for ${camera.friendlyName}`}
+      >
+        {({ audioEnabled, audioLiveFailed, isLive, refreshCamera, toggleAudio }) => {
+          const VolumeIcon = audioEnabled && !audioLiveFailed ? Volume2 : VolumeX;
+          const volumeLabel = audioEnabled && !audioLiveFailed ? `Mute ${camera.friendlyName}` : `Unmute ${camera.friendlyName}`;
+
+          return (
+            <>
+              <div className="camera-overlay">
+                <span className="pill">{camera.friendlyName}</span>
+                <span className={isLive ? "age-badge" : "age-badge is-fallback"}>{isLive ? "live" : "image"}</span>
+              </div>
+              <div className="quick-actions" onClick={(event) => event.stopPropagation()}>
+                <button className="floating-button" aria-label={`Refresh ${camera.friendlyName}`} onClick={refreshCamera} type="button">
+                  <RefreshCcw size={18} />
+                </button>
+                <button className="floating-button" aria-label={`Open ${camera.friendlyName}`} onClick={onOpenCamera} type="button">
+                  <Video size={18} />
+                </button>
+                <button
+                  aria-label={volumeLabel}
+                  aria-pressed={audioEnabled && !audioLiveFailed}
+                  className={audioEnabled && !audioLiveFailed ? "floating-button is-active" : "floating-button"}
+                  onClick={toggleAudio}
+                  title={audioLiveFailed ? "Audio indisponible pour ce flux" : undefined}
+                  type="button"
+                >
+                  <VolumeIcon size={18} />
+                </button>
+                <button className="floating-button" aria-label={`Settings ${camera.friendlyName}`} type="button">
+                  <Settings size={18} />
+                </button>
+              </div>
+            </>
+          );
+        }}
+      </CameraLiveSurface>
     </article>
   );
 }
 
-function EventThumb({ event, api, authToken }: { event: EventSummary; api: FrigateApi | null; authToken?: string }) {
+function EventThumb({
+  api,
+  authToken,
+  className = "event-thumb",
+  event
+}: {
+  api: FrigateApi | null;
+  authToken?: string;
+  className?: string;
+  event: EventSummary;
+}) {
   return (
     <AuthenticatedImage
       alt={`${event.label} on ${event.camera}`}
       api={api}
       authToken={authToken}
-      className="event-thumb"
+      className={className}
       fallbackUrl={event.previewUrl ? event.thumbnailUrl : undefined}
-      fallback={<div className="event-thumb event-thumb-empty" />}
+      fallback={<div className={`${className} event-thumb-empty`} />}
       url={event.previewUrl || event.thumbnailUrl}
     />
   );
+}
+
+function getEventDate(event?: EventSummary): Date {
+  if (event?.startTime) {
+    return new Date(event.startTime * 1000);
+  }
+
+  return new Date();
+}
+
+function formatCameraTimestamp(date = new Date()): string {
+  const dateText = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+  const timeText = new Intl.DateTimeFormat("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(date);
+  const dayText = new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(date).replace(".", "").toUpperCase();
+
+  return `${dateText} ${timeText} ${dayText}`;
+}
+
+function formatShortTimelineDate(date: Date): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short"
+  })
+    .format(date)
+    .replace(".", "");
+}
+
+function formatLongTimelineDate(date: Date): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    weekday: "short",
+    year: "2-digit"
+  })
+    .format(date)
+    .replace(".", "");
+}
+
+function formatTimelineTick(anchorDate: Date, minutesAgo: number): string {
+  const tickDate = new Date(anchorDate.getTime() - minutesAgo * 60_000);
+  return new Intl.DateTimeFormat("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(tickDate);
+}
+
+function formatEventDuration(event: EventSummary): string {
+  if (!event.startTime || !event.endTime || event.endTime <= event.startTime) {
+    return "apercu";
+  }
+
+  const seconds = Math.max(1, Math.round(event.endTime - event.startTime));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  return `${Math.round(seconds / 60)}min`;
+}
+
+function timelineEventTop(index: number): string {
+  return `${Math.min(84, 22 + index * 15)}%`;
 }
 
 function AuthenticatedImage({
