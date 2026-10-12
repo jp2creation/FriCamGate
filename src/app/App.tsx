@@ -1,26 +1,45 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  Activity,
   AlertCircle,
+  ArrowLeft,
   Bell,
+  BellRing,
+  Bot,
+  BrainCircuit,
   CheckCircle2,
   ChevronRight,
-  Code2,
+  ChevronDown,
+  Database,
+  Eye,
   ExternalLink,
-  FileCog,
-  FileText,
   Grid3X3,
   Home,
   Image,
   Info,
+  Languages,
   Loader2,
+  Map,
+  MapPin,
+  Mic,
   PackageCheck,
+  Palette,
+  PanelTop,
+  Plus,
   Power,
+  Puzzle,
   RefreshCcw,
+  RotateCw,
+  Rows3,
+  ScanFace,
   Server,
+  ServerCog,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
-  Terminal,
-  Video
+  UserCircle,
+  Video,
+  Workflow
 } from "lucide-react";
 import { APP_NAME, APP_VERSION } from "./appInfo";
 import {
@@ -70,6 +89,7 @@ const mockEvents: EventSummary[] = [
 
 type View = "home" | "cameras" | "grid" | "events" | "settings";
 type ConnectionStatus = "idle" | "restoring" | "connecting" | "ready" | "error";
+type SettingsPage = "main" | "account" | "appearance" | "permissions" | "notifications" | "faces";
 
 function loadAutoUpdateChecks() {
   try {
@@ -88,6 +108,7 @@ export function App() {
   const [status, setStatus] = useState<ConnectionStatus>("restoring");
   const [message, setMessage] = useState("Connexion au coffre local...");
   const [view, setView] = useState<View>("home");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>("main");
   const [cameras, setCameras] = useState<CameraSummary[]>(mockCameras);
   const [events, setEvents] = useState<EventSummary[]>(mockEvents);
   const [autoUpdateChecks, setAutoUpdateChecks] = useState(loadAutoUpdateChecks);
@@ -202,6 +223,7 @@ export function App() {
     setSession(null);
     setStatus("idle");
     setView("home");
+    setSettingsPage("main");
     setCameras(mockCameras);
     setEvents(mockEvents);
     setMessage("Session effacee.");
@@ -235,20 +257,54 @@ export function App() {
     }
   }
 
+  function changeView(nextView: View) {
+    setView(nextView);
+    if (nextView === "settings") {
+      setSettingsPage("main");
+    }
+  }
+
+  function handleSettingsBack() {
+    if (settingsPage === "main") {
+      setView("home");
+      return;
+    }
+
+    setSettingsPage("main");
+  }
+
+  const showSettingsHeader = session && status === "ready" && view === "settings" && settingsPage !== "main";
+
   return (
     <main className="app-shell">
-      <header className="app-header">
-        <div className="brand">
-          <img src={logoUrl} alt="FriCamGate logo" className="brand-logo" />
-          <div>
-            <p className="eyebrow">Client Frigate</p>
-            <h1>FriCamGate</h1>
-          </div>
-        </div>
-        <button className="icon-button" aria-label="Notifications">
-          <Bell size={22} />
-        </button>
-      </header>
+      {view === "settings" && settingsPage === "main" && session ? null : (
+        <header className={showSettingsHeader ? "app-header is-title" : "app-header"}>
+          {showSettingsHeader ? (
+            <>
+              <button className="icon-button" aria-label="Back" onClick={handleSettingsBack} type="button">
+                <ArrowLeft size={26} />
+              </button>
+              <h1 className="screen-title">{getSettingsTitle(settingsPage)}</h1>
+              <button className="icon-button" aria-label="Notifications" type="button">
+                <Bell size={22} />
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="brand">
+                <img src={logoUrl} alt="FriCamGate logo" className="brand-logo" />
+                <div>
+                  <p className="eyebrow">Client Frigate</p>
+                  <h1>FriCamGate</h1>
+                </div>
+              </div>
+              <button className="icon-button" aria-label="Notifications" type="button">
+                <Bell size={22} />
+              </button>
+            </>
+          )}
+        </header>
+      )}
 
       {!session && status !== "ready" ? (
         <section className="setup-panel" aria-label="Server setup">
@@ -304,6 +360,7 @@ export function App() {
           <Dashboard
             view={view}
             session={session}
+            settingsPage={settingsPage}
             cameras={cameras}
             events={events}
             message={message}
@@ -314,19 +371,34 @@ export function App() {
             updateStatus={updateStatus}
             onRefresh={() => refreshDashboard()}
             onCheckUpdates={checkUpdates}
+            onSettingsPageChange={setSettingsPage}
             onToggleAutoUpdateChecks={toggleAutoUpdateChecks}
             onDisconnect={disconnect}
           />
-          <BottomNav view={view} onViewChange={setView} />
+          <BottomNav view={view} onViewChange={changeView} />
         </>
       )}
     </main>
   );
 }
 
+function getSettingsTitle(page: SettingsPage) {
+  const titles: Record<SettingsPage, string> = {
+    main: "Settings",
+    account: "Account",
+    appearance: "Appearance",
+    permissions: "Permissions",
+    notifications: "Notifications",
+    faces: "Faces"
+  };
+
+  return titles[page];
+}
+
 function Dashboard({
   view,
   session,
+  settingsPage,
   cameras,
   events,
   message,
@@ -337,11 +409,13 @@ function Dashboard({
   updateStatus,
   onRefresh,
   onCheckUpdates,
+  onSettingsPageChange,
   onToggleAutoUpdateChecks,
   onDisconnect
 }: {
   view: View;
   session: StoredSession | null;
+  settingsPage: SettingsPage;
   cameras: CameraSummary[];
   events: EventSummary[];
   message: string;
@@ -352,42 +426,26 @@ function Dashboard({
   updateStatus: UpdateStatus;
   onRefresh: () => void;
   onCheckUpdates: () => void;
+  onSettingsPageChange: (page: SettingsPage) => void;
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
   onDisconnect: () => void;
 }) {
   if (view === "settings") {
-    const updateSummary = updateResult?.message ?? "Recherche de mise a jour";
-
     return (
-      <section className="settings-panel" aria-label="Reglages">
-        <h2>Reglages</h2>
-
-        <div className="settings-list">
-          <SettingsRow icon={FileCog} label="Configuration" detail={session?.baseUrl ?? "-"} />
-          <SettingsRow icon={FileText} label="Logs" detail={message} />
-          <SettingsRow icon={Code2} label="Console" detail={session?.role ?? "viewer"} />
-          <SettingsRow icon={Terminal} label="Terminal" detail={session?.username ?? "-"} />
-          <SettingsRow icon={PackageCheck} label="Updates" detail={updateSummary} onClick={onCheckUpdates} />
-          <SettingsRow icon={SlidersHorizontal} label="Settings" detail={`${APP_NAME} ${appVersion}`} />
-        </div>
-
-        <UpdateCard
-          autoUpdateChecks={autoUpdateChecks}
-          currentVersion={appVersion}
-          result={updateResult}
-          status={updateStatus}
-          onCheckUpdates={onCheckUpdates}
-          onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
-        />
-
-        <p className="settings-group-title">Actions</p>
-        <div className="settings-list">
-          <SettingsRow icon={Info} label="About" detail={`${APP_NAME} ${appVersion}`} />
-          <SettingsRow icon={RefreshCcw} label="Reload" detail="Actualiser cameras et evenements" onClick={onRefresh} />
-          <SettingsRow icon={Server} label="Switch server" detail={session?.baseUrl ?? "-"} onClick={onDisconnect} />
-          <SettingsRow danger icon={Power} label="Logout" detail="Effacer la session locale" onClick={onDisconnect} />
-        </div>
-      </section>
+      <SettingsScreen
+        appVersion={appVersion}
+        autoUpdateChecks={autoUpdateChecks}
+        message={message}
+        page={settingsPage}
+        session={session}
+        updateResult={updateResult}
+        updateStatus={updateStatus}
+        onCheckUpdates={onCheckUpdates}
+        onDisconnect={onDisconnect}
+        onRefresh={onRefresh}
+        onSettingsPageChange={onSettingsPageChange}
+        onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
+      />
     );
   }
 
@@ -427,6 +485,302 @@ function Dashboard({
   );
 }
 
+function SettingsScreen({
+  appVersion,
+  autoUpdateChecks,
+  message,
+  page,
+  session,
+  updateResult,
+  updateStatus,
+  onCheckUpdates,
+  onDisconnect,
+  onRefresh,
+  onSettingsPageChange,
+  onToggleAutoUpdateChecks
+}: {
+  appVersion: string;
+  autoUpdateChecks: boolean;
+  message: string;
+  page: SettingsPage;
+  session: StoredSession | null;
+  updateResult: UpdateCheckResult | null;
+  updateStatus: UpdateStatus;
+  onCheckUpdates: () => void;
+  onDisconnect: () => void;
+  onRefresh: () => void;
+  onSettingsPageChange: (page: SettingsPage) => void;
+  onToggleAutoUpdateChecks: (enabled: boolean) => void;
+}) {
+  if (page === "account") {
+    return <AccountSettings appVersion={appVersion} session={session} />;
+  }
+
+  if (page === "appearance") {
+    return <AppearanceSettings />;
+  }
+
+  if (page === "permissions") {
+    return <PermissionsSettings />;
+  }
+
+  if (page === "notifications") {
+    return <NotificationsSettings />;
+  }
+
+  if (page === "faces") {
+    return <FacesSettings />;
+  }
+
+  return (
+    <SettingsHome
+      appVersion={appVersion}
+      autoUpdateChecks={autoUpdateChecks}
+      message={message}
+      session={session}
+      updateResult={updateResult}
+      updateStatus={updateStatus}
+      onCheckUpdates={onCheckUpdates}
+      onDisconnect={onDisconnect}
+      onRefresh={onRefresh}
+      onSettingsPageChange={onSettingsPageChange}
+      onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
+    />
+  );
+}
+
+function SettingsHome({
+  appVersion,
+  autoUpdateChecks,
+  message,
+  session,
+  updateResult,
+  updateStatus,
+  onCheckUpdates,
+  onDisconnect,
+  onRefresh,
+  onSettingsPageChange,
+  onToggleAutoUpdateChecks
+}: {
+  appVersion: string;
+  autoUpdateChecks: boolean;
+  message: string;
+  session: StoredSession | null;
+  updateResult: UpdateCheckResult | null;
+  updateStatus: UpdateStatus;
+  onCheckUpdates: () => void;
+  onDisconnect: () => void;
+  onRefresh: () => void;
+  onSettingsPageChange: (page: SettingsPage) => void;
+  onToggleAutoUpdateChecks: (enabled: boolean) => void;
+}) {
+  const updateSummary = updateResult?.message ?? "Recherche de mise a jour";
+
+  return (
+    <section className="settings-panel settings-home" aria-label="Reglages">
+      <div className="profile-hero">
+        <img src={logoUrl} alt="FriCamGate logo" />
+        <strong>{session?.username ?? "Utilisateur"}</strong>
+        <span>{session?.role ?? "viewer"}</span>
+      </div>
+
+      <SettingsSection title="Manage">
+        <SettingsRow icon={Bot} label="Assistant" detail="Automatisations et aide locale" />
+        <SettingsRow icon={Activity} label="Sensors" detail="Etats et capteurs Frigate" />
+        <SettingsRow icon={Map} label="Floor Plan" detail="Plan et zones cameras" />
+        <SettingsRow icon={ScanFace} label="Faces" detail="Visages connus et inconnus" onClick={() => onSettingsPageChange("faces")} />
+        <SettingsRow icon={BrainCircuit} label="Training" detail="Reconnaissance et apprentissage" />
+        <SettingsRow icon={Puzzle} label="Plugins" detail="Extensions futures" />
+        <SettingsRow icon={Workflow} label="Automations" detail="Regles et reactions" />
+        <SettingsRow icon={ServerCog} label="Instances" detail={session?.baseUrl ?? "-"} />
+      </SettingsSection>
+
+      <SettingsSection title="System">
+        <SettingsRow icon={UserCircle} label="Account" detail={session?.username ?? "-"} onClick={() => onSettingsPageChange("account")} />
+        <SettingsRow icon={Palette} label="Appearance" detail="Theme, interface, navigation" onClick={() => onSettingsPageChange("appearance")} />
+        <SettingsRow icon={BellRing} label="Notifications" detail="Alertes et heures silencieuses" onClick={() => onSettingsPageChange("notifications")} />
+        <SettingsRow icon={ShieldCheck} label="Permissions" detail="Micro, localisation, notifications" onClick={() => onSettingsPageChange("permissions")} />
+        <SettingsRow icon={PackageCheck} label="Updates" detail={updateSummary} onClick={onCheckUpdates} />
+      </SettingsSection>
+
+      <UpdateCard
+        autoUpdateChecks={autoUpdateChecks}
+        currentVersion={appVersion}
+        result={updateResult}
+        status={updateStatus}
+        onCheckUpdates={onCheckUpdates}
+        onToggleAutoUpdateChecks={onToggleAutoUpdateChecks}
+      />
+
+      <SettingsSection title="Actions">
+        <SettingsRow icon={Info} label="About" detail={`${APP_NAME} ${appVersion}`} />
+        <SettingsRow icon={RefreshCcw} label="Reload" detail={message} onClick={onRefresh} />
+        <SettingsRow icon={Server} label="Switch server" detail={session?.baseUrl ?? "-"} onClick={onDisconnect} />
+        <SettingsRow danger icon={Power} label="Logout" detail="Effacer la session locale" onClick={onDisconnect} />
+      </SettingsSection>
+    </section>
+  );
+}
+
+function AccountSettings({ appVersion, session }: { appVersion: string; session: StoredSession | null }) {
+  return (
+    <section className="settings-panel settings-page" aria-label="Account">
+      <SettingsSection title="Profile">
+        <div className="settings-card profile-card">
+          <img src={logoUrl} alt="FriCamGate logo" className="profile-card-logo" />
+          <TextField label="Username" defaultValue={session?.username ?? ""} />
+          <button className="primary-button compact-action" type="button">
+            Update profile
+          </button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Password">
+        <div className="settings-card form-card">
+          <PasswordField label="New password" />
+          <PasswordField label="Confirm new password" />
+          <button className="primary-button compact-action" type="button">
+            Change password
+          </button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Two-Factor Authentication">
+        <div className="settings-card text-card">
+          <h3>Two-Factor Authentication</h3>
+          <p>Add an extra layer of security to your account by enabling two-factor authentication.</p>
+          <small>{APP_NAME} {appVersion}</small>
+        </div>
+      </SettingsSection>
+    </section>
+  );
+}
+
+function AppearanceSettings() {
+  return (
+    <section className="settings-panel settings-page" aria-label="Appearance">
+      <SettingsSection title="Theme">
+        <div className="settings-card form-card">
+          <SelectField icon={Palette} label="Theme" value="dark" />
+          <SwitchItem checked label="System preference" text="System setting for the user interface" />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Locale">
+        <div className="settings-card form-card">
+          <SelectField icon={Languages} label="Language" value="System default" />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Interface">
+        <div className="settings-card form-card">
+          <SelectField icon={PanelTop} label="Start page" value="Home" text="The page shown after login and when opening FriCamGate" />
+          <SelectField icon={SlidersHorizontal} label="Default settings page" value="Account" text="The default page shown when opening settings" />
+          <SelectField icon={Rows3} label="Table rows per page" value="15" text="How many rows a table shows per page" />
+          <SwitchItem checked label="Keep navbar collapsed" text="Keeps the navbar collapsed, even on larger screens" />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Navigation">
+        <div className="settings-card stacked-card">
+          <SwitchItem label="Settings pages in the navigation" text="Shows the settings pages as their own group in the sidebar." />
+          <SwitchItem label="Main collapsible" text="The Main group can be collapsed in the sidebar." />
+          <SwitchItem label="Manage collapsible" text="The Manage group can be collapsed in the sidebar." />
+          <SwitchItem checked label="System collapsible" text="The System group can be collapsed in the sidebar." />
+        </div>
+      </SettingsSection>
+    </section>
+  );
+}
+
+function PermissionsSettings() {
+  return (
+    <section className="settings-panel settings-page" aria-label="Permissions">
+      <SettingsSection title="App Permissions">
+        <div className="settings-card permission-card">
+          <p className="lead-text">What this device allows FriCamGate to use. These are system permissions of your device, not server settings.</p>
+          <PermissionRow icon={Mic} label="Microphone" text="Needed for two-way audio." state="Not asked yet" action="Request" />
+          <PermissionRow icon={MapPin} label="Location" text="Needed for location-based automations." state="Not asked yet" action="Request" />
+          <PermissionRow icon={BellRing} label="Notifications" text="Needed to show notifications on this device." state="Allowed" />
+        </div>
+      </SettingsSection>
+    </section>
+  );
+}
+
+function NotificationsSettings() {
+  return (
+    <section className="settings-panel settings-page" aria-label="Notifications">
+      <SettingsSection title="General">
+        <div className="settings-card notification-card">
+          <p className="lead-text">
+            The master switch enables or disables every notification at once. Quiet Hours suppress external delivery during the chosen daily window.
+          </p>
+          <SwitchItem checked label="Enable Notifications" text="Turn this on to start receiving notifications for your account." />
+          <InlineActionRow label="This device" text="This device is set up to receive notifications." action="Re-sync" />
+          <SwitchItem label="Quiet Hours" text="Suppress non-critical notifications during a daily window." />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="System Notifications">
+        <div className="settings-card notification-card">
+          <p className="lead-text">
+            Built-in events that FriCamGate emits: lifecycle and update notices. Each entry can be toggled individually.
+          </p>
+          <SwitchItem label="Plugin updates available" text="When an installed extension has a new release." />
+          <SwitchItem checked label="Server became available" text="When your Frigate server reconnects." />
+          <SwitchItem label="Camera went offline" text="When a camera stops responding." />
+        </div>
+      </SettingsSection>
+    </section>
+  );
+}
+
+function FacesSettings() {
+  return (
+    <section className="settings-panel settings-page faces-page" aria-label="Faces">
+      <div className="faces-section-title">
+        <span>Known Faces</span>
+        <strong>0</strong>
+      </div>
+      <div className="faces-grid">
+        <FaceCard name="Visage 1" images="0 images" />
+        <FaceCard name="Visage 2" images="0 images" />
+      </div>
+
+      <div className="faces-section-title">
+        <span>Unknown Faces</span>
+        <strong>0</strong>
+      </div>
+      <p className="muted">No unknown faces detected.</p>
+
+      <div className="faces-floating-actions">
+        <button className="faces-reembed-button" type="button">
+          <Database size={18} />
+          Re-embed faces
+        </button>
+        <div className="faces-action-stack">
+          <button className="floating-button" aria-label="Refresh faces" type="button">
+            <RotateCw size={21} />
+          </button>
+          <button className="primary-fab" aria-label="Add face" type="button">
+            <Plus size={30} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <div className="settings-section">
+      <p className="settings-group-title">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 function SettingsRow({
   danger = false,
   detail,
@@ -463,6 +817,132 @@ function SettingsRow({
   }
 
   return <div className={className}>{content}</div>;
+}
+
+function TextField({ defaultValue = "", label }: { defaultValue?: string; label: string }) {
+  return (
+    <label className="settings-field">
+      <span>{label}</span>
+      <input defaultValue={defaultValue} />
+    </label>
+  );
+}
+
+function PasswordField({ label }: { label: string }) {
+  return (
+    <label className="settings-field password-field">
+      <span>{label}</span>
+      <span className="password-input-shell">
+        <input type="password" />
+        <Eye size={18} />
+      </span>
+    </label>
+  );
+}
+
+function SelectField({
+  icon: Icon,
+  label,
+  text,
+  value
+}: {
+  icon: typeof Home;
+  label: string;
+  text?: string;
+  value: string;
+}) {
+  return (
+    <div className="settings-select">
+      <span className="settings-select-label">{label}</span>
+      <button className="settings-select-button" type="button">
+        <Icon size={18} />
+        <strong>{value}</strong>
+        <ChevronDown size={22} />
+      </button>
+      {text ? <p>{text}</p> : null}
+    </div>
+  );
+}
+
+function SwitchItem({
+  checked,
+  label,
+  text
+}: {
+  checked?: boolean;
+  label: string;
+  text: string;
+}) {
+  return (
+    <label className="switch-item">
+      <span>
+        <strong>{label}</strong>
+        <small>{text}</small>
+      </span>
+      <input type="checkbox" defaultChecked={checked} />
+      <span className="switch-control" aria-hidden="true" />
+    </label>
+  );
+}
+
+function PermissionRow({
+  action,
+  icon: Icon,
+  label,
+  state,
+  text
+}: {
+  action?: string;
+  icon: typeof Home;
+  label: string;
+  state: string;
+  text: string;
+}) {
+  const isAllowed = state === "Allowed";
+
+  return (
+    <div className="permission-row">
+      <Icon size={20} />
+      <div>
+        <strong>{label}</strong>
+        <small>{text}</small>
+      </div>
+      <span className={isAllowed ? "permission-badge is-allowed" : "permission-badge"}>{state}</span>
+      {action ? (
+        <button className="primary-button permission-action" type="button">
+          {action}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function InlineActionRow({ action, label, text }: { action: string; label: string; text: string }) {
+  return (
+    <div className="inline-action-row">
+      <span>
+        <strong>{label}</strong>
+        <small>{text}</small>
+      </span>
+      <button className="secondary-button inline-action" type="button">
+        {action}
+      </button>
+    </div>
+  );
+}
+
+function FaceCard({ images, name }: { images: string; name: string }) {
+  return (
+    <article className="face-card">
+      <div className="face-image">
+        <UserCircle size={58} />
+      </div>
+      <div>
+        <strong>{name}</strong>
+        <span>{images}</span>
+      </div>
+    </article>
+  );
 }
 
 function UpdateCard({

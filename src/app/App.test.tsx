@@ -92,7 +92,7 @@ describe("App", () => {
     });
   });
 
-  it("renders camera.ui style settings rows and update controls", async () => {
+  it("renders camera.ui style settings rows and subpages", async () => {
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -140,10 +140,19 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /^Settings$/i }));
 
-    expect(await screen.findByText("Configuration")).toBeInTheDocument();
+    expect(await screen.findByText("Assistant")).toBeInTheDocument();
+    expect(screen.getByText("Faces")).toBeInTheDocument();
+    expect(screen.getByText("Appearance")).toBeInTheDocument();
+    expect(screen.getByText("Permissions")).toBeInTheDocument();
     expect(screen.getByText("Updates")).toBeInTheDocument();
     expect(screen.getByText("Switch server")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /recherche automatique/i })).toBeChecked();
     expect(screen.getByRole("button", { name: /verifier/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Appearance/i }));
+
+    expect(await screen.findByRole("heading", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.getByText(/table rows per page/i)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /System collapsible/i })).toBeChecked();
   });
 });
