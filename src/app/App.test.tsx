@@ -60,7 +60,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
   });
 
-  it("shows a camera placeholder when MSE video is unavailable", async () => {
+  it("shows the latest camera frame while live video is unavailable", async () => {
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -86,6 +86,15 @@ describe("App", () => {
         });
       }
 
+      if (url.includes("/api/devant/latest.jpg")) {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+          url,
+          data: "ZGVm"
+        });
+      }
+
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
 
@@ -94,7 +103,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("camera-card")).toBeInTheDocument();
     });
-    expect(screen.queryByAltText("Live frame for Devant")).not.toBeInTheDocument();
+    expect(await screen.findByAltText("Latest frame for Devant")).toBeInTheDocument();
     expect(screen.queryByText("live")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.request).toHaveBeenCalledWith(
@@ -238,6 +247,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(sockets).toHaveLength(2);
     });
+    expect(await screen.findByAltText("Latest frame for Devant")).toBeInTheDocument();
     expect(sockets[0]?.url).toBe("ws://frigate.example.com/live/mse/api/ws?src=devant_sub");
     sockets[0]?.open();
     expect(sockets[0]?.send).toHaveBeenCalledWith(expect.stringContaining('"type":"mse"'));

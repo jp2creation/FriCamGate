@@ -1275,11 +1275,14 @@ function CameraLiveSurface({
   const [liveLoaded, setLiveLoaded] = useState(false);
   const liveStreamUrl = camera.liveStreamUrl || api?.liveStreamUrl(camera.name) || "";
   const audioStreamUrl = camera.audioStreamUrl || liveStreamUrl;
+  const latestFrameUrl = camera.latestFrameUrl || api?.latestFrameUrl(camera.name) || "";
   const nativeLiveAvailable = canUseNativeLive(authToken);
   const useAudioStream = audioEnabled && !audioLiveFailed && Boolean(audioStreamUrl);
   const playbackUrl = useAudioStream ? audioStreamUrl : liveStreamUrl;
   const shouldLoadLive = Boolean(playbackUrl) && !liveFailed;
   const isLive = shouldLoadLive && liveLoaded;
+  const fallbackClassName = `${className} live-fallback-frame ${isLive ? "is-hidden" : ""}`.trim();
+  const streamClassName = `${className} live-stream-media ${isLive ? "is-visible" : ""}`.trim();
 
   const handleLiveFailed = useCallback(() => {
     if (useAudioStream) {
@@ -1322,10 +1325,20 @@ function CameraLiveSurface({
 
   return (
     <>
+      {latestFrameUrl ? (
+        <AuthenticatedImage
+          alt={`Latest frame for ${camera.friendlyName}`}
+          api={api}
+          authToken={authToken}
+          className={fallbackClassName}
+          fallback={<div aria-label={`Latest frame for ${camera.friendlyName}`} className={`${fallbackClassName} camera-placeholder`} role="img" />}
+          url={latestFrameUrl}
+        />
+      ) : null}
       {shouldLoadLive && useAudioStream ? (
         <MseLiveVideo
           key={`${playbackUrl}:audio:${refreshKey}`}
-          className={className}
+          className={streamClassName}
           authToken={authToken}
           muted={false}
           onError={handleLiveFailed}
@@ -1337,7 +1350,7 @@ function CameraLiveSurface({
       {shouldLoadLive && !useAudioStream && nativeLiveAvailable ? (
         <MjpegLiveVideo
           key={`${playbackUrl}:mjpeg:${refreshKey}`}
-          className={className}
+          className={streamClassName}
           authToken={authToken}
           onError={handleLiveFailed}
           onPlaying={handleLiveLoaded}
@@ -1348,7 +1361,7 @@ function CameraLiveSurface({
       {shouldLoadLive && !useAudioStream && !nativeLiveAvailable ? (
         <MseLiveVideo
           key={`${playbackUrl}:mse:${refreshKey}`}
-          className={className}
+          className={streamClassName}
           authToken={authToken}
           muted
           onError={handleLiveFailed}
@@ -1357,7 +1370,7 @@ function CameraLiveSurface({
           url={playbackUrl}
         />
       ) : null}
-      {!shouldLoadLive ? (
+      {!latestFrameUrl && !shouldLoadLive ? (
         <div aria-label={title} className={`${className} camera-placeholder`} role="img" />
       ) : null}
       {children({ audioEnabled, audioLiveFailed, isLive, refreshCamera, toggleAudio })}

@@ -316,6 +316,32 @@ input:focus {
   object-fit: cover;
 }
 
+.live-fallback-frame,
+.live-stream-media {
+  position: absolute;
+  inset: 0;
+}
+
+.live-fallback-frame {
+  z-index: 0;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+
+.live-fallback-frame.is-hidden {
+  opacity: 0;
+}
+
+.live-stream-media {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.live-stream-media.is-visible {
+  opacity: 1;
+}
+
 .camera-placeholder {
   background:
     linear-gradient(120deg, rgba(255, 36, 93, 0.22), transparent 36%),
