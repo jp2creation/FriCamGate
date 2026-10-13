@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
+import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.Context
 import android.graphics.drawable.Drawable
@@ -52,6 +53,7 @@ import org.json.JSONObject
 import pl.droidsonroids.gif.GifDrawable
 import java.io.IOException
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -215,7 +217,11 @@ class MainActivity : AppCompatActivity() {
         setShell(content, Tab.Home)
     }
 
-    private fun renderCameraDetail(camera: NativeCamera) {
+    private fun renderCameraDetail(
+        camera: NativeCamera,
+        timelineDayMillis: Long = System.currentTimeMillis(),
+        timelineEvents: List<NativeEvent>? = null
+    ) {
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
         releasePlayer()
@@ -254,7 +260,10 @@ class MainActivity : AppCompatActivity() {
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cameraVideoHeight()))
         body.addView(cameraToolbar(camera))
-        body.addView(cameraTimeline(camera, liveImage, playerView, live), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        body.addView(
+            cameraTimeline(camera, liveImage, playerView, live, timelineDayMillis, timelineEvents),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        )
         setShell(body, Tab.Cameras, showHeader = false)
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
@@ -494,48 +503,129 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun cameraTimeline(camera: NativeCamera, preview: ImageView, playerView: PlayerView, liveBadge: View): View {
+    private fun cameraTimeline(
+        camera: NativeCamera,
+        preview: ImageView,
+        playerView: PlayerView,
+        liveBadge: View,
+        timelineDayMillis: Long,
+        timelineEvents: List<NativeEvent>?
+    ): View {
         val activeSession = session
         val activeApi = api
-        val cameraEvents = events.filter { it.camera == camera.name }
+        val cameraEvents = (timelineEvents ?: events)
+            .filter { it.camera == camera.name }
+            .filter { it.startTime != null }
+            .sortedByDescending { it.startTime ?: 0.0 }
+        val selectedToday = isSameLocalDay(timelineDayMillis, System.currentTimeMillis())
+        val selectedDayStart = startOfLocalDayMillis(timelineDayMillis)
+        val selectedDayEnd = selectedDayStart + TimeUnit.DAYS.toMillis(1) - 1000L
+        val zoomLevels = intArrayOf(18, 34, 62, 100)
+        var zoomIndex = prefs.getInt("timelineZoomIndex", 1).coerceIn(0, zoomLevels.lastIndex)
         val frame = FrameLayout(this).apply { setBackgroundColor(Palette.backgroundAlt) }
         val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
             clipToPadding = false
         }
-        val column = vertical().apply { setPadding(0, 0, 0, dp(210)) }
-        val rowHeight = dp(136)
+        val column = FrameLayout(this)
         val topSpacer = dp(112)
-        column.addView(View(this), LinearLayout.LayoutParams(1, topSpacer))
-        scroll.addView(column)
+        val bottomSpacer = dp(220)
+        val railX = dp(164)
+        val pxPerMinute = dp(zoomLevels[zoomIndex])
+        val anchorSec = timelineAnchorSeconds(cameraEvents, selectedToday, selectedDayEnd)
+        val oldestEventSec = cameraEvents.mapNotNull { it.startTime }.minOrNull() ?: (anchorSec - 1800.0)
+        val spanMinutes = maxOf(18.0, (anchorSec - oldestEventSec) / 60.0 + 6.0)
+        val timelineHeight = topSpacer + bottomSpacer + (spanMinutes * pxPerMinute).toInt()
+        scroll.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, timelineHeight))
+
+        fun yForTime(timeSec: Double): Int {
+            val minutes = ((anchorSec - timeSec) / 60.0).coerceAtLeast(0.0)
+            return topSpacer + (minutes * pxPerMinute).toInt()
+        }
+
+        val tickStepMinutes = when (zoomIndex) {
+            0 -> 15
+            1 -> 5
+            2 -> 2
+            else -> 1
+        }
+        val tickCount = (spanMinutes / tickStepMinutes).toInt() + 1
+        repeat(tickCount) { tick ->
+            val minutesFromAnchor = tick * tickStepMinutes
+            val y = topSpacer + minutesFromAnchor * pxPerMinute
+            val timeSec = anchorSec - minutesFromAnchor * 60.0
+            val isHour = minutesFromAnchor % 60 == 0
+            val isMajor = isHour || minutesFromAnchor % (tickStepMinutes * 3) == 0
+            column.addView(View(this).apply {
+                setBackgroundColor(if (isMajor) 0xff585860.toInt() else 0xff303037.toInt())
+            }, FrameLayout.LayoutParams(dp(if (isMajor) 22 else 8), dp(1), Gravity.START or Gravity.TOP).apply {
+                leftMargin = dp(4)
+                topMargin = y
+            })
+            if (isMajor) {
+                column.addView(label(formatTimelineTime(timeSec), 12, 0xff66666e.toInt()), FrameLayout.LayoutParams(dp(76), dp(24), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = dp(28)
+                    topMargin = y - dp(11)
+                })
+            }
+        }
+        column.addView(View(this).apply {
+            background = rounded(0x36ff2d63, 4)
+        }, FrameLayout.LayoutParams(dp(5), timelineHeight - topSpacer, Gravity.TOP or Gravity.START).apply {
+            leftMargin = railX - dp(2)
+            topMargin = topSpacer
+        })
+
         if (cameraEvents.isEmpty()) {
             column.addView(emptyMessage("Aucune video recente pour cette camera.").apply {
                 setPadding(dp(18), dp(18), dp(18), dp(18))
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
                 leftMargin = dp(18)
                 rightMargin = dp(18)
+                topMargin = topSpacer
             })
         } else {
-            cameraEvents.forEachIndexed { index, event ->
-                val row = FrameLayout(this).apply { setOnClickListener { renderEventDetail(event) } }
-                row.addView(label(event.time, 13, Palette.muted).apply { gravity = Gravity.CENTER_VERTICAL }, FrameLayout.LayoutParams(dp(70), dp(32), Gravity.START or Gravity.CENTER_VERTICAL).apply {
-                    leftMargin = dp(8)
-                })
-                row.addView(View(this).apply {
-                    background = rounded(0x5cff2d63.toInt(), 9)
-                }, FrameLayout.LayoutParams(dp(10), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER_HORIZONTAL))
-                row.addView(View(this).apply {
+            cameraEvents.forEach { event ->
+                val start = event.startTime ?: return@forEach
+                val end = event.endTime ?: (start + 30.0)
+                val eventTop = yForTime(end).coerceIn(topSpacer, timelineHeight - bottomSpacer)
+                val eventBottom = yForTime(start).coerceAtLeast(eventTop + dp(26))
+                val eventHeight = (eventBottom - eventTop).coerceAtLeast(dp(36))
+                column.addView(View(this).apply {
                     background = rounded(Palette.accent, 8)
-                }, FrameLayout.LayoutParams(dp(8), dp(if (event.endTime != null) 92 else 58), Gravity.CENTER_HORIZONTAL))
-                row.addView(View(this).apply {
-                    background = rounded(Palette.backgroundAlt, 9, 0xff3c3c42.toInt(), 2)
-                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER).apply {
-                    leftMargin = dp(4)
+                }, FrameLayout.LayoutParams(dp(7), eventHeight, Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX - dp(3)
+                    topMargin = eventTop
                 })
-                row.addView(View(this).apply {
-                    setBackgroundColor(0xff44444a.toInt())
-                }, FrameLayout.LayoutParams(dp(70), dp(1), Gravity.CENTER).apply {
-                    leftMargin = dp(178)
+                val eventCenter = eventTop + eventHeight / 2
+                column.addView(View(this).apply {
+                    background = rounded(Palette.backgroundAlt, 9, 0xff3c3c42.toInt(), 2)
+                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX - dp(9)
+                    topMargin = eventCenter - dp(9)
+                })
+                column.addView(View(this).apply {
+                    setBackgroundColor(0xff4d4d55.toInt())
+                }, FrameLayout.LayoutParams(dp(84), dp(1), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX + dp(10)
+                    topMargin = eventCenter
+                })
+                val icon = eventObjectIcon(event)
+                val eventText = eventDisplayText(event)
+                column.addView(vertical().apply {
+                    gravity = Gravity.CENTER
+                    addView(ImageView(context).apply {
+                        setImageResource(icon)
+                        setColorFilter(0xff686870.toInt())
+                    }, LinearLayout.LayoutParams(dp(22), dp(22)))
+                    addView(label(eventText, 11, 0xff7b7b84.toInt()).apply {
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(3), 0, 0)
+                    }, LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT))
+                    setOnClickListener { renderEventDetail(event) }
+                }, FrameLayout.LayoutParams(dp(92), dp(54), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX + dp(34)
+                    topMargin = eventCenter - dp(27)
                 })
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
@@ -547,25 +637,24 @@ class MainActivity : AppCompatActivity() {
                 }
                 loadEventPreviewAnimated(event, thumb)
                 thumbFrame.addView(thumb, frameMatch())
-                row.addView(thumbFrame, FrameLayout.LayoutParams(dp(184), dp(104), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                thumbFrame.setOnClickListener { renderEventDetail(event) }
+                column.addView(thumbFrame, FrameLayout.LayoutParams(dp(184), dp(104), Gravity.END or Gravity.TOP).apply {
                     rightMargin = dp(24)
+                    topMargin = eventCenter - dp(52)
                 })
-                row.addView(label(event.label, 14, Palette.text).apply {
+                column.addView(label(eventText, 14, Palette.text).apply {
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     setShadowLayer(4f, 0f, 1f, Palette.black)
-                }, FrameLayout.LayoutParams(dp(170), dp(28), Gravity.END or Gravity.BOTTOM).apply {
+                    setOnClickListener { renderEventDetail(event) }
+                }, FrameLayout.LayoutParams(dp(170), dp(28), Gravity.END or Gravity.TOP).apply {
                     rightMargin = dp(32)
-                    bottomMargin = dp(20)
+                    topMargin = eventCenter + dp(20)
                 })
-                column.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, rowHeight))
-                if (index == cameraEvents.lastIndex) {
-                    column.addView(View(this), LinearLayout.LayoutParams(1, dp(160)))
-                }
             }
         }
         frame.addView(scroll, frameMatch())
         frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.CENTER_VERTICAL))
-        val currentTime = label("Live", 15, Palette.text).apply {
+        val currentTime = label(if (selectedToday) "Live" else formatTimelineTime(anchorSec), 15, Palette.text).apply {
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             background = rounded(Palette.liveBlue, 14)
@@ -574,36 +663,111 @@ class MainActivity : AppCompatActivity() {
         frame.addView(currentTime, FrameLayout.LayoutParams(dp(86), dp(34), Gravity.START or Gravity.CENTER_VERTICAL).apply {
             leftMargin = dp(28)
         })
+        val dateRow = FrameLayout(this).apply {
+            addView(timelineDateButton(formatShortDate(selectedDayStart)).apply {
+                setOnClickListener { showTimelineDatePicker(camera, timelineDayMillis) }
+            }, FrameLayout.LayoutParams(dp(130), dp(46), Gravity.START or Gravity.TOP).apply {
+                leftMargin = dp(32)
+            })
+            addView(timelineDateButton(formatLongDate(selectedDayStart)).apply {
+                setOnClickListener { showTimelineDatePicker(camera, timelineDayMillis) }
+            }, FrameLayout.LayoutParams(dp(160), dp(46), Gravity.END or Gravity.TOP).apply {
+                rightMargin = dp(32)
+            })
+        }
+        frame.addView(dateRow, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54), Gravity.TOP))
+        val returnLive = TextView(this).apply {
+            text = "^"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Palette.text)
+            background = rounded(Palette.accent, 22)
+            visibility = if (selectedToday) View.GONE else View.VISIBLE
+        }
+        frame.addView(returnLive, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dp(18)
+        })
         frame.addView(vertical().apply {
             gravity = Gravity.CENTER
-            addView(timelineFloatButton(R.drawable.ic_refresh))
-            addView(timelineFloatButton(R.drawable.ic_grid))
-            addView(timelineFloatButton(R.drawable.ic_settings))
+            addView(timelineFloatButton(R.drawable.ic_zoom_out).apply {
+                setOnClickListener {
+                    if (zoomIndex > 0) {
+                        prefs.edit().putInt("timelineZoomIndex", zoomIndex - 1).apply()
+                        renderCameraDetail(camera, timelineDayMillis, cameraEvents)
+                    }
+                }
+            })
+            addView(timelineFloatButton(R.drawable.ic_zoom_in).apply {
+                setOnClickListener {
+                    if (zoomIndex < zoomLevels.lastIndex) {
+                        prefs.edit().putInt("timelineZoomIndex", zoomIndex + 1).apply()
+                        renderCameraDetail(camera, timelineDayMillis, cameraEvents)
+                    }
+                }
+            })
+            addView(timelineFloatButton(R.drawable.ic_list))
         }, FrameLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
             rightMargin = dp(12)
         })
         var selectedEventId: String? = null
         var lastSeekMs = -1L
         var timelineMode = false
+        fun resumeLive() {
+            if (activeSession == null || activeApi == null) return
+            timelineMode = false
+            selectedEventId = null
+            lastSeekMs = -1L
+            currentTime.text = "Live"
+            returnLive.visibility = View.GONE
+            releaseCurrentPlayer()
+            playerView.visibility = View.GONE
+            liveBadge.visibility = View.GONE
+            activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
+                runOnUiThread { bitmap?.let { preview.setImageBitmap(it) } }
+            }
+            startMjpegStream(activeApi, activeSession.token, camera, preview, liveBadge)
+        }
+        fun returnToLive() {
+            if (!selectedToday) {
+                renderCameraDetail(camera)
+                return
+            }
+            if (scroll.scrollY > frame.height * 2) {
+                scroll.smoothScrollTo(0, frame.height / 2)
+                mainHandler.postDelayed({ scroll.smoothScrollTo(0, 0) }, 160L)
+            } else {
+                scroll.smoothScrollTo(0, 0)
+            }
+            mainHandler.postDelayed({ resumeLive() }, 420L)
+        }
+        returnLive.setOnClickListener { returnToLive() }
         fun updatePreviewForScroll(scrollY: Int) {
             if (cameraEvents.isEmpty() || activeSession == null || activeApi == null || frame.height <= 0) return
             val centerOffset = scrollY + frame.height / 2
-            val index = Math.round(((centerOffset - topSpacer - rowHeight / 2).toFloat()) / rowHeight.toFloat())
-                .coerceIn(0, cameraEvents.lastIndex)
-            val event = cameraEvents[index]
-            val rowStart = topSpacer + index * rowHeight
-            val progress = ((centerOffset - rowStart).toFloat() / rowHeight.toFloat()).coerceIn(0f, 1f)
+            if (selectedToday && scrollY < topSpacer / 2) {
+                if (timelineMode) resumeLive()
+                return
+            }
+            val centerSec = anchorSec - ((centerOffset - topSpacer).toDouble() / pxPerMinute.toDouble()) * 60.0
+            currentTime.text = if (selectedToday && centerSec >= anchorSec - 30.0) "Live" else formatTimelineTime(centerSec)
+            val event = nearestEvent(cameraEvents, centerSec) ?: return
+            val start = event.startTime ?: return
             val durationMs = eventDurationMs(event)
-            val seekMs = if (durationMs > 0L) (durationMs * progress).toLong() else 0L
+            val seekMs = if (durationMs > 0L) {
+                ((centerSec - start).coerceIn(0.0, durationMs / 1000.0) * 1000.0).toLong()
+            } else {
+                0L
+            }
             if (event.id == selectedEventId && kotlin.math.abs(lastSeekMs - seekMs) < 900L) return
             selectedEventId = event.id
             lastSeekMs = seekMs
-            currentTime.text = event.time
             if (!timelineMode) {
                 timelineMode = true
                 stopMjpegStreams()
                 liveBadge.visibility = View.GONE
                 playerView.visibility = View.VISIBLE
+                returnLive.visibility = View.VISIBLE
             }
             startTimelineEventPlayer(activeApi, activeSession.token, event, playerView, preview, seekMs)
         }
@@ -618,6 +782,100 @@ class MainActivity : AppCompatActivity() {
         val end = event.endTime ?: return 0L
         return maxOf(0L, ((end - start) * 1000).toLong())
     }
+
+    private fun timelineAnchorSeconds(events: List<NativeEvent>, selectedToday: Boolean, selectedDayEnd: Long): Double {
+        if (selectedToday) return System.currentTimeMillis() / 1000.0
+        val newest = events.mapNotNull { it.endTime ?: it.startTime }.maxOrNull()
+        return (newest ?: (selectedDayEnd / 1000.0)) + 120.0
+    }
+
+    private fun nearestEvent(events: List<NativeEvent>, centerSec: Double): NativeEvent? =
+        events.minByOrNull { event ->
+            val start = event.startTime ?: return@minByOrNull Double.MAX_VALUE
+            val end = event.endTime ?: (start + 30.0)
+            when {
+                centerSec in start..end -> 0.0
+                centerSec < start -> start - centerSec
+                else -> centerSec - end
+            }
+        }
+
+    private fun eventObjectIcon(event: NativeEvent): Int {
+        val label = event.objectLabel.lowercase(Locale.ROOT)
+        return when {
+            listOf("car", "vehicle", "truck", "bus", "motorcycle", "bicycle").any { label.contains(it) } -> R.drawable.ic_vehicle
+            listOf("dog", "cat", "bird", "animal").any { label.contains(it) } -> R.drawable.ic_animal
+            else -> R.drawable.ic_person
+        }
+    }
+
+    private fun eventDisplayText(event: NativeEvent): String =
+        event.subLabel?.takeIf { it.isNotBlank() } ?: event.objectLabel.ifBlank { event.label }
+
+    private fun showTimelineDatePicker(camera: NativeCamera, timelineDayMillis: Long) {
+        val calendar = Calendar.getInstance().apply { timeInMillis = timelineDayMillis }
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+                val selected = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, day)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                loadCameraTimelineDay(camera, selected.timeInMillis)
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    private fun loadCameraTimelineDay(camera: NativeCamera, dayMillis: Long) {
+        val activeSession = session ?: return renderLogin()
+        val activeApi = api ?: return renderLogin()
+        val dayStart = startOfLocalDayMillis(dayMillis)
+        val dayEnd = dayStart + TimeUnit.DAYS.toMillis(1) - 1000L
+        renderLoading("Chargement du ${formatShortDate(dayStart)}...")
+        activeApi.loadEvents(activeSession.token, camera.name, dayStart / 1000.0, dayEnd / 1000.0) { result ->
+            runOnUiThread {
+                result.onSuccess { loadedEvents ->
+                    renderCameraDetail(camera, dayStart, loadedEvents)
+                }.onFailure {
+                    toast(it.message ?: "Videos indisponibles pour cette date.")
+                    renderCameraDetail(camera, dayStart, emptyList())
+                }
+            }
+        }
+    }
+
+    private fun isSameLocalDay(leftMillis: Long, rightMillis: Long): Boolean {
+        val left = Calendar.getInstance().apply { timeInMillis = leftMillis }
+        val right = Calendar.getInstance().apply { timeInMillis = rightMillis }
+        return left.get(Calendar.YEAR) == right.get(Calendar.YEAR) &&
+            left.get(Calendar.DAY_OF_YEAR) == right.get(Calendar.DAY_OF_YEAR)
+    }
+
+    private fun startOfLocalDayMillis(value: Long): Long =
+        Calendar.getInstance().apply {
+            timeInMillis = value
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+    private fun formatTimelineTime(timeSec: Double): String =
+        SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date((timeSec * 1000).toLong()))
+
+    private fun formatShortDate(value: Long): String =
+        SimpleDateFormat("d MMM", Locale.FRANCE).format(Date(value))
+
+    private fun formatLongDate(value: Long): String =
+        SimpleDateFormat("EEE d MMM yy", Locale.FRANCE).format(Date(value)).replaceFirstChar { it.lowercase(Locale.FRANCE) }
 
     private fun syncCameraGrid(event: NativeEvent): View {
         val grid = vertical()
@@ -967,7 +1225,7 @@ class MainActivity : AppCompatActivity() {
     private fun appVersionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }
             .getOrDefault("")
-            .ifBlank { "0.2.11" }
+            .ifBlank { "0.2.12" }
 
     private fun loadNvrVersion(renderAboutWhenDone: Boolean) {
         val activeSession = session ?: return
@@ -1159,6 +1417,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun timelineDateButton(textValue: String): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(0xd61b1b1f.toInt(), 10)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_calendar)
+                setColorFilter(Palette.muted)
+            }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(8) })
+            addView(label(textValue, 13, Palette.muted).apply {
+                gravity = Gravity.CENTER
+            })
+        }
+    }
+
     private fun loadEventPreview(event: NativeEvent, target: ImageView) {
         event.thumbnail?.let {
             target.setImageBitmap(it)
@@ -1323,6 +1596,22 @@ private class FrigateNativeApi(
                     }
                 }.onFailure { callback(Result.failure(it)) }
             }
+        }
+    }
+
+    fun loadEvents(
+        token: String,
+        cameraName: String,
+        afterSec: Double,
+        beforeSec: Double,
+        callback: (Result<List<NativeEvent>>) -> Unit
+    ) {
+        val path = "/api/events?camera=${Uri.encode(cameraName)}&after=${afterSec.toLong()}&before=${beforeSec.toLong()}&limit=500&include_thumbnails=1"
+        getJsonArray(token, path) { result ->
+            result
+                .mapCatching { parseEvents(it) }
+                .onSuccess { callback(Result.success(it)) }
+                .onFailure { callback(Result.failure(it)) }
         }
     }
 
@@ -1529,10 +1818,14 @@ private class FrigateNativeApi(
             if (id.isBlank()) return@mapNotNull null
             val thumbnail = event.optString("thumbnail").takeIf { it.isNotBlank() }?.let { decodeThumbnail(it) }
             val startTime = if (event.has("start_time")) event.optDouble("start_time") else null
+            val objectLabel = cleanEventText(event, "label").ifBlank { "motion" }
+            val subLabel = cleanEventText(event, "sub_label").takeIf { it.isNotBlank() }
             NativeEvent(
                 id = id,
                 camera = cleanEventText(event, "camera"),
-                label = cleanEventText(event, "sub_label").ifBlank { cleanEventText(event, "label").ifBlank { "motion" } },
+                label = subLabel ?: objectLabel,
+                objectLabel = objectLabel,
+                subLabel = subLabel,
                 time = formatTime(startTime),
                 startTime = startTime,
                 endTime = if (event.has("end_time") && !event.isNull("end_time")) event.optDouble("end_time") else null,
@@ -1769,6 +2062,8 @@ private data class NativeEvent(
     val id: String,
     val camera: String,
     val label: String,
+    val objectLabel: String,
+    val subLabel: String?,
     val time: String,
     val startTime: Double?,
     val endTime: Double?,
