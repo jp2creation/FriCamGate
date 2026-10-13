@@ -121,6 +121,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        prefs.edit()
+            .putString("baseUrl", normalizedUrl)
+            .putString("username", username)
+            .apply()
         renderLoading("Connexion a Frigate...")
         val nextApi = FrigateNativeApi(normalizedUrl, httpClient)
         nextApi.login(username, password) { result ->
@@ -631,13 +635,18 @@ private class FrigateNativeApi(
     private val client: OkHttpClient
 ) {
     fun login(username: String, password: String, callback: (Result<NativeLogin>) -> Unit) {
+        postLogin(username, password, listOf("/api/login", "/login"), callback)
+    }
+
+    private fun postLogin(username: String, password: String, paths: List<String>, callback: (Result<NativeLogin>) -> Unit) {
+        val path = paths.firstOrNull() ?: "/api/login"
         val body = JSONObject()
             .put("user", username)
             .put("password", password)
             .toString()
             .toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
-            .url(endpoint("/api/login"))
+            .url(endpoint(path))
             .post(body)
             .header("Accept", "application/json")
             .build()
@@ -646,13 +655,17 @@ private class FrigateNativeApi(
 
             override fun onResponse(call: Call, response: Response) {
                 response.use { httpResponse ->
+                    if (httpResponse.code == 404 && paths.size > 1) {
+                        postLogin(username, password, paths.drop(1), callback)
+                        return
+                    }
                     if (!httpResponse.isSuccessful) {
                         callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
                         return
                     }
 
                     val payload = httpResponse.body?.string().orEmpty()
-                    val json = parseJsonObject(payload, "/api/login", allowEmpty = true).getOrElse {
+                    val json = parseJsonObject(payload, path, allowEmpty = true).getOrElse {
                         callback(Result.failure(it))
                         return
                     }
@@ -955,10 +968,16 @@ private object Palette {
     const val accent = 0xffff2d63.toInt()
 }
 
-private fun normalizeBaseUrl(value: String): String {
+internal fun normalizeBaseUrl(value: String): String {
     val trimmed = value.trim().trimEnd('/')
     if (trimmed.isBlank()) return ""
-    return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "http://$trimmed"
+    var normalized = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "http://$trimmed"
+    listOf("/api/login", "/login", "/api").forEach { suffix ->
+        if (normalized.endsWith(suffix, ignoreCase = true)) {
+            normalized = normalized.dropLast(suffix.length).trimEnd('/')
+        }
+    }
+    return normalized
 }
 
 private fun titleFromName(name: String): String =
