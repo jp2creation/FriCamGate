@@ -376,7 +376,7 @@ export function App() {
 
   return (
     <main className={shellClassName}>
-      {showingCameraDetail || showingEventPlayer || (view === "settings" && settingsPage === "main" && session) ? null : (
+      {showingCameraDetail || (view === "settings" && settingsPage === "main" && session) ? null : (
         <header className={showSettingsHeader ? "app-header is-title" : "app-header"}>
           {showSettingsHeader ? (
             <>

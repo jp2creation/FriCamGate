@@ -463,6 +463,10 @@ input:focus {
   background: #0a0a0b;
 }
 
+.app-shell.is-event-player .app-header {
+  margin-bottom: 0;
+}
+
 .camera-detail-view,
 .event-player-view {
   min-height: 100vh;

@@ -433,6 +433,7 @@ describe("App", () => {
 
     expect(await screen.findByTestId("event-player")).toBeInTheDocument();
     expect(screen.queryByLabelText("Event video person on devant")).not.toBeInTheDocument();
+    expect(screen.getByAltText(/FriCamGate logo/i)).toBeInTheDocument();
     expect(screen.getByAltText("Event preview person on devant")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Home$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open synced Allee/i })).toBeInTheDocument();
@@ -455,6 +456,7 @@ describe("App", () => {
       );
     });
     expect(await screen.findByLabelText("Event video person on devant")).toHaveAttribute("src", "blob:fricamgate-live");
+    expect(screen.getByAltText(/FriCamGate logo/i)).toBeInTheDocument();
   });
 
   it("opens the APK download directly from the update card", async () => {
