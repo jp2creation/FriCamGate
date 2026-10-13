@@ -22,6 +22,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -62,7 +64,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Palette.background
-        window.navigationBarColor = Palette.background
+        window.navigationBarColor = Palette.black
         session = loadSession()
         api = session?.let { FrigateNativeApi(it.baseUrl, httpClient) }
         if (session == null) {
@@ -174,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         val content = ScrollView(this).apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
-            setPadding(0, 0, 0, dp(96))
+            setPadding(0, 0, 0, dp(78))
         }
         val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(24)) }
         content.addView(column, responsiveScrollParams(720))
@@ -183,8 +185,8 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(22), 0, dp(14))
         }
-        titleRow.addView(label("Accueil", 32, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        titleRow.addView(label(message ?: "", 14, Palette.muted))
+        titleRow.addView(label("Accueil", 30, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        titleRow.addView(label(message ?: "", 13, Palette.muted))
         column.addView(titleRow)
 
         if (cameras.isEmpty()) {
@@ -331,9 +333,9 @@ class MainActivity : AppCompatActivity() {
             }
             loadEventPreview(event, thumb)
             thumbFrame.addView(thumb, frameMatch())
-            card.addView(thumbFrame, LinearLayout.LayoutParams(dp(154), dp(92)))
-            card.addView(label(event.time, 18, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, 0) })
-            row.addView(card, LinearLayout.LayoutParams(dp(166), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(12) })
+            card.addView(thumbFrame, LinearLayout.LayoutParams(dp(140), dp(78)))
+            card.addView(label(event.time, 16, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0) })
+            row.addView(card, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) })
         }
         return scroll
     }
@@ -470,41 +472,20 @@ class MainActivity : AppCompatActivity() {
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         root.addView(appHeader())
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
+        root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
+        keepAboveSystemNavigation(root)
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun appHeader(): View {
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
-            val brand = horizontal().apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(22), 0, dp(70), 0)
-            }
-            brand.addView(ImageView(context).apply {
+            addView(ImageView(context).apply {
                 setImageResource(R.drawable.fricamgate_logo)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-            }, LinearLayout.LayoutParams(dp(56), dp(56)))
-            val titles = vertical().apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), 0, 0, 0)
-            }
-            titles.addView(label("CLIENT FRIGATE", 12, Palette.muted).apply {
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                letterSpacing = 0.04f
-            })
-            titles.addView(label("FriCamGate", 30, Palette.text).apply {
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-            })
-            brand.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(brand, frameMatch())
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_bell)
-                setColorFilter(Palette.text)
-            }, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                rightMargin = dp(22)
-            })
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(102)) }
+            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(84)) }
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
@@ -553,7 +534,7 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(label("Reglages", 32, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        column.addView(label("Reglages", 30, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(settingsRow("Serveur", session?.baseUrl ?: "-"))
         column.addView(settingsRow("Utilisateur", session?.username ?: "-"))
         column.addView(primaryButton("Recharger").apply { setOnClickListener { loadDashboard("Recharge.") } }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
@@ -654,12 +635,20 @@ class MainActivity : AppCompatActivity() {
     private fun chip(textValue: String): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = 15f
+            textSize = 14f
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(Palette.text)
             setPadding(dp(16), 0, dp(16), 0)
             background = rounded(Palette.overlay, 20)
+        }
+    }
+
+    private fun keepAboveSystemNavigation(root: View) {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, 0, 0, bars.bottom)
+            insets
         }
     }
 
@@ -730,7 +719,7 @@ class MainActivity : AppCompatActivity() {
             text = textValue
             textSize = size.toFloat()
             setTextColor(color)
-            includeFontPadding = true
+            includeFontPadding = false
         }
     }
 
