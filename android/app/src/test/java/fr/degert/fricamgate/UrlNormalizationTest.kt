@@ -22,8 +22,8 @@ class UrlNormalizationTest {
 
     @Test
     fun comparesReleaseVersionsWithDebugTags() {
-        assertEquals("0.2.12", extractVersion("v0.2.12-kotlin-debug"))
-        assertEquals(1, compareVersions("0.2.12", "0.2.11"))
+        assertEquals("0.2.13", extractVersion("v0.2.13-kotlin-debug"))
+        assertEquals(1, compareVersions("0.2.13", "0.2.12"))
         assertEquals(0, compareVersions("0.2.10", "v0.2.10-kotlin-debug"))
     }
 }
