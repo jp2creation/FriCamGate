@@ -419,9 +419,9 @@ class MainActivity : AppCompatActivity() {
             }
             activeApi?.let { startHomeMjpegStream(it, activeSession.token, camera, image, live) }
         }
-        card.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28), Gravity.END or Gravity.TOP).apply {
-            rightMargin = dp(12)
-            topMargin = dp(12)
+        card.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
+            rightMargin = dp(10)
+            topMargin = dp(10)
         })
         card.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
             leftMargin = dp(16)
@@ -586,9 +586,9 @@ class MainActivity : AppCompatActivity() {
             iconHolder.addView(ImageView(this).apply {
                 setImageResource(tab.iconRes)
                 setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
-                alpha = if (tab == activeTab) 1f else 0.92f
-            }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
-            item.addView(iconHolder, FrameLayout.LayoutParams(dp(64), dp(56), Gravity.CENTER))
+                alpha = if (tab == activeTab) 1f else 0.86f
+            }, FrameLayout.LayoutParams(dp(25), dp(25), Gravity.CENTER))
+            item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
             row.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
@@ -716,13 +716,13 @@ class MainActivity : AppCompatActivity() {
     private fun liveBadge(): View {
         return horizontal().apply {
             gravity = Gravity.CENTER
-            setPadding(dp(9), 0, dp(10), 0)
-            background = rounded(Palette.overlay, 18)
+            setPadding(dp(7), 0, dp(8), 0)
+            background = rounded(Palette.overlay, 14)
             addView(View(context).apply {
-                background = rounded(Palette.accent, 4)
-            }, LinearLayout.LayoutParams(dp(7), dp(7)).apply { rightMargin = dp(6) })
-            addView(label("Live", 12, Palette.text).apply {
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                background = rounded(Palette.accent, 3)
+            }, LinearLayout.LayoutParams(dp(5), dp(5)).apply { rightMargin = dp(5) })
+            addView(label("Live", 10, Palette.text).apply {
+                alpha = 0.92f
             })
         }
     }
