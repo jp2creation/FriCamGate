@@ -29,10 +29,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import okhttp3.Call
@@ -213,19 +211,14 @@ class MainActivity : AppCompatActivity() {
 
         val body = vertical().apply { setBackgroundColor(Palette.background) }
         val playerFrame = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
-        val fallback = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-        playerFrame.addView(fallback, frameMatch())
+        val liveImage = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Palette.surface)
+        }
+        playerFrame.addView(liveImage, frameMatch())
         activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
-            runOnUiThread { bitmap?.let { fallback.setImageBitmap(it) } }
+            runOnUiThread { bitmap?.let { liveImage.setImageBitmap(it) } }
         }
-
-        val playerView = PlayerView(this).apply {
-            useController = false
-            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            setBackgroundColor(Color.TRANSPARENT)
-            setShutterBackgroundColor(Color.TRANSPARENT)
-        }
-        playerFrame.addView(playerView, frameMatch())
         val back = roundButton("<").apply { setOnClickListener { renderHome() } }
         playerFrame.addView(back, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.START or Gravity.TOP).apply {
             leftMargin = dp(18)
@@ -235,7 +228,8 @@ class MainActivity : AppCompatActivity() {
             leftMargin = dp(18)
             bottomMargin = dp(16)
         })
-        playerFrame.addView(chip("live"), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.END or Gravity.TOP).apply {
+        val live = liveBadge().apply { visibility = View.GONE }
+        playerFrame.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
             rightMargin = dp(18)
             topMargin = dp(18)
         })
@@ -243,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(cameraToolbar(camera))
         body.addView(timeline(camera), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Cameras)
-        startLivePlayer(activeApi, activeSession.token, camera, playerView)
+        startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
 
     private fun renderEventDetail(event: NativeEvent) {
@@ -285,26 +279,6 @@ class MainActivity : AppCompatActivity() {
         startClipPlayer(activeApi, activeSession.token, event, playerView)
     }
 
-    private fun startLivePlayer(api: FrigateNativeApi, token: String, camera: NativeCamera, playerView: PlayerView) {
-        val player = ExoPlayer.Builder(this).build()
-        currentPlayer = player
-        playerView.player = player
-        api.requestHlsUrl(token, camera.streamName) { result ->
-            runOnUiThread {
-                if (currentPlayer !== player) return@runOnUiThread
-                result.onSuccess { url ->
-                    val source = HlsMediaSource.Factory(authDataSource(token)).createMediaSource(MediaItem.fromUri(url))
-                    player.setMediaSource(source)
-                    player.repeatMode = Player.REPEAT_MODE_ONE
-                    player.prepare()
-                    player.playWhenReady = true
-                }.onFailure {
-                    toast("Live indisponible: ${it.message ?: "flux HLS"}")
-                }
-            }
-        }
-    }
-
     private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView) {
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
@@ -316,7 +290,7 @@ class MainActivity : AppCompatActivity() {
         player.playWhenReady = true
     }
 
-    private fun startHomeMjpegStream(
+    private fun startMjpegStream(
         api: FrigateNativeApi,
         token: String,
         camera: NativeCamera,
@@ -417,7 +391,7 @@ class MainActivity : AppCompatActivity() {
             activeApi?.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
                 runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
             }
-            activeApi?.let { startHomeMjpegStream(it, activeSession.token, camera, image, live) }
+            activeApi?.let { startMjpegStream(it, activeSession.token, camera, image, live) }
         }
         card.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
             rightMargin = dp(10)
