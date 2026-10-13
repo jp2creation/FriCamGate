@@ -374,12 +374,9 @@ export function App() {
             </>
           ) : (
             <>
-              <div className="brand">
+              <span className="header-spacer" aria-hidden="true" />
+              <div className="brand is-logo-only" aria-label="FriCamGate">
                 <img src={logoUrl} alt="FriCamGate logo" className="brand-logo" />
-                <div>
-                  <p className="eyebrow">Client Frigate</p>
-                  <h1>FriCamGate</h1>
-                </div>
               </div>
               <button className="icon-button" aria-label="Notifications" type="button">
                 <Bell size={22} />

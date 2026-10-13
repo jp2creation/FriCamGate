@@ -36,9 +36,9 @@ input {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
-  justify-content: space-between;
   width: min(100%, 1180px);
   margin: 0 auto 18px;
   padding: max(18px, env(safe-area-inset-top)) 0 12px;
@@ -48,9 +48,16 @@ input {
 }
 
 .app-header.is-title {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 48px;
   min-height: 84px;
+}
+
+.app-header > .icon-button {
+  justify-self: end;
+}
+
+.header-spacer {
+  width: 48px;
+  height: 48px;
 }
 
 .screen-title {
@@ -62,13 +69,25 @@ input {
 .brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.brand.is-logo-only {
+  justify-self: center;
+  gap: 0;
 }
 
 .brand-logo {
   width: 54px;
   height: 54px;
   object-fit: contain;
+}
+
+.brand.is-logo-only .brand-logo {
+  width: 62px;
+  height: 62px;
 }
 
 .eyebrow {
@@ -1459,6 +1478,7 @@ input:focus {
 
 .bottom-nav {
   position: fixed;
+  z-index: 80;
   right: 0;
   bottom: 0;
   left: 0;

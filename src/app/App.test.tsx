@@ -51,10 +51,12 @@ describe("App", () => {
     window.localStorage.clear();
   });
 
-  it("renders the FriCamGate setup screen", () => {
+  it("renders the setup screen with the logo-only header", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: /FriCamGate/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Client Frigate/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /FriCamGate/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Connecte ton Frigate/i })).toBeInTheDocument();
     expect(screen.getByAltText(/FriCamGate logo/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/server url/i)).toHaveValue("");
     expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
