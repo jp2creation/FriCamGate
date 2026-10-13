@@ -36,6 +36,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -74,7 +75,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         releasePlayer()
-        httpClient.dispatcher.executorService.shutdown()
         super.onDestroy()
     }
 
@@ -645,15 +645,20 @@ private class FrigateNativeApi(
             override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
 
             override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        callback(Result.failure(IOException("Frigate HTTP ${it.code}")))
+                response.use { httpResponse ->
+                    if (!httpResponse.isSuccessful) {
+                        callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
                         return
                     }
 
-                    val json = JSONObject(it.body?.string().orEmpty())
+                    val payload = httpResponse.body?.string().orEmpty()
+                    val json = parseJsonObject(payload, "/api/login", allowEmpty = true).getOrElse {
+                        callback(Result.failure(it))
+                        return
+                    }
                     val token = json.optString("token").ifBlank { json.optString("access_token") }
-                        .ifBlank { it.header("authorization").orEmpty().removePrefix("Bearer ").trim() }
+                        .ifBlank { bearerTokenFromHeader(httpResponse.header("Authorization")) }
+                        .ifBlank { tokenFromCookies(httpResponse.headers("Set-Cookie")) }
                     if (token.isBlank()) {
                         callback(Result.failure(IOException("Jeton Frigate absent.")))
                         return
@@ -669,9 +674,15 @@ private class FrigateNativeApi(
             configResult.onFailure { callback(Result.failure(it)); return@getJson }
             getJsonArray(token, "/api/events?limit=100&include_thumbnails=1") { eventsResult ->
                 eventsResult.onSuccess { eventArray ->
-                    val cameras = parseCameras(configResult.getOrThrow())
-                    val events = parseEvents(eventArray)
-                    callback(Result.success(DashboardData(cameras, events)))
+                    runCatching {
+                        val cameras = parseCameras(configResult.getOrThrow())
+                        val events = parseEvents(eventArray)
+                        DashboardData(cameras, events)
+                    }.onSuccess {
+                        callback(Result.success(it))
+                    }.onFailure {
+                        callback(Result.failure(IOException("Tableau de bord Frigate invalide.", it)))
+                    }
                 }.onFailure { callback(Result.failure(it)) }
             }
         }
@@ -744,17 +755,19 @@ private class FrigateNativeApi(
         })
     }
 
-    private fun getJsonArray(token: String, path: String, callback: (Result<org.json.JSONArray>) -> Unit) {
+    private fun getJsonArray(token: String, path: String, callback: (Result<JSONArray>) -> Unit) {
         val request = authRequest(token, path).build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
             override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        callback(Result.failure(IOException("Frigate HTTP ${it.code}")))
+                response.use { httpResponse ->
+                    if (!httpResponse.isSuccessful) {
+                        callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
                         return
                     }
-                    callback(Result.success(org.json.JSONArray(it.body?.string().orEmpty())))
+                    parseJsonArray(httpResponse.body?.string().orEmpty(), path)
+                        .onSuccess { callback(Result.success(it)) }
+                        .onFailure { callback(Result.failure(it)) }
                 }
             }
         })
@@ -779,7 +792,7 @@ private class FrigateNativeApi(
         }.toList()
     }
 
-    private fun parseEvents(events: org.json.JSONArray): List<NativeEvent> {
+    private fun parseEvents(events: JSONArray): List<NativeEvent> {
         return (0 until events.length()).mapNotNull { index ->
             val event = events.optJSONObject(index) ?: return@mapNotNull null
             val id = event.optString("id")
@@ -842,15 +855,61 @@ private class FrigateNativeApi(
 
     private fun endpoint(path: String): String = baseUrl.trimEnd('/') + path
 
-    private abstract class JsonCallback(private val callback: (Result<JSONObject>) -> Unit) : Callback {
+    private fun parseJsonObject(payload: String, path: String, allowEmpty: Boolean = false): Result<JSONObject> {
+        val trimmed = payload.trim()
+        if (trimmed.isBlank()) {
+            return if (allowEmpty) {
+                Result.success(JSONObject())
+            } else {
+                Result.failure(IOException("Reponse Frigate vide pour $path."))
+            }
+        }
+
+        return runCatching { JSONObject(trimmed) }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { Result.failure(IOException("Reponse Frigate invalide pour $path.", it)) }
+        )
+    }
+
+    private fun parseJsonArray(payload: String, path: String): Result<JSONArray> {
+        val trimmed = payload.trim()
+        if (trimmed.isBlank()) {
+            return Result.failure(IOException("Reponse Frigate vide pour $path."))
+        }
+
+        return runCatching { JSONArray(trimmed) }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { Result.failure(IOException("Reponse Frigate invalide pour $path.", it)) }
+        )
+    }
+
+    private fun bearerTokenFromHeader(header: String?): String {
+        val value = header?.trim().orEmpty()
+        return if (value.startsWith("Bearer ", ignoreCase = true)) {
+            value.substringAfter(' ').trim()
+        } else {
+            value
+        }
+    }
+
+    private fun tokenFromCookies(cookies: List<String>): String {
+        return cookies.asSequence()
+            .mapNotNull { cookie -> Regex("""(?:^|;\s*)frigate_token=([^;]+)""").find(cookie)?.groupValues?.getOrNull(1) }
+            .firstOrNull()
+            .orEmpty()
+    }
+
+    private inner abstract class JsonCallback(private val callback: (Result<JSONObject>) -> Unit) : Callback {
         override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
         override fun onResponse(call: Call, response: Response) {
-            response.use {
-                if (!it.isSuccessful) {
-                    callback(Result.failure(IOException("Frigate HTTP ${it.code}")))
+            response.use { httpResponse ->
+                if (!httpResponse.isSuccessful) {
+                    callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
                     return
                 }
-                onJson(JSONObject(it.body?.string().orEmpty()), it)
+                parseJsonObject(httpResponse.body?.string().orEmpty(), httpResponse.request.url.encodedPath)
+                    .onSuccess { onJson(it, httpResponse) }
+                    .onFailure { callback(Result.failure(it)) }
             }
         }
 
