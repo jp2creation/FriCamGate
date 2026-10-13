@@ -4,6 +4,9 @@ import { App } from "./App";
 
 const mocks = vi.hoisted(() => ({
   deleteCookie: vi.fn(),
+  downloadApk: vi.fn(),
+  getPlatform: vi.fn(),
+  isPluginAvailable: vi.fn(),
   request: vi.fn(),
   setCookie: vi.fn(),
   storedSession: null as null | {
@@ -17,8 +20,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    getPlatform: vi.fn(() => "web"),
-    isPluginAvailable: vi.fn(() => false)
+    getPlatform: mocks.getPlatform,
+    isPluginAvailable: mocks.isPluginAvailable
   },
   CapacitorCookies: {
     deleteCookie: mocks.deleteCookie,
@@ -27,12 +30,18 @@ vi.mock("@capacitor/core", () => ({
   CapacitorHttp: {
     request: mocks.request
   },
-  registerPlugin: vi.fn(() => ({
-    addListener: vi.fn(),
-    close: vi.fn(),
-    connect: vi.fn(),
-    send: vi.fn()
-  }))
+  registerPlugin: vi.fn((name: string) =>
+    name === "AppUpdate"
+      ? {
+          downloadApk: mocks.downloadApk
+        }
+      : {
+          addListener: vi.fn(),
+          close: vi.fn(),
+          connect: vi.fn(),
+          send: vi.fn()
+        }
+  )
 }));
 
 vi.mock("../session/secureSession", () => ({
@@ -44,6 +53,12 @@ vi.mock("../session/secureSession", () => ({
 describe("App", () => {
   beforeEach(() => {
     mocks.deleteCookie.mockReset();
+    mocks.downloadApk.mockReset();
+    mocks.downloadApk.mockResolvedValue({ downloadId: 42 });
+    mocks.getPlatform.mockReset();
+    mocks.getPlatform.mockReturnValue("web");
+    mocks.isPluginAvailable.mockReset();
+    mocks.isPluginAvailable.mockReturnValue(false);
     mocks.request.mockReset();
     mocks.setCookie.mockReset();
     mocks.storedSession = null;
@@ -459,8 +474,10 @@ describe("App", () => {
     expect(screen.getByAltText(/FriCamGate logo/i)).toBeInTheDocument();
   });
 
-  it("opens the APK download directly from the update card", async () => {
+  it("downloads the APK directly from the update card on Android", async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    mocks.getPlatform.mockReturnValue("android");
+    mocks.isPluginAvailable.mockImplementation((name: string) => name === "AppUpdate");
     mocks.storedSession = {
       profileId: "default",
       baseUrl: "http://frigate.example.com",
@@ -521,11 +538,16 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Settings$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Mettre a jour/i }));
 
-    expect(openSpy).toHaveBeenCalledWith(
-      "https://github.com/jp2creation/FriCamGate/releases/download/v9.9.9-debug/FriCamGate-v9.9.9-debug.apk",
-      "_blank",
-      "noopener,noreferrer"
-    );
+    await waitFor(() => {
+      expect(mocks.downloadApk).toHaveBeenCalledWith({
+        description: "Telechargement de la mise a jour FriCamGate",
+        fileName: "FriCamGate-v9.9.9-debug.apk",
+        title: "FriCamGate 9.9.9",
+        url: "https://github.com/jp2creation/FriCamGate/releases/download/v9.9.9-debug/FriCamGate-v9.9.9-debug.apk"
+      });
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Telechargement lance/i)).toBeInTheDocument();
     openSpy.mockRestore();
   });
 });

@@ -1148,6 +1148,22 @@ input:focus {
   accent-color: #ff336c;
 }
 
+.update-download-status {
+  margin: 0;
+  color: #9d9da8;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.update-download-status.is-started {
+  color: #73e39b;
+}
+
+.update-download-status.is-error {
+  color: #ff9bb6;
+}
+
 .settings-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -66,6 +66,7 @@ import { MseLiveVideo } from "./MseLiveVideo";
 import { FrigateApi } from "../frigate/frigateApi";
 import type { CameraSummary, EventSummary, StoredSession } from "../frigate/types";
 import { normalizeServerUrl } from "../lib/url";
+import { downloadAppUpdate } from "../native/appUpdate";
 import { canUseNativeLive } from "../native/frigateLive";
 import { clearSession, loadSession, saveSession } from "../session/secureSession";
 
@@ -1197,8 +1198,31 @@ function UpdateCard({
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
 }) {
   const StatusIcon = getUpdateStatusIcon(status);
+  const [downloadStatus, setDownloadStatus] = useState<"idle" | "starting" | "started" | "error">("idle");
   const latestVersion = result?.latestVersion ?? "-";
   const message = status === "checking" ? "Recherche en cours..." : (result?.message ?? "Recherche automatique active.");
+
+  useEffect(() => {
+    setDownloadStatus("idle");
+  }, [result?.downloadUrl]);
+
+  async function handleUpdateDownload() {
+    if (!result?.downloadUrl) {
+      return;
+    }
+
+    setDownloadStatus("starting");
+    try {
+      await downloadAppUpdate({
+        assetName: result.assetName,
+        downloadUrl: result.downloadUrl,
+        latestVersion: result.latestVersion
+      });
+      setDownloadStatus("started");
+    } catch {
+      setDownloadStatus("error");
+    }
+  }
 
   return (
     <div className="settings-update-card" aria-live="polite">
@@ -1226,9 +1250,9 @@ function UpdateCard({
 
       <div className="settings-actions">
         {status === "available" && result?.downloadUrl ? (
-          <button className="primary-button" onClick={() => openReleases(result.downloadUrl)} type="button">
-            <PackageCheck size={18} />
-            Mettre a jour
+          <button className="primary-button" disabled={downloadStatus === "starting"} onClick={handleUpdateDownload} type="button">
+            {downloadStatus === "starting" ? <Loader2 className="spin" size={18} /> : <Download size={18} />}
+            {downloadStatus === "starting" ? "Telechargement" : "Mettre a jour"}
           </button>
         ) : null}
         <button className="secondary-button" disabled={status === "checking"} onClick={onCheckUpdates} type="button">
@@ -1240,6 +1264,16 @@ function UpdateCard({
           GitHub
         </button>
       </div>
+
+      {downloadStatus !== "idle" ? (
+        <p className={`update-download-status is-${downloadStatus}`}>
+          {downloadStatus === "starting"
+            ? "Telechargement de l'APK..."
+            : downloadStatus === "started"
+              ? "Telechargement lance. Android ouvrira l'installation quand l'APK sera pret."
+              : "Telechargement impossible depuis l'app. Utilise le bouton GitHub en secours."}
+        </p>
+      ) : null}
     </div>
   );
 }

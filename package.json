@@ -1,6 +1,6 @@
 {
   "name": "fricamgate",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "FriCamGate is an Android phone and tablet client for Frigate.",
   "private": true,
   "type": "module",

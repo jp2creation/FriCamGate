@@ -51,6 +51,7 @@ describe("updateService", () => {
 
     await expect(checkForAppUpdate("0.1.4")).resolves.toMatchObject({
       status: "available",
+      assetName: "FriCamGate-v0.1.5-debug.apk",
       currentVersion: "0.1.4",
       latestVersion: "0.1.5",
       releaseUrl: "https://github.com/jp2creation/FriCamGate/releases/tag/v0.1.5-debug",

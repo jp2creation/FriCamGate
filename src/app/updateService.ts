@@ -15,6 +15,7 @@ export interface UpdateCheckResult {
   status: Exclude<UpdateStatus, "idle" | "checking">;
   checkedAt: string;
   currentVersion: string;
+  assetName?: string;
   downloadUrl?: string;
   latestVersion?: string;
   releaseUrl?: string;
@@ -84,6 +85,7 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
   if (compareVersions(latestVersion, currentVersion) > 0) {
     return {
       status: "available",
+      assetName: latestRelease.asset.name,
       checkedAt,
       currentVersion,
       downloadUrl,
@@ -95,6 +97,7 @@ export async function checkForAppUpdate(currentVersion: string): Promise<UpdateC
 
   return {
     status: "current",
+    assetName: latestRelease.asset.name,
     checkedAt,
     currentVersion,
     downloadUrl,
