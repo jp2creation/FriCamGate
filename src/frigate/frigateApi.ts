@@ -64,7 +64,7 @@ export class FrigateApi {
     return response.data ?? {};
   }
 
-  async getEvents(authToken: string, limit = 25): Promise<FrigateEvent[]> {
+  async getEvents(authToken: string, limit = 100): Promise<FrigateEvent[]> {
     const response = await this.request<FrigateEvent[]>({
       method: "GET",
       path: `/api/events?limit=${limit}&include_thumbnails=1`,
@@ -84,6 +84,14 @@ export class FrigateApi {
 
   eventPreviewUrl(eventId: string): string {
     return `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/preview.gif`;
+  }
+
+  eventClipUrl(eventId: string): string {
+    return `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/clip.mp4`;
+  }
+
+  recordingSnapshotUrl(cameraName: string, frameTime: number): string {
+    return `${this.baseUrl}/api/${encodeURIComponent(cameraName)}/recordings/${Math.floor(frameTime)}/snapshot.webp`;
   }
 
   liveStreamUrl(cameraName: string): string {
@@ -127,6 +135,25 @@ export class FrigateApi {
 
     const contentType = getHeader(response.headers, "content-type")?.split(";")[0].trim() || "image/jpeg";
     return toImageDataUrl(response.data, contentType);
+  }
+
+  async getVideoObjectUrl(authToken: string, url: string): Promise<string> {
+    const response = (await CapacitorHttp.request({
+      method: "GET",
+      url,
+      headers: {
+        Accept: "video/mp4",
+        Authorization: `Bearer ${authToken}`
+      },
+      responseType: "arraybuffer"
+    })) as FrigateImageResponse;
+
+    if (response.status >= 400) {
+      throw new FrigateApiError(response.status === 401 ? "Video Frigate non autorisee" : "Video Frigate indisponible", response.status);
+    }
+
+    const contentType = getHeader(response.headers, "content-type")?.split(";")[0].trim() || "video/mp4";
+    return URL.createObjectURL(new Blob([toBinaryData(response.data)], { type: contentType }));
   }
 
   mapCameras(config: FrigateConfig): CameraSummary[] {
@@ -231,6 +258,43 @@ export function toImageDataUrl(data: FrigateImageResponse["data"], contentType =
   }
 
   throw new FrigateApiError("Image Frigate vide");
+}
+
+function toBinaryData(data: FrigateImageResponse["data"]): BlobPart {
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    const base64 = trimmed.startsWith("data:") ? (trimmed.split(",", 2)[1] ?? "") : trimmed;
+    return toArrayBuffer(bytesFromBase64(base64.replace(/\s/g, "")));
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return data;
+  }
+
+  if (data instanceof Uint8Array) {
+    return toArrayBuffer(data);
+  }
+
+  if (Array.isArray(data)) {
+    return toArrayBuffer(Uint8Array.from(data));
+  }
+
+  throw new FrigateApiError("Video Frigate vide");
+}
+
+function bytesFromBase64(input: string): Uint8Array {
+  const binary = atob(input);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer as ArrayBuffer;
 }
 
 function base64FromBytes(bytes: Uint8Array): string {

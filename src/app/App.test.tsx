@@ -352,13 +352,109 @@ describe("App", () => {
     fireEvent.click(cameraCard);
 
     expect(await screen.findByTestId("camera-detail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Home$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Back to home/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Timeline Devant")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-track")).toHaveStyle("--timeline-track-height: 520px");
     expect(screen.getByRole("button", { name: /Unmute Devant/i })).toBeInTheDocument();
-    expect(screen.getByText("53s")).toBeInTheDocument();
+    expect(screen.getByText(/53s/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Back to home/i }));
     expect(await screen.findByTestId("camera-card")).toBeInTheDocument();
+  });
+
+  it("opens event video from thumbnails with synced camera snapshots and bottom navigation", async () => {
+    installMseMocks();
+    mocks.storedSession = {
+      profileId: "default",
+      baseUrl: "http://frigate.example.com",
+      authToken: "token-value",
+      username: "admin",
+      role: "viewer"
+    };
+    mocks.request.mockImplementation(({ responseType, url }: { responseType?: string; url: string }) => {
+      if (url.includes("api.github.com/repos/jp2creation/FriCamGate/releases")) {
+        return Promise.resolve({
+          status: 404,
+          headers: {},
+          url,
+          data: {}
+        });
+      }
+
+      if (url.endsWith("/api/config")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: {
+            cameras: {
+              devant: { enabled: true, friendly_name: "Devant" },
+              allee: { enabled: true, friendly_name: "Allee" },
+              entree: { enabled: true, friendly_name: "Entree" }
+            }
+          }
+        });
+      }
+
+      if (url.includes("/api/events")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          url,
+          data: [
+            {
+              id: "event-1",
+              camera: "devant",
+              label: "person",
+              thumbnail: "YWJj",
+              start_time: 1_790_000_042,
+              end_time: 1_790_000_095
+            }
+          ]
+        });
+      }
+
+      if (responseType === "arraybuffer") {
+        return Promise.resolve({
+          status: 200,
+          headers: { "content-type": "image/webp" },
+          url,
+          data: "ZGVm"
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open event person on devant/i }));
+
+    expect(await screen.findByTestId("event-player")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Event video person on devant")).not.toBeInTheDocument();
+    expect(screen.getByAltText("Event preview person on devant")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Home$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open synced Allee/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open synced Entree/i })).toBeInTheDocument();
+    expect(screen.getByAltText("Same minute frame for Allee")).toHaveAttribute(
+      "src",
+      "http://frigate.example.com/api/allee/recordings/1790000042/snapshot.webp"
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Lire la video/i }));
+    await waitFor(() => {
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Accept: "video/mp4",
+            Authorization: "Bearer token-value"
+          }),
+          responseType: "arraybuffer",
+          url: "http://frigate.example.com/api/events/event-1/clip.mp4"
+        })
+      );
+    });
+    expect(await screen.findByLabelText("Event video person on devant")).toHaveAttribute("src", "blob:fricamgate-live");
   });
 
   it("opens the APK download directly from the update card", async () => {

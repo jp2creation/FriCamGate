@@ -158,6 +158,7 @@ export function App() {
   const [cameras, setCameras] = useState<CameraSummary[]>(mockCameras);
   const [hiddenCameraNames, setHiddenCameraNames] = useState<string[]>([]);
   const [selectedCameraName, setSelectedCameraName] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [events, setEvents] = useState<EventSummary[]>(mockEvents);
   const [autoUpdateChecks, setAutoUpdateChecks] = useState(loadAutoUpdateChecks);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
@@ -280,6 +281,7 @@ export function App() {
     setView("home");
     setSettingsPage("main");
     setSelectedCameraName(null);
+    setSelectedEventId(null);
     setCameras(mockCameras);
     setHiddenCameraNames([]);
     setEvents(mockEvents);
@@ -316,6 +318,7 @@ export function App() {
 
   function changeView(nextView: View) {
     setSelectedCameraName(null);
+    setSelectedEventId(null);
     setView(nextView);
     if (nextView === "settings") {
       setSettingsPage("main");
@@ -356,11 +359,24 @@ export function App() {
 
     return visibleCameras.find((camera) => camera.name === selectedCameraName) ?? cameras.find((camera) => camera.name === selectedCameraName) ?? null;
   }, [cameras, selectedCameraName, visibleCameras]);
-  const showingCameraDetail = Boolean(session && status === "ready" && selectedCamera);
+  const selectedEvent = useMemo(() => {
+    if (!selectedEventId) {
+      return null;
+    }
+
+    return events.find((event) => event.id === selectedEventId) ?? null;
+  }, [events, selectedEventId]);
+  const showingEventPlayer = Boolean(session && status === "ready" && selectedEvent);
+  const showingCameraDetail = Boolean(session && status === "ready" && selectedCamera && !selectedEvent);
+  const shellClassName = showingEventPlayer
+    ? "app-shell is-event-player"
+    : showingCameraDetail
+      ? "app-shell is-camera-detail"
+      : "app-shell";
 
   return (
-    <main className={showingCameraDetail ? "app-shell is-camera-detail" : "app-shell"}>
-      {showingCameraDetail || (view === "settings" && settingsPage === "main" && session) ? null : (
+    <main className={shellClassName}>
+      {showingCameraDetail || showingEventPlayer || (view === "settings" && settingsPage === "main" && session) ? null : (
         <header className={showSettingsHeader ? "app-header is-title" : "app-header"}>
           {showSettingsHeader ? (
             <>
@@ -436,14 +452,33 @@ export function App() {
           <p className={`status-line ${status === "error" ? "is-error" : ""}`}>{message}</p>
         </section>
       ) : (
-        selectedCamera ? (
+        selectedEvent ? (
+          <>
+            <EventPlayer
+              api={api}
+              authToken={session?.authToken}
+              cameras={visibleCameras}
+              event={selectedEvent}
+              onBack={() => setSelectedEventId(null)}
+              onOpenCamera={(cameraName) => {
+                setSelectedEventId(null);
+                setSelectedCameraName(cameraName);
+              }}
+            />
+            <BottomNav view={view} onViewChange={changeView} />
+          </>
+        ) : selectedCamera ? (
+          <>
           <CameraDetail
             api={api}
             authToken={session?.authToken}
             camera={selectedCamera}
             events={events}
             onBack={() => setSelectedCameraName(null)}
+            onOpenEvent={setSelectedEventId}
           />
+          <BottomNav view={view} onViewChange={changeView} />
+          </>
         ) : (
           <>
           <Dashboard
@@ -463,6 +498,7 @@ export function App() {
             onRefresh={() => refreshDashboard()}
             onCheckUpdates={checkUpdates}
             onCameraSelect={setSelectedCameraName}
+            onEventSelect={setSelectedEventId}
             onSettingsPageChange={setSettingsPage}
             onToggleCameraVisibility={toggleCameraVisibility}
             onToggleAutoUpdateChecks={toggleAutoUpdateChecks}
@@ -507,6 +543,7 @@ function Dashboard({
   onRefresh,
   onCheckUpdates,
   onCameraSelect,
+  onEventSelect,
   onSettingsPageChange,
   onToggleCameraVisibility,
   onToggleAutoUpdateChecks,
@@ -528,6 +565,7 @@ function Dashboard({
   onRefresh: () => void;
   onCheckUpdates: () => void;
   onCameraSelect: (cameraName: string) => void;
+  onEventSelect: (eventId: string) => void;
   onSettingsPageChange: (page: SettingsPage) => void;
   onToggleCameraVisibility: (cameraName: string, visible: boolean) => void;
   onToggleAutoUpdateChecks: (enabled: boolean) => void;
@@ -561,7 +599,13 @@ function Dashboard({
         <SectionTitle title="Evenements" subtitle="Dernieres detections Frigate" />
         <div className="event-list">
           {events.map((event) => (
-            <article className="event-row" key={event.id}>
+            <button
+              aria-label={`Open event ${event.label} on ${event.camera}`}
+              className="event-row"
+              key={event.id}
+              onClick={() => onEventSelect(event.id)}
+              type="button"
+            >
               <EventThumb event={event} api={api} authToken={session?.authToken} />
               <div>
                 <strong>{event.label}</strong>
@@ -569,7 +613,7 @@ function Dashboard({
                   {event.camera} - {event.time}
                 </span>
               </div>
-            </article>
+            </button>
           ))}
         </div>
       </section>
@@ -580,7 +624,7 @@ function Dashboard({
 
   return (
     <section className="content-block">
-      <EventStrip events={events} api={api} authToken={session?.authToken} />
+      <EventStrip events={events} api={api} authToken={session?.authToken} onEventSelect={onEventSelect} />
       <SectionTitle title={view === "cameras" ? "Cameras" : "Accueil"} subtitle={message} />
       <div className={gridClass}>
         {cameras.length > 0 ? (
@@ -1229,14 +1273,30 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function EventStrip({ events, api, authToken }: { events: EventSummary[]; api: FrigateApi | null; authToken?: string }) {
+function EventStrip({
+  events,
+  api,
+  authToken,
+  onEventSelect
+}: {
+  events: EventSummary[];
+  api: FrigateApi | null;
+  authToken?: string;
+  onEventSelect: (eventId: string) => void;
+}) {
   return (
     <div className="event-strip" aria-label="Recent events">
       {events.slice(0, 8).map((event) => (
-        <div className="event-chip" key={event.id}>
+        <button
+          aria-label={`Open event ${event.label} on ${event.camera}`}
+          className="event-chip"
+          key={event.id}
+          onClick={() => onEventSelect(event.id)}
+          type="button"
+        >
           <EventThumb event={event} api={api} authToken={authToken} />
           <span>{event.time}</span>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -1375,24 +1435,177 @@ function CameraLiveSurface({
   );
 }
 
+function EventPlayer({
+  api,
+  authToken,
+  cameras,
+  event,
+  onBack,
+  onOpenCamera
+}: {
+  api: FrigateApi | null;
+  authToken?: string;
+  cameras: CameraSummary[];
+  event: EventSummary;
+  onBack: () => void;
+  onOpenCamera: (cameraName: string) => void;
+}) {
+  const clipUrl = api?.eventClipUrl(event.id) ?? "";
+  const syncTimestamp = getEventSyncTimestamp(event);
+  const syncedCameras = cameras.filter((camera) => camera.name !== event.camera);
+
+  return (
+    <section className="event-player-view" aria-label={`Event ${event.label}`} data-testid="event-player">
+      <div className="event-video-pane">
+        <EventClipVideo api={api} authToken={authToken} event={event} url={clipUrl} />
+        <button className="detail-back-button" aria-label="Back from event" onClick={onBack} type="button">
+          <ArrowLeft size={28} />
+        </button>
+      </div>
+
+      <div className="event-player-body">
+        <div className="event-player-heading">
+          <div>
+            <p className="eyebrow">Lecture evenement</p>
+            <h2>{event.label}</h2>
+          </div>
+          <span className="timeline-date-pill">{event.time}</span>
+        </div>
+
+        <div className="sync-strip" aria-label="Cameras au meme moment">
+          {syncedCameras.length > 0 ? (
+            syncedCameras.map((camera) => {
+              const snapshotUrl = api && syncTimestamp ? api.recordingSnapshotUrl(camera.name, syncTimestamp) : camera.latestFrameUrl;
+
+              return (
+                <button
+                  aria-label={`Open synced ${camera.friendlyName}`}
+                  className="sync-camera-card"
+                  key={camera.name}
+                  onClick={() => onOpenCamera(camera.name)}
+                  type="button"
+                >
+                  {snapshotUrl ? (
+                    <img alt={`Same minute frame for ${camera.friendlyName}`} className="sync-thumb" src={snapshotUrl} />
+                  ) : (
+                    <div aria-label={`Same minute frame for ${camera.friendlyName}`} className="sync-thumb event-thumb-empty" role="img" />
+                  )}
+                  <span>
+                    <strong>{camera.friendlyName}</strong>
+                    <small>{syncTimestamp ? formatEventMinute(syncTimestamp) : "Derniere image"}</small>
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <p className="timeline-empty is-static">Aucune autre camera affichee pour cette minute.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EventClipVideo({
+  api,
+  authToken,
+  event,
+  url
+}: {
+  api: FrigateApi | null;
+  authToken?: string;
+  event: EventSummary;
+  url: string;
+}) {
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
+  useEffect(() => {
+    setSourceUrl("");
+    setStatus("idle");
+  }, [event.id, url]);
+
+  useEffect(() => {
+    return () => {
+      if (sourceUrl) {
+        URL.revokeObjectURL(sourceUrl);
+      }
+    };
+  }, [sourceUrl]);
+
+  async function loadClip() {
+    if (!api || !authToken || !url || status === "loading") {
+      return;
+    }
+
+    setStatus("loading");
+    try {
+      const nextUrl = await api.getVideoObjectUrl(authToken, url);
+      setSourceUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+        return nextUrl;
+      });
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  return (
+    <>
+      {sourceUrl ? (
+        <video
+          aria-label={`Event video ${event.label} on ${event.camera}`}
+          autoPlay
+          className="event-video"
+          controls
+          playsInline
+          preload="metadata"
+          src={sourceUrl}
+        />
+      ) : (
+        event.thumbnailUrl.startsWith("data:") ? (
+          <img alt={`Event preview ${event.label} on ${event.camera}`} className="event-video-poster" src={event.thumbnailUrl} />
+        ) : (
+          <div aria-label={`Event preview ${event.label} on ${event.camera}`} className="event-video-poster camera-placeholder" role="img" />
+        )
+      )}
+      {!sourceUrl ? (
+        <div className="event-video-loader">
+          <button className="primary-button" disabled={status === "loading" || !url} onClick={loadClip} type="button">
+            {status === "loading" ? <Loader2 className="spin" size={18} /> : <Video size={18} />}
+            Lire la video
+          </button>
+          {status === "error" ? <span>Video indisponible pour cet evenement.</span> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function CameraDetail({
   api,
   authToken,
   camera,
   events,
-  onBack
+  onBack,
+  onOpenEvent
 }: {
   api: FrigateApi | null;
   authToken?: string;
   camera: CameraSummary;
   events: EventSummary[];
   onBack: () => void;
+  onOpenEvent: (eventId: string) => void;
 }) {
   const cameraEvents = useMemo(
-    () => events.filter((event) => event.camera === camera.name).slice(0, 7),
+    () => events.filter((event) => event.camera === camera.name),
     [camera.name, events]
   );
   const anchorDate = getEventDate(cameraEvents[0]);
+  const timelineHeight = timelineTrackHeight(cameraEvents.length);
 
   return (
     <section className="camera-detail-view" aria-label={`Camera ${camera.friendlyName}`} data-testid="camera-detail">
@@ -1471,7 +1684,11 @@ function CameraDetail({
           <span className="timeline-date-pill is-right">{formatLongTimelineDate(anchorDate)}</span>
         </div>
 
-        <div className="timeline-track">
+        <div
+          className="timeline-track"
+          data-testid="timeline-track"
+          style={{ "--timeline-track-height": timelineHeight } as CSSProperties}
+        >
           <div className="timeline-scale" aria-hidden="true">
             <span>{formatTimelineTick(anchorDate, 2)}</span>
             <span>{formatTimelineTick(anchorDate, 1)}</span>
@@ -1496,18 +1713,23 @@ function CameraDetail({
           <div className="timeline-events">
             {cameraEvents.length > 0 ? (
               cameraEvents.map((event, index) => (
-                <article
+                <button
+                  aria-label={`Open event ${event.label} on ${event.camera}`}
                   className="timeline-event"
                   key={event.id}
+                  onClick={() => onOpenEvent(event.id)}
                   style={{ "--event-top": timelineEventTop(index) } as CSSProperties}
+                  type="button"
                 >
                   <span className="timeline-person-dot" aria-hidden="true" />
                   <EventThumb api={api} authToken={authToken} className="timeline-thumb" event={event} />
                   <span className="timeline-event-meta">
                     <strong>{event.label}</strong>
-                    <small>{formatEventDuration(event)}</small>
+                    <small>
+                      {event.time} · {formatEventDuration(event)}
+                    </small>
                   </span>
-                </article>
+                </button>
               ))
             ) : (
               <p className="timeline-empty">Aucun evenement recent pour cette camera.</p>
@@ -1708,8 +1930,27 @@ function formatEventDuration(event: EventSummary): string {
   return `${Math.round(seconds / 60)}min`;
 }
 
+function formatEventMinute(frameTime: number): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(frameTime * 1000));
+}
+
+function getEventSyncTimestamp(event: EventSummary): number | null {
+  if (!event.startTime) {
+    return null;
+  }
+
+  return Math.floor(event.startTime);
+}
+
+function timelineTrackHeight(eventCount: number): string {
+  return `${Math.max(520, 180 + eventCount * 118)}px`;
+}
+
 function timelineEventTop(index: number): string {
-  return `${Math.min(84, 22 + index * 15)}%`;
+  return `${118 + index * 118}px`;
 }
 
 function AuthenticatedImage({

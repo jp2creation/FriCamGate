@@ -257,9 +257,21 @@ input:focus {
 }
 
 .event-chip {
+  border: 0;
   min-width: 132px;
+  padding: 0;
+  background: transparent;
   color: #b6b6bf;
+  cursor: pointer;
   text-align: center;
+}
+
+.event-chip:focus-visible,
+.event-row:focus-visible,
+.timeline-event:focus-visible,
+.sync-camera-card:focus-visible {
+  outline: 3px solid rgba(255, 45, 98, 0.3);
+  outline-offset: 2px;
 }
 
 .event-chip .event-thumb {
@@ -444,13 +456,15 @@ input:focus {
   max-width: 280px;
 }
 
-.app-shell.is-camera-detail {
+.app-shell.is-camera-detail,
+.app-shell.is-event-player {
   overflow-x: hidden;
-  padding: 0;
+  padding: 0 0 max(88px, env(safe-area-inset-bottom));
   background: #0a0a0b;
 }
 
-.camera-detail-view {
+.camera-detail-view,
+.event-player-view {
   min-height: 100vh;
   background: #111113;
 }
@@ -467,6 +481,116 @@ input:focus {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.event-video-pane {
+  position: relative;
+  overflow: hidden;
+  background: #050506;
+}
+
+.event-video,
+.event-video-poster {
+  display: block;
+  width: 100%;
+  max-height: min(58vh, 520px);
+  aspect-ratio: 16 / 9;
+  background: #050506;
+  object-fit: contain;
+}
+
+.event-video-loader {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(5, 5, 6, 0.12), rgba(5, 5, 6, 0.58));
+  pointer-events: none;
+}
+
+.event-video-loader .primary-button {
+  pointer-events: auto;
+}
+
+.event-video-loader span {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(8, 8, 10, 0.78);
+  color: #ff9bb6;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.event-player-body {
+  display: grid;
+  gap: 18px;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 18px 16px max(108px, env(safe-area-inset-bottom));
+}
+
+.event-player-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.event-player-heading h2 {
+  margin-bottom: 0;
+}
+
+.sync-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 10px;
+}
+
+.sync-camera-card {
+  display: grid;
+  gap: 8px;
+  padding: 0 0 10px;
+  border: 1px solid #24242b;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #17171c;
+  color: #f6f6f7;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sync-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255, 255, 255, 0.22), transparent 20%),
+    linear-gradient(135deg, #25252d, #15151a);
+}
+
+.sync-camera-card span {
+  display: grid;
+  gap: 2px;
+  padding: 0 10px;
+}
+
+.sync-camera-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-camera-card small {
+  color: #9b9ba4;
+  font-weight: 800;
+}
+
+.timeline-empty.is-static {
+  position: static;
+  padding: 16px;
 }
 
 .detail-back-button {
@@ -588,6 +712,7 @@ input:focus {
 
 .detail-timeline {
   position: relative;
+  padding-bottom: max(92px, env(safe-area-inset-bottom));
   background: #141416;
 }
 
@@ -624,10 +749,10 @@ input:focus {
 
 .timeline-track {
   position: relative;
-  min-height: calc(100vh - 316px);
+  min-height: var(--timeline-track-height, calc(100vh - 316px));
   max-width: 920px;
   margin: -12px auto 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .timeline-scale {
@@ -656,7 +781,7 @@ input:focus {
 .timeline-rail {
   position: absolute;
   top: 42px;
-  bottom: 28px;
+  bottom: 96px;
   left: min(29vw, 250px);
   width: 18px;
 }
@@ -691,7 +816,7 @@ input:focus {
 
 .timeline-now-line {
   position: absolute;
-  top: 43%;
+  top: 118px;
   right: 0;
   left: 0;
   z-index: 3;
@@ -713,7 +838,7 @@ input:focus {
 
 .timeline-events {
   position: absolute;
-  inset: 42px 0 28px;
+  inset: 42px 0 96px;
 }
 
 .timeline-event {
@@ -722,6 +847,11 @@ input:focus {
   right: 14px;
   width: min(38vw, 202px);
   min-width: 132px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
   transform: translateY(-50%);
 }
 
@@ -818,10 +948,15 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   min-height: 74px;
   padding: 8px;
+  border: 0;
   border-radius: 8px;
   background: #15151a;
+  color: #f6f6f7;
+  cursor: pointer;
+  text-align: left;
 }
 
 .event-row strong,

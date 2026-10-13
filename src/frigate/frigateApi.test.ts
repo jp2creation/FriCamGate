@@ -107,4 +107,13 @@ describe("FrigateApi image loading", () => {
     expect(event.previewUrl).toBe("http://frigate.example.com/api/events/event-1/preview.gif");
     expect(event.thumbnailUrl).toBe("http://frigate.example.com/api/events/event-1/snapshot.jpg?h=180");
   });
+
+  it("builds event clip and synchronized recording snapshot URLs", () => {
+    const api = new FrigateApi("http://frigate.example.com/nvr");
+
+    expect(api.eventClipUrl("event 1")).toBe("http://frigate.example.com/nvr/api/events/event%201/clip.mp4");
+    expect(api.recordingSnapshotUrl("porte entree", 1_790_000_042)).toBe(
+      "http://frigate.example.com/nvr/api/porte%20entree/recordings/1790000042/snapshot.webp"
+    );
+  });
 });
