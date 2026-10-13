@@ -1,6 +1,6 @@
 {
   "name": "fricamgate",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "FriCamGate is an Android phone and tablet client for Frigate.",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "cap:sync": "npm run build && cap sync android",
-    "android:debug": "npm run build && cap sync android && cd android && ./gradlew assembleDebug"
+    "android:debug": "cd android && ./gradlew testDebugUnitTest assembleDebug"
   },
   "keywords": [],
   "author": "",

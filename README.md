@@ -6,14 +6,18 @@ Each user connects the app to their own Frigate server URL and signs in with the
 
 ## Current Status
 
-This repository contains the V1 debug Android APK project built with React, Vite, TypeScript, and Capacitor Android.
+This repository now contains the Android-native Kotlin direction for FriCamGate.
+
+The current Kotlin build replaces the Capacitor WebView shell with a native Android activity, OkHttp API calls, and Media3/ExoPlayer playback. The earlier React/Capacitor prototype remains in the tree as reference material while the native app reaches feature parity.
 
 The debug APK can be built locally with:
 
 ```bash
-npm ci
-npm run android:debug
+cd android
+./gradlew testDebugUnitTest assembleDebug
 ```
+
+The generated APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Brand
 

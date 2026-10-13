@@ -1,4 +1,4 @@
-package com.getcapacitor.myapp;
+package fr.degert.fricamgate;
 
 import static org.junit.Assert.*;
 
