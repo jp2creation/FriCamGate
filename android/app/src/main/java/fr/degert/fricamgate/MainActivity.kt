@@ -6,14 +6,17 @@ import android.graphics.Color
 import android.graphics.Outline
 import android.app.DatePickerDialog
 import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -57,6 +60,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pl.droidsonroids.gif.GifDrawable
 import java.io.IOException
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -75,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private var currentPlayer: ExoPlayer? = null
     private var currentPlaybackKey: String? = null
     private var timelinePlaybackGeneration = 0
+    private var timelineFrameGeneration = 0
     private var cameraPickerPopup: PopupWindow? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -230,11 +235,14 @@ class MainActivity : AppCompatActivity() {
         camera: NativeCamera,
         timelineDayMillis: Long = System.currentTimeMillis(),
         timelineEvents: List<NativeEvent>? = null,
-        timelineFocusSec: Double? = null
+        timelineFocusSec: Double? = null,
+        showEventsList: Boolean = false
     ) {
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
         releasePlayer()
+        var currentFocusSec: Double? = timelineFocusSec
+        var currentFocusIsLive = timelineFocusSec == null && isSameLocalDay(timelineDayMillis, System.currentTimeMillis())
 
         val body = vertical().apply { setBackgroundColor(Palette.background) }
         val playerFrame = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
@@ -254,25 +262,31 @@ class MainActivity : AppCompatActivity() {
             setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
-        playerFrame.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
-            leftMargin = dp(18)
-            bottomMargin = dp(16)
-        })
         val live = liveBadge().apply { visibility = View.GONE }
         playerFrame.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
             rightMargin = dp(18)
             topMargin = dp(18)
         })
-        playerFrame.addView(soundToggleButton(), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.BOTTOM).apply {
-            rightMargin = dp(18)
-            bottomMargin = dp(14)
-        })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cameraVideoHeight()))
-        body.addView(cameraToolbar(camera))
         body.addView(
-            cameraTimeline(camera, liveImage, playerView, live, timelineDayMillis, timelineEvents, timelineFocusSec),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            cameraToolbar(
+                camera = camera,
+                showEventsList = showEventsList,
+                onRefresh = { renderCameraDetail(camera) },
+                onSnapshot = { saveCameraSnapshot(camera, currentFocusSec, currentFocusIsLive) },
+                onToggleEvents = { renderCameraDetail(camera, timelineDayMillis, timelineEvents, currentFocusSec, !showEventsList) },
+                onSettings = { anchor -> showCameraOptionsPopup(camera, anchor) }
+            )
         )
+        val detailContent = if (showEventsList) {
+            cameraEventList(camera, timelineEvents ?: events)
+        } else {
+            cameraTimeline(camera, liveImage, playerView, live, timelineDayMillis, timelineEvents, timelineFocusSec) { focusSec, isLive ->
+                currentFocusSec = focusSec
+                currentFocusIsLive = isLive
+            }
+        }
+        body.addView(detailContent, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Cameras, showHeader = false)
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
@@ -370,25 +384,23 @@ class MainActivity : AppCompatActivity() {
         camera: NativeCamera,
         playerView: PlayerView,
         fallback: ImageView,
-        focusSec: Double
+        focusSec: Double,
+        onPlaybackClock: (Double) -> Unit = {}
     ) {
         val safeFocus = focusSec.coerceAtLeast(0.0)
-        val bucketStart = ((safeFocus.toLong() - TIMELINE_RECORDING_PREROLL_SECONDS)
-            .coerceAtLeast(0L) / TIMELINE_RECORDING_BUCKET_SECONDS) * TIMELINE_RECORDING_BUCKET_SECONDS
-        val windowStart = bucketStart.coerceAtLeast(0L)
-        val windowEnd = windowStart + TIMELINE_RECORDING_WINDOW_SECONDS
-        val seekMs = ((safeFocus - windowStart.toDouble()) * 1000.0)
-            .coerceIn(0.0, (TIMELINE_RECORDING_WINDOW_SECONDS * 1000L).toDouble())
-            .toLong()
+        val window = timelineRecordingWindow(safeFocus)
+        val windowStart = window.startSec
+        val windowEnd = window.endSec
+        val seekMs = window.seekMs
         val key = "recording:${camera.name}:$windowStart:$windowEnd"
         val current = currentPlayer
 
         fun refreshFallbackFrame() {
-            val playbackGeneration = ++timelinePlaybackGeneration
+            val frameGeneration = ++timelineFrameGeneration
             fallback.visibility = View.VISIBLE
             api.loadBitmap(token, api.recordingSnapshotUrl(camera.name, safeFocus)) { bitmap ->
                 runOnUiThread {
-                    if (playbackGeneration == timelinePlaybackGeneration && bitmap != null) {
+                    if (frameGeneration == timelineFrameGeneration && bitmap != null) {
                         fallback.setImageBitmap(bitmap)
                     }
                 }
@@ -401,6 +413,7 @@ class MainActivity : AppCompatActivity() {
             current.seekTo(seekMs)
             current.playWhenReady = true
             current.play()
+            startTimelineClock(key, windowStart, playerView, current, onPlaybackClock)
             return
         }
 
@@ -447,6 +460,27 @@ class MainActivity : AppCompatActivity() {
         player.seekTo(seekMs)
         player.playWhenReady = true
         player.play()
+        startTimelineClock(key, windowStart, playerView, player, onPlaybackClock)
+    }
+
+    private fun startTimelineClock(
+        playbackKey: String,
+        windowStartSec: Long,
+        playerView: PlayerView,
+        player: ExoPlayer,
+        onPlaybackClock: (Double) -> Unit
+    ) {
+        val playbackGeneration = ++timelinePlaybackGeneration
+        fun tick() {
+            if (timelinePlaybackGeneration != playbackGeneration || currentPlaybackKey != playbackKey || currentPlayer !== player) return
+            if (playerView.visibility == View.VISIBLE && player.playbackState != Player.STATE_IDLE) {
+                onPlaybackClock(windowStartSec + (player.currentPosition / 1000.0))
+            }
+            if (player.playbackState != Player.STATE_ENDED) {
+                mainHandler.postDelayed({ tick() }, TIMELINE_PLAYBACK_CLOCK_MS)
+            }
+        }
+        mainHandler.postDelayed({ tick() }, TIMELINE_PLAYBACK_CLOCK_MS)
     }
 
     private fun startMjpegStream(
@@ -592,7 +626,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun cameraToolbar(camera: NativeCamera): View {
+    private fun cameraToolbar(
+        camera: NativeCamera,
+        showEventsList: Boolean,
+        onRefresh: () -> Unit,
+        onSnapshot: () -> Unit,
+        onToggleEvents: () -> Unit,
+        onSettings: (View) -> Unit
+    ): View {
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.backgroundAlt)
             addView(View(context).apply {
@@ -605,16 +646,77 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(18), dp(10), dp(16), 0)
                 addView(View(context).apply {
                     background = rounded(Palette.liveBlue, 5)
-                }, LinearLayout.LayoutParams(dp(9), dp(9)).apply { rightMargin = dp(8) })
-                addView(label(camera.friendlyName, 20, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-                addView(toolbarIcon(R.drawable.ic_refresh))
-                addView(toolbarIcon(R.drawable.ic_image))
-                addView(toolbarIcon(R.drawable.ic_grid))
-                addView(toolbarIcon(R.drawable.ic_settings))
+                }, LinearLayout.LayoutParams(dp(9), dp(9)).apply { rightMargin = dp(10) })
+                addView(label(camera.friendlyName, 18, Palette.text).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                addView(toolbarIcon(R.drawable.ic_refresh, onClick = { onRefresh() }))
+                addView(soundToolbarIcon())
+                addView(toolbarIcon(R.drawable.ic_image, onClick = { onSnapshot() }))
+                addView(toolbarIcon(R.drawable.ic_grid, tint = if (showEventsList) Palette.accent else Palette.muted, onClick = { onToggleEvents() }))
+                addView(toolbarIcon(R.drawable.ic_settings, onClick = { anchor -> onSettings(anchor) }))
             }, frameMatch())
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72))
         }
+    }
+
+    private fun cameraEventList(camera: NativeCamera, sourceEvents: List<NativeEvent>): View {
+        val cameraEvents = sourceEvents
+            .filter { it.camera == camera.name }
+            .filter { it.startTime != null }
+            .sortedByDescending { it.startTime ?: 0.0 }
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Palette.backgroundAlt)
+            isVerticalScrollBarEnabled = false
+        }
+        val column = vertical().apply { setPadding(dp(18), dp(18), dp(18), dp(120)) }
+        scroll.addView(column)
+        column.addView(label("EVENEMENTS", 12, Palette.muted).apply {
+            setPadding(0, 0, 0, dp(10))
+        })
+        if (cameraEvents.isEmpty()) {
+            column.addView(emptyMessage("Aucun evenement pour cette camera."))
+            return scroll
+        }
+        cameraEvents.forEach { event ->
+            val row = horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(10), dp(12), dp(10))
+                background = rounded(Palette.card, 8)
+                setOnClickListener { renderEventDetail(event) }
+            }
+            val thumb = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(Palette.surface)
+            }
+            row.addView(FrameLayout(this).apply {
+                background = rounded(Palette.surface, 8)
+                applyRoundedClip(8)
+                addView(thumb, frameMatch())
+                loadEventPreviewAnimated(event, thumb)
+            }, LinearLayout.LayoutParams(dp(132), dp(76)).apply {
+                rightMargin = dp(14)
+            })
+            row.addView(vertical().apply {
+                addView(label(eventDisplayText(event), 17, Palette.text).apply {
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                })
+                addView(label(event.time, 14, Palette.muted).apply {
+                    setPadding(0, dp(6), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(ImageView(this).apply {
+                setImageResource(eventObjectIcon(event))
+                setColorFilter(Palette.accent)
+                alpha = 0.9f
+            }, LinearLayout.LayoutParams(dp(24), dp(24)))
+            column.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)).apply {
+                bottomMargin = dp(10)
+            })
+        }
+        return scroll
     }
 
     private fun cameraTimeline(
@@ -624,7 +726,8 @@ class MainActivity : AppCompatActivity() {
         liveBadge: View,
         timelineDayMillis: Long,
         timelineEvents: List<NativeEvent>?,
-        timelineFocusSec: Double?
+        timelineFocusSec: Double?,
+        onFocusChanged: (Double?, Boolean) -> Unit
     ): View {
         val activeSession = session
         val activeApi = api
@@ -666,9 +769,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val tickStepMinutes = when (zoomIndex) {
-            0 -> 15
-            1 -> 5
-            2 -> 2
+            0 -> 5
+            1 -> 2
             else -> 1
         }
         val tickCount = (spanMinutes / tickStepMinutes).toInt() + 1
@@ -677,7 +779,7 @@ class MainActivity : AppCompatActivity() {
             val y = topSpacer + minutesFromAnchor * pxPerMinute
             val timeSec = anchorSec - minutesFromAnchor * 60.0
             val isHour = minutesFromAnchor % 60 == 0
-            val isMajor = isHour || minutesFromAnchor % (tickStepMinutes * 3) == 0
+            val isMajor = isHour || tickStepMinutes <= 2 || minutesFromAnchor % (tickStepMinutes * 3) == 0
             column.addView(View(this).apply {
                 setBackgroundColor(if (isMajor) 0xff585860.toInt() else 0xff303037.toInt())
             }, FrameLayout.LayoutParams(dp(if (isMajor) 22 else 8), dp(1), Gravity.START or Gravity.TOP).apply {
@@ -689,6 +791,22 @@ class MainActivity : AppCompatActivity() {
                     leftMargin = dp(28)
                     topMargin = y - dp(11)
                 })
+            }
+            if (zoomIndex >= 1) {
+                val minorStep = if (zoomIndex >= 2) 30 else 60
+                var offsetSeconds = minorStep
+                while (offsetSeconds < tickStepMinutes * 60) {
+                    val minorY = y + (offsetSeconds / 60.0 * pxPerMinute).toInt()
+                    if (minorY < timelineHeight - bottomSpacer) {
+                        column.addView(View(this).apply {
+                            setBackgroundColor(0xff303037.toInt())
+                        }, FrameLayout.LayoutParams(dp(8), dp(1), Gravity.START or Gravity.TOP).apply {
+                            leftMargin = dp(4)
+                            topMargin = minorY
+                        })
+                    }
+                    offsetSeconds += minorStep
+                }
             }
         }
         column.addView(View(this).apply {
@@ -830,17 +948,25 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             })
-            addView(timelineFloatButton(R.drawable.ic_list))
+            addView(timelineFloatButton(R.drawable.ic_list).apply {
+                setOnClickListener {
+                    renderCameraDetail(camera, timelineDayMillis, cameraEvents, centerSecondForScroll(scroll.scrollY), true)
+                }
+            })
         }, FrameLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
             rightMargin = dp(12)
         })
         var lastPlaybackSec: Double? = null
+        var pendingScrollPlayback: Runnable? = null
         var timelineMode = false
         fun resumeLive() {
             if (activeSession == null || activeApi == null) return
             timelineMode = false
             lastPlaybackSec = null
+            pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
+            pendingScrollPlayback = null
             currentTime.text = "Live"
+            onFocusChanged(null, true)
             returnLive.visibility = View.GONE
             releaseCurrentPlayer()
             playerView.visibility = View.GONE
@@ -866,16 +992,33 @@ class MainActivity : AppCompatActivity() {
             mainHandler.postDelayed({ resumeLive() }, 460L)
         }
         returnLive.setOnClickListener { returnToLive() }
+        var syncingPlaybackScroll = false
+        fun updatePlaybackClock(playbackSec: Double) {
+            if (!timelineMode || frame.height <= 0) return
+            currentTime.text = formatTimelineClock(playbackSec)
+            onFocusChanged(playbackSec, false)
+            lastPlaybackSec = playbackSec
+            val target = scrollForSecond(playbackSec)
+            if (kotlin.math.abs(scroll.scrollY - target) > dp(1)) {
+                syncingPlaybackScroll = true
+                scroll.scrollTo(0, target)
+                syncingPlaybackScroll = false
+            }
+        }
         fun updatePreviewForScroll(scrollY: Int) {
             if (activeSession == null || activeApi == null || frame.height <= 0) return
             val centerSec = centerSecondForScroll(scrollY)
             if (selectedToday && centerSec >= anchorSec - 3.0) {
+                pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
+                pendingScrollPlayback = null
                 if (timelineMode) resumeLive()
                 currentTime.text = "Live"
+                onFocusChanged(null, true)
                 returnLive.visibility = View.GONE
                 return
             }
             currentTime.text = formatTimelineClock(centerSec)
+            onFocusChanged(centerSec, false)
             val previousPlaybackSec = lastPlaybackSec
             if (previousPlaybackSec != null && kotlin.math.abs(previousPlaybackSec - centerSec) < 1.0) return
             lastPlaybackSec = centerSec
@@ -886,10 +1029,16 @@ class MainActivity : AppCompatActivity() {
                 playerView.visibility = View.VISIBLE
                 returnLive.visibility = View.VISIBLE
             }
-            startTimelineRecordingPlayer(activeApi, activeSession.token, camera, playerView, preview, centerSec)
+            pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
+            val runnable = Runnable {
+                if (!timelineMode) return@Runnable
+                startTimelineRecordingPlayer(activeApi, activeSession.token, camera, playerView, preview, centerSec, ::updatePlaybackClock)
+            }
+            pendingScrollPlayback = runnable
+            mainHandler.postDelayed(runnable, 160L)
         }
         scroll.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-            if (scrollY != oldScrollY) updatePreviewForScroll(scrollY)
+            if (scrollY != oldScrollY && !syncingPlaybackScroll) updatePreviewForScroll(scrollY)
         }
         frame.post {
             val focus = timelineFocusSec
@@ -900,6 +1049,7 @@ class MainActivity : AppCompatActivity() {
             } else if (selectedToday) {
                 scroll.scrollTo(0, 0)
                 currentTime.text = "Live"
+                onFocusChanged(null, true)
                 returnLive.visibility = View.GONE
             }
         }
@@ -1186,6 +1336,185 @@ class MainActivity : AppCompatActivity() {
         cameraPickerPopup = null
     }
 
+    private fun showCameraOptionsPopup(camera: NativeCamera, anchor: View) {
+        dismissCameraPicker()
+        val activeSession = session ?: return renderLogin()
+        val activeApi = api ?: return renderLogin()
+        val card = vertical().apply {
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
+        }
+        card.addView(label(camera.friendlyName, 16, Palette.text).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(6), dp(2), dp(6), dp(4))
+        })
+        card.addView(localSoundRow())
+        listOf(
+            CameraFeatureControl("Detection", "Analyse objets Frigate", "detect", camera.detectEnabled),
+            CameraFeatureControl("Mouvement", "Detection de mouvement", "motion", camera.motionEnabled),
+            CameraFeatureControl("Enregistrements", "Clips et recordings", "recordings", camera.recordingsEnabled),
+            CameraFeatureControl("Snapshots", "Images d'evenements", "snapshots", camera.snapshotsEnabled),
+            CameraFeatureControl("Audio", "Detection audio Frigate", "audio", camera.audioEnabled),
+            CameraFeatureControl("Transcription", "Audio transcription", "audio_transcription", camera.audioTranscriptionEnabled),
+            CameraFeatureControl("Notifications", "Notifications camera", "notifications", camera.notificationsEnabled)
+        ).forEach { control ->
+            card.addView(cameraFeatureToggleRow(activeApi, activeSession.token, camera, control))
+        }
+        card.addView(disabledCameraOptionRow("Micro", "Non expose par l'API Frigate native"))
+        card.addView(disabledCameraOptionRow("Alarme", "Non expose par l'API Frigate native"))
+
+        val content = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(390))
+        val popupHeight = minOf(dp(540), dp(72) + dp(58) * 10)
+        val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
+            isOutsideTouchable = true
+            isClippingEnabled = true
+            elevation = dp(18).toFloat()
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setOnDismissListener {
+                if (cameraPickerPopup === this) cameraPickerPopup = null
+            }
+        }
+        cameraPickerPopup = popup
+        popup.showAtLocation(anchor, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, dp(86))
+    }
+
+    private fun localSoundRow(): View {
+        var internalChange = false
+        val switchView = SwitchCompat(this).apply {
+            isChecked = soundEnabled
+        }
+        switchView.setOnCheckedChangeListener { _, checked ->
+            if (internalChange) return@setOnCheckedChangeListener
+            if (checked != soundEnabled) toggleSound()
+        }
+        return settingsToggleRow("Son de lecture", "Son de la video dans FriCamGate", switchView)
+    }
+
+    private fun cameraFeatureToggleRow(
+        api: FrigateNativeApi,
+        token: String,
+        camera: NativeCamera,
+        control: CameraFeatureControl
+    ): View {
+        var internalChange = false
+        val switchView = SwitchCompat(this).apply {
+            isChecked = control.enabled ?: true
+        }
+        switchView.setOnCheckedChangeListener { _, checked ->
+            if (internalChange) return@setOnCheckedChangeListener
+            api.setCameraFeature(token, camera.name, control.feature, checked) { result ->
+                runOnUiThread {
+                    result.onSuccess {
+                        toast("${control.title} ${if (checked) "active" else "desactive"}.")
+                    }.onFailure {
+                        toast("${control.title} indisponible.")
+                        internalChange = true
+                        switchView.isChecked = !checked
+                        internalChange = false
+                    }
+                }
+            }
+        }
+        val detail = if (control.enabled == null) "${control.detail} - etat inconnu" else control.detail
+        return settingsToggleRow(control.title, detail, switchView)
+    }
+
+    private fun settingsToggleRow(title: String, detail: String, switchView: SwitchCompat): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(4), dp(8))
+            addView(vertical().apply {
+                addView(label(title, 14, Palette.text))
+                addView(label(detail, 12, Palette.muted).apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(switchView)
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58))
+        }
+    }
+
+    private fun disabledCameraOptionRow(title: String, detail: String): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            alpha = 0.58f
+            setPadding(dp(8), dp(8), dp(4), dp(8))
+            addView(vertical().apply {
+                addView(label(title, 14, Palette.text))
+                addView(label(detail, 12, Palette.muted).apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label("N/A", 12, Palette.muted).apply {
+                gravity = Gravity.CENTER
+                background = rounded(Palette.surface, 10)
+                setPadding(dp(10), 0, dp(10), 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58))
+        }
+    }
+
+    private fun saveCameraSnapshot(camera: NativeCamera, focusSec: Double?, isLive: Boolean) {
+        val activeSession = session ?: return renderLogin()
+        val activeApi = api ?: return renderLogin()
+        val url = if (!isLive && focusSec != null) {
+            activeApi.recordingSnapshotUrl(camera.name, focusSec)
+        } else {
+            activeApi.latestFrameUrl(camera.name)
+        }
+        toast("Capture en cours...")
+        activeApi.loadBitmap(activeSession.token, url) { bitmap ->
+            runOnUiThread {
+                if (bitmap == null) {
+                    toast("Capture impossible.")
+                } else {
+                    saveBitmapToGallery(bitmap, camera)
+                }
+            }
+        }
+    }
+
+    private fun saveBitmapToGallery(bitmap: Bitmap, camera: NativeCamera) {
+        val fileName = "FriCamGate_${camera.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())}.jpg"
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/FriCamGate")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val resolver = contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            toast("Enregistrement impossible.")
+            return
+        }
+        runCatching {
+            resolver.openOutputStream(uri)?.use { output ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)) {
+                    throw IOException("Compression impossible.")
+                }
+            } ?: throw IOException("Flux image indisponible.")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+        }.onSuccess {
+            toast("Capture enregistree dans Photos.")
+        }.onFailure {
+            resolver.delete(uri, null, null)
+            toast("Enregistrement impossible.")
+        }
+    }
+
     private fun renderSettings() {
         releasePlayer()
         val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
@@ -1439,7 +1768,7 @@ class MainActivity : AppCompatActivity() {
     private fun appVersionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }
             .getOrDefault("")
-            .ifBlank { "0.2.14" }
+            .ifBlank { "0.2.15" }
 
     private fun loadNvrVersion(renderAboutWhenDone: Boolean) {
         val activeSession = session ?: return
@@ -1496,6 +1825,7 @@ class MainActivity : AppCompatActivity() {
         dismissCameraPicker()
         homeStreamGeneration += 1
         timelinePlaybackGeneration += 1
+        timelineFrameGeneration += 1
         mainHandler.removeCallbacksAndMessages(null)
         releaseCurrentPlayer()
         homeStreams.forEach { it.close(1000, "released") }
@@ -1608,13 +1938,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toolbarIcon(iconRes: Int): View {
+    private fun toolbarIcon(iconRes: Int, tint: Int = Palette.muted, onClick: ((View) -> Unit)? = null): View {
         return FrameLayout(this).apply {
+            isClickable = onClick != null
+            if (onClick != null) setOnClickListener { onClick(it) }
             addView(ImageView(context).apply {
                 setImageResource(iconRes)
-                setColorFilter(Palette.muted)
+                setColorFilter(tint)
                 alpha = 0.9f
             }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(52))
+        }
+    }
+
+    private fun soundToolbarIcon(): View {
+        val icon = ImageView(this).apply {
+            alpha = 0.9f
+        }
+        fun refresh() {
+            icon.setImageResource(if (soundEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off)
+            icon.setColorFilter(if (soundEnabled) Palette.accent else Palette.muted)
+        }
+        return FrameLayout(this).apply {
+            isClickable = true
+            addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            setOnClickListener {
+                toggleSound()
+                refresh()
+            }
+            refresh()
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(52))
         }
@@ -1770,11 +2123,13 @@ class MainActivity : AppCompatActivity() {
         private const val HOME_MJPEG_STARTUP_TIMEOUT_MS = 8000L
         private const val HOME_MJPEG_RECONNECT_DELAY_MS = 1200L
         private const val MAX_HOME_MJPEG_RECONNECTS = 4
-        private const val TIMELINE_RECORDING_BUCKET_SECONDS = 20L
-        private const val TIMELINE_RECORDING_PREROLL_SECONDS = 8L
-        private const val TIMELINE_RECORDING_WINDOW_SECONDS = 45L
     }
 }
+
+private const val TIMELINE_RECORDING_BUCKET_SECONDS = 20L
+private const val TIMELINE_RECORDING_PREROLL_SECONDS = 8L
+private const val TIMELINE_RECORDING_WINDOW_SECONDS = 45L
+private const val TIMELINE_PLAYBACK_CLOCK_MS = 500L
 
 private class FrigateNativeApi(
     private val baseUrl: String,
@@ -1938,6 +2293,36 @@ private class FrigateNativeApi(
         })
     }
 
+    fun setCameraFeature(
+        token: String,
+        cameraName: String,
+        feature: String,
+        enabled: Boolean,
+        callback: (Result<Unit>) -> Unit
+    ) {
+        val body = JSONObject()
+            .put("value", if (enabled) "ON" else "OFF")
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+        val request = authRequest(token, cameraSetFeaturePath(cameraName, feature))
+            .put(body)
+            .header("Content-Type", "application/json")
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { httpResponse ->
+                    if (httpResponse.isSuccessful) {
+                        callback(Result.success(Unit))
+                    } else {
+                        callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
+                    }
+                }
+            }
+        })
+    }
+
     fun openMjpegStream(
         token: String,
         streamName: String,
@@ -2056,9 +2441,25 @@ private class FrigateNativeApi(
                 name = name,
                 friendlyName = camera.optString("friendly_name").ifBlank { titleFromName(name) },
                 enabled = !camera.has("enabled") || camera.optBoolean("enabled", true),
-                streamName = selectStreamName(name, camera)
+                streamName = selectStreamName(name, camera),
+                detectEnabled = cameraFeatureEnabled(camera, "detect"),
+                motionEnabled = cameraFeatureEnabled(camera, "motion"),
+                recordingsEnabled = cameraFeatureEnabled(camera, "record"),
+                snapshotsEnabled = cameraFeatureEnabled(camera, "snapshots"),
+                audioEnabled = cameraFeatureEnabled(camera, "audio"),
+                notificationsEnabled = cameraFeatureEnabled(camera, "notifications"),
+                audioTranscriptionEnabled = cameraFeatureEnabled(camera, "audio_transcription")
             )
         }.toList()
+    }
+
+    private fun cameraFeatureEnabled(camera: JSONObject, key: String): Boolean? {
+        val value = camera.opt(key)
+        return when (value) {
+            is Boolean -> value
+            is JSONObject -> if (value.has("enabled") && !value.isNull("enabled")) value.optBoolean("enabled") else null
+            else -> null
+        }
     }
 
     private fun parseEvents(events: JSONArray): List<NativeEvent> {
@@ -2307,7 +2708,25 @@ private data class NativeUpdateResult(
 private data class NativeSession(val baseUrl: String, val token: String, val username: String)
 private data class NativeLogin(val token: String, val username: String)
 private data class DashboardData(val cameras: List<NativeCamera>, val events: List<NativeEvent>)
-private data class NativeCamera(val name: String, val friendlyName: String, val enabled: Boolean, val streamName: String)
+private data class NativeCamera(
+    val name: String,
+    val friendlyName: String,
+    val enabled: Boolean,
+    val streamName: String,
+    val detectEnabled: Boolean?,
+    val motionEnabled: Boolean?,
+    val recordingsEnabled: Boolean?,
+    val snapshotsEnabled: Boolean?,
+    val audioEnabled: Boolean?,
+    val notificationsEnabled: Boolean?,
+    val audioTranscriptionEnabled: Boolean?
+)
+private data class CameraFeatureControl(
+    val title: String,
+    val detail: String,
+    val feature: String,
+    val enabled: Boolean?
+)
 private data class NativeEvent(
     val id: String,
     val camera: String,
@@ -2360,6 +2779,26 @@ internal fun compareVersions(left: String, right: String): Int {
     }
     return 0
 }
+
+internal data class TimelineRecordingWindow(val startSec: Long, val endSec: Long, val seekMs: Long)
+
+internal fun timelineRecordingWindow(focusSec: Double): TimelineRecordingWindow {
+    val safeFocus = focusSec.coerceAtLeast(0.0)
+    val bucketStart = ((safeFocus.toLong() - TIMELINE_RECORDING_PREROLL_SECONDS)
+        .coerceAtLeast(0L) / TIMELINE_RECORDING_BUCKET_SECONDS) * TIMELINE_RECORDING_BUCKET_SECONDS
+    val startSec = bucketStart.coerceAtLeast(0L)
+    val endSec = startSec + TIMELINE_RECORDING_WINDOW_SECONDS
+    val seekMs = ((safeFocus - startSec.toDouble()) * 1000.0)
+        .coerceIn(0.0, (TIMELINE_RECORDING_WINDOW_SECONDS * 1000L).toDouble())
+        .toLong()
+    return TimelineRecordingWindow(startSec, endSec, seekMs)
+}
+
+internal fun cameraSetFeaturePath(cameraName: String, feature: String): String =
+    "/api/${urlPathSegment(cameraName)}/set/${urlPathSegment(feature)}"
+
+private fun urlPathSegment(value: String): String =
+    URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
 internal fun normalizeBaseUrl(value: String): String {
     val trimmed = value.trim().trimEnd('/')

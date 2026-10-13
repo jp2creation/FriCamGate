@@ -26,4 +26,19 @@ class UrlNormalizationTest {
         assertEquals(1, compareVersions("0.2.13", "0.2.12"))
         assertEquals(0, compareVersions("0.2.10", "v0.2.10-kotlin-debug"))
     }
+
+    @Test
+    fun buildsCameraFeatureTogglePaths() {
+        assertEquals("/api/Entree%20suivi/set/audio", cameraSetFeaturePath("Entree suivi", "audio"))
+        assertEquals("/api/allee/set/recordings", cameraSetFeaturePath("allee", "recordings"))
+    }
+
+    @Test
+    fun centersTimelineRecordingWindowAroundFocus() {
+        val window = timelineRecordingWindow(1_000.0)
+
+        assertEquals(980L, window.startSec)
+        assertEquals(1_025L, window.endSec)
+        assertEquals(20_000L, window.seekMs)
+    }
 }
