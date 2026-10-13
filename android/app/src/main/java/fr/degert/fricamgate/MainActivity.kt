@@ -176,8 +176,8 @@ class MainActivity : AppCompatActivity() {
             clipToPadding = false
             setPadding(0, 0, 0, dp(96))
         }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(24)) }
-        content.addView(column, centeredScrollParams(720))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(24)) }
+        content.addView(column, responsiveScrollParams(720))
         column.addView(eventStrip())
         val titleRow = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -369,8 +369,8 @@ class MainActivity : AppCompatActivity() {
             bottomMargin = dp(12)
         })
         return card.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(210)).apply {
-                bottomMargin = dp(10)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(218)).apply {
+                bottomMargin = dp(8)
             }
         }
     }
@@ -477,21 +477,38 @@ class MainActivity : AppCompatActivity() {
     private fun appHeader(): View {
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
-            addView(ImageView(context).apply {
-                setImageResource(resources.getIdentifier("ic_launcher", "mipmap", packageName))
+            val brand = horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(22), 0, dp(70), 0)
+            }
+            brand.addView(ImageView(context).apply {
+                setImageResource(R.drawable.fricamgate_logo)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
+            }, LinearLayout.LayoutParams(dp(56), dp(56)))
+            val titles = vertical().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), 0, 0, 0)
+            }
+            titles.addView(label("CLIENT FRIGATE", 12, Palette.muted).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                letterSpacing = 0.04f
+            })
+            titles.addView(label("FriCamGate", 30, Palette.text).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            brand.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(brand, frameMatch())
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_bell)
                 setColorFilter(Palette.text)
             }, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.END or Gravity.CENTER_VERTICAL).apply {
                 rightMargin = dp(22)
             })
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(88)) }
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(102)) }
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
-        setImageResource(resources.getIdentifier("ic_launcher", "mipmap", packageName))
+        setImageResource(R.drawable.fricamgate_logo)
         adjustViewBounds = true
         scaleType = ImageView.ScaleType.FIT_CENTER
     }.also { it.layoutParams = LinearLayout.LayoutParams(dp(104), dp(104)) }
@@ -515,11 +532,17 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            item.addView(ImageView(this).apply {
+            val iconHolder = FrameLayout(this).apply {
+                if (tab == activeTab) {
+                    background = rounded(Palette.navActive, 12)
+                }
+            }
+            iconHolder.addView(ImageView(this).apply {
                 setImageResource(tab.iconRes)
                 setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
                 alpha = if (tab == activeTab) 1f else 0.92f
             }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+            item.addView(iconHolder, FrameLayout.LayoutParams(dp(64), dp(56), Gravity.CENTER))
             row.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
@@ -686,6 +709,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun centeredScrollParams(maxWidthDp: Int): FrameLayout.LayoutParams {
         return FrameLayout.LayoutParams(contentWidth(maxWidthDp), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+    }
+
+    private fun responsiveScrollParams(maxWidthDp: Int): FrameLayout.LayoutParams {
+        val screenWidthDp = resources.configuration.screenWidthDp
+        val width = if (screenWidthDp >= 700) contentWidth(maxWidthDp) else ViewGroup.LayoutParams.MATCH_PARENT
+        return FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         }
     }
@@ -1054,6 +1085,7 @@ private object Palette {
     const val card = 0xff17171c.toInt()
     const val surface = 0xff22222a.toInt()
     const val overlay = 0xcc050507.toInt()
+    const val navActive = 0xff3b0d1b.toInt()
     const val text = 0xfff7f7f9.toInt()
     const val muted = 0xff8d8d96.toInt()
     const val accent = 0xffff2d63.toInt()
