@@ -2,12 +2,15 @@ package fr.degert.fricamgate
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Outline
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -19,6 +22,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -89,7 +93,7 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(Palette.background)
         }
-        scroll.addView(root)
+        scroll.addView(root, centeredScrollParams(560))
         root.addView(logoHeader())
         root.addView(label("Serveur Frigate", 12, Palette.muted).apply { setPadding(0, dp(28), 0, dp(8)) })
         val serverInput = editText("http://cam.example.fr", prefs.getString("baseUrl", "") ?: "")
@@ -173,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(96))
         }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(24)) }
-        content.addView(column)
+        content.addView(column, centeredScrollParams(720))
         column.addView(eventStrip())
         val titleRow = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -207,9 +211,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val playerView = PlayerView(this).apply {
-            useController = true
+            useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            setBackgroundColor(Palette.black)
+            setBackgroundColor(Color.TRANSPARENT)
+            setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
         val back = roundButton("<").apply { setOnClickListener { renderHome() } }
@@ -246,9 +251,10 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { bitmap?.let { fallback.setImageBitmap(it) } }
         }
         val playerView = PlayerView(this).apply {
-            useController = true
+            useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            setBackgroundColor(Palette.black)
+            setBackgroundColor(Color.TRANSPARENT)
+            setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
         playerFrame.addView(roundButton("<").apply { setOnClickListener { renderHome() } }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.START or Gravity.TOP).apply {
@@ -312,16 +318,20 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(row)
         events.take(12).forEach { event ->
             val card = vertical().apply {
-                setBackgroundColor(Palette.card)
                 setPadding(0, 0, 0, dp(8))
                 setOnClickListener { renderEventDetail(event) }
+            }
+            val thumbFrame = FrameLayout(this).apply {
+                background = rounded(Palette.card, 8)
+                applyRoundedClip(8)
             }
             val thumb = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackgroundColor(Palette.surface)
-                event.thumbnail?.let { setImageBitmap(it) }
             }
-            card.addView(thumb, LinearLayout.LayoutParams(dp(154), dp(92)))
+            loadEventPreview(event, thumb)
+            thumbFrame.addView(thumb, frameMatch())
+            card.addView(thumbFrame, LinearLayout.LayoutParams(dp(154), dp(92)))
             card.addView(label(event.time, 18, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, 0) })
             row.addView(card, LinearLayout.LayoutParams(dp(166), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(12) })
         }
@@ -330,7 +340,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun cameraCard(camera: NativeCamera): View {
         val card = FrameLayout(this).apply {
-            setBackgroundColor(Palette.card)
+            background = rounded(Palette.card, 8)
+            applyRoundedClip(8)
             setOnClickListener { renderCameraDetail(camera) }
         }
         val image = ImageView(this).apply {
@@ -347,9 +358,15 @@ class MainActivity : AppCompatActivity() {
             leftMargin = dp(16)
             bottomMargin = dp(16)
         })
-        card.addView(chip("ouvrir"), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.END or Gravity.BOTTOM).apply {
-            rightMargin = dp(16)
-            bottomMargin = dp(16)
+        val controls = horizontal().apply {
+            gravity = Gravity.CENTER
+            addView(iconBubble(R.drawable.ic_refresh))
+            addView(iconBubble(R.drawable.ic_videocam))
+            addView(iconBubble(R.drawable.ic_settings))
+        }
+        card.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
+            rightMargin = dp(12)
+            bottomMargin = dp(12)
         })
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(210)).apply {
@@ -394,9 +411,14 @@ class MainActivity : AppCompatActivity() {
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     setBackgroundColor(Palette.surface)
-                    event.thumbnail?.let { setImageBitmap(it) }
                 }
-                row.addView(thumb, LinearLayout.LayoutParams(dp(150), dp(82)))
+                val thumbFrame = FrameLayout(this).apply {
+                    background = rounded(Palette.card, 8)
+                    applyRoundedClip(8)
+                }
+                loadEventPreview(event, thumb)
+                thumbFrame.addView(thumb, frameMatch())
+                row.addView(thumbFrame, LinearLayout.LayoutParams(dp(150), dp(82)))
                 row.addView(vertical().apply {
                     setPadding(dp(14), 0, 0, 0)
                     addView(label(event.label, 17, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
@@ -448,7 +470,7 @@ class MainActivity : AppCompatActivity() {
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         root.addView(appHeader())
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(82)))
+        root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
         setContentView(root)
     }
 
@@ -458,8 +480,14 @@ class MainActivity : AppCompatActivity() {
             addView(ImageView(context).apply {
                 setImageResource(resources.getIdentifier("ic_launcher", "mipmap", packageName))
                 scaleType = ImageView.ScaleType.FIT_CENTER
-            }, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)) }
+            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_bell)
+                setColorFilter(Palette.text)
+            }, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                rightMargin = dp(22)
+            })
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(88)) }
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
@@ -471,14 +499,12 @@ class MainActivity : AppCompatActivity() {
     private fun bottomNav(activeTab: Tab): View {
         val row = horizontal().apply {
             gravity = Gravity.CENTER
-            setBackgroundColor(Palette.black)
+            background = rounded(Palette.black, 0)
         }
         Tab.values().forEach { tab ->
-            val item = TextView(this).apply {
-                text = tab.label
-                gravity = Gravity.CENTER
-                textSize = 12f
-                setTextColor(if (tab == activeTab) Palette.accent else Palette.text)
+            val item = FrameLayout(this).apply {
+                isClickable = true
+                contentDescription = tab.label
                 setOnClickListener {
                     when (tab) {
                         Tab.Home -> renderHome()
@@ -489,6 +515,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            item.addView(ImageView(this).apply {
+                setImageResource(tab.iconRes)
+                setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
+                alpha = if (tab == activeTab) 1f else 0.92f
+            }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             row.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
@@ -496,9 +527,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         releasePlayer()
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
-        scroll.addView(column)
+        scroll.addView(column, centeredScrollParams(620))
         column.addView(label("Reglages", 32, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(settingsRow("Serveur", session?.baseUrl ?: "-"))
         column.addView(settingsRow("Utilisateur", session?.username ?: "-"))
@@ -517,7 +548,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsRow(title: String, value: String): View {
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
-            setBackgroundColor(Palette.card)
+            background = rounded(Palette.card, 8)
             addView(label(title, 16, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
             addView(label(value, 14, Palette.muted).apply { setPadding(0, dp(4), 0, 0) })
         }.also {
@@ -574,7 +605,7 @@ class MainActivity : AppCompatActivity() {
             setHintTextColor(Palette.muted)
             setSingleLine(true)
             setPadding(dp(16), 0, dp(16), 0)
-            setBackgroundColor(Palette.card)
+            background = rounded(Palette.card, 6)
         }
     }
 
@@ -583,7 +614,7 @@ class MainActivity : AppCompatActivity() {
             text = textValue
             textSize = 16f
             setTextColor(Palette.text)
-            setBackgroundColor(Palette.accent)
+            background = rounded(Palette.accent, 6)
         }
     }
 
@@ -593,7 +624,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 30f
             gravity = Gravity.CENTER
             setTextColor(Palette.text)
-            setBackgroundColor(Palette.overlay)
+            background = rounded(Palette.overlay, 28)
         }
     }
 
@@ -605,8 +636,62 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(Palette.text)
             setPadding(dp(16), 0, dp(16), 0)
-            setBackgroundColor(Palette.overlay)
+            background = rounded(Palette.overlay, 20)
         }
+    }
+
+    private fun iconBubble(iconRes: Int): View {
+        return FrameLayout(this).apply {
+            background = rounded(Palette.overlay, 22)
+            addView(ImageView(context).apply {
+                setImageResource(iconRes)
+                setColorFilter(Palette.text)
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) }
+        }
+    }
+
+    private fun loadEventPreview(event: NativeEvent, target: ImageView) {
+        event.thumbnail?.let {
+            target.setImageBitmap(it)
+            return
+        }
+        val activeSession = session ?: return
+        val activeApi = api ?: return
+        activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
+            runOnUiThread { bitmap?.let { target.setImageBitmap(it) } }
+        }
+    }
+
+    private fun rounded(color: Int, radiusDp: Int, strokeColor: Int? = null, strokeWidthDp: Int = 0): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = dp(radiusDp).toFloat()
+            if (strokeColor != null && strokeWidthDp > 0) {
+                setStroke(dp(strokeWidthDp), strokeColor)
+            }
+        }
+    }
+
+    private fun View.applyRoundedClip(radiusDp: Int) {
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, dp(radiusDp).toFloat())
+            }
+        }
+        clipToOutline = true
+    }
+
+    private fun centeredScrollParams(maxWidthDp: Int): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(contentWidth(maxWidthDp), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+    }
+
+    private fun contentWidth(maxWidthDp: Int): Int {
+        return minOf(resources.displayMetrics.widthPixels - dp(32), dp(maxWidthDp))
     }
 
     private fun label(textValue: String, size: Int, color: Int): TextView {
@@ -814,14 +899,20 @@ private class FrigateNativeApi(
             val startTime = if (event.has("start_time")) event.optDouble("start_time") else null
             NativeEvent(
                 id = id,
-                camera = event.optString("camera"),
-                label = event.optString("sub_label").ifBlank { event.optString("label").ifBlank { "motion" } },
+                camera = cleanEventText(event, "camera"),
+                label = cleanEventText(event, "sub_label").ifBlank { cleanEventText(event, "label").ifBlank { "motion" } },
                 time = formatTime(startTime),
                 startTime = startTime,
                 endTime = if (event.has("end_time") && !event.isNull("end_time")) event.optDouble("end_time") else null,
                 thumbnail = thumbnail
             )
         }
+    }
+
+    private fun cleanEventText(event: JSONObject, key: String): String {
+        if (!event.has(key) || event.isNull(key)) return ""
+        val value = event.optString(key).trim()
+        return if (value.equals("null", ignoreCase = true)) "" else value
     }
 
     private fun selectStreamName(name: String, camera: JSONObject): String {
@@ -948,12 +1039,12 @@ private data class NativeEvent(
     val thumbnail: Bitmap?
 )
 
-private enum class Tab(val label: String) {
-    Home("Accueil"),
-    Cameras("Cameras"),
-    Grid("Grille"),
-    Events("Events"),
-    Settings("Reglages")
+private enum class Tab(val label: String, val iconRes: Int) {
+    Home("Accueil", R.drawable.ic_home),
+    Cameras("Cameras", R.drawable.ic_videocam),
+    Grid("Grille", R.drawable.ic_grid),
+    Events("Events", R.drawable.ic_image),
+    Settings("Reglages", R.drawable.ic_settings)
 }
 
 private object Palette {
