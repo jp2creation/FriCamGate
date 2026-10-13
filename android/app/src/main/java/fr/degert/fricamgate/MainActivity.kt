@@ -3,11 +3,16 @@ package fr.degert.fricamgate
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Outline
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.view.Gravity
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -27,6 +32,7 @@ import androidx.core.view.WindowInsetsCompat
 import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -45,6 +51,7 @@ import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private var cameras: List<NativeCamera> = emptyList()
     private var events: List<NativeEvent> = emptyList()
     private var currentPlayer: ExoPlayer? = null
+    private val homePlayers = mutableListOf<ExoPlayer>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         currentPlayer?.playWhenReady = false
+        homePlayers.forEach { it.playWhenReady = false }
     }
 
     override fun onDestroy() {
@@ -309,6 +318,43 @@ class MainActivity : AppCompatActivity() {
         player.playWhenReady = true
     }
 
+    private fun startHomeLivePlayer(
+        api: FrigateNativeApi,
+        token: String,
+        camera: NativeCamera,
+        textureView: TextureView,
+        fallback: View,
+        badge: View
+    ) {
+        val player = ExoPlayer.Builder(this).build()
+        player.volume = 0f
+        player.setVideoTextureView(textureView)
+        player.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                fallback.visibility = View.GONE
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                badge.visibility = View.GONE
+            }
+        })
+        homePlayers.add(player)
+        api.requestHlsUrl(token, camera.streamName) { result ->
+            runOnUiThread {
+                if (!homePlayers.contains(player)) return@runOnUiThread
+                result.onSuccess { url ->
+                    val source = HlsMediaSource.Factory(authDataSource(token)).createMediaSource(MediaItem.fromUri(url))
+                    player.setMediaSource(source)
+                    player.repeatMode = Player.REPEAT_MODE_ONE
+                    player.prepare()
+                    player.playWhenReady = true
+                }.onFailure {
+                    badge.visibility = View.GONE
+                }
+            }
+        }
+    }
+
     private fun authDataSource(token: String): DefaultHttpDataSource.Factory =
         DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token", "User-Agent" to "FriCamGate"))
@@ -331,7 +377,7 @@ class MainActivity : AppCompatActivity() {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackgroundColor(Palette.surface)
             }
-            loadEventPreview(event, thumb)
+            loadEventPreviewAnimated(event, thumb)
             thumbFrame.addView(thumb, frameMatch())
             card.addView(thumbFrame, LinearLayout.LayoutParams(dp(140), dp(78)))
             card.addView(label(event.time, 16, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0) })
@@ -346,16 +392,25 @@ class MainActivity : AppCompatActivity() {
             applyRoundedClip(8)
             setOnClickListener { renderCameraDetail(camera) }
         }
+        val texture = TextureView(this)
+        card.addView(texture, frameMatch())
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Palette.surface)
         }
         card.addView(image, frameMatch())
+        val live = liveBadge()
         session?.let { activeSession ->
-            api?.loadBitmap(activeSession.token, api?.latestFrameUrl(camera.name).orEmpty()) { bitmap ->
+            val activeApi = api
+            activeApi?.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
                 runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
             }
+            activeApi?.let { startHomeLivePlayer(it, activeSession.token, camera, texture, image, live) }
         }
+        card.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28), Gravity.END or Gravity.TOP).apply {
+            rightMargin = dp(12)
+            topMargin = dp(12)
+        })
         card.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
             leftMargin = dp(16)
             bottomMargin = dp(16)
@@ -514,9 +569,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val iconHolder = FrameLayout(this).apply {
-                if (tab == activeTab) {
-                    background = rounded(Palette.navActive, 12)
-                }
+                background = rounded(Color.TRANSPARENT, 12)
             }
             iconHolder.addView(ImageView(this).apply {
                 setImageResource(tab.iconRes)
@@ -591,6 +644,8 @@ class MainActivity : AppCompatActivity() {
     private fun releasePlayer() {
         currentPlayer?.release()
         currentPlayer = null
+        homePlayers.forEach { it.release() }
+        homePlayers.clear()
     }
 
     private fun toast(message: String) {
@@ -644,6 +699,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun liveBadge(): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(10), 0)
+            background = rounded(Palette.overlay, 18)
+            addView(View(context).apply {
+                background = rounded(Palette.accent, 4)
+            }, LinearLayout.LayoutParams(dp(7), dp(7)).apply { rightMargin = dp(6) })
+            addView(label("Live", 12, Palette.text).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        }
+    }
+
     private fun keepAboveSystemNavigation(root: View) {
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -673,6 +742,24 @@ class MainActivity : AppCompatActivity() {
         val activeApi = api ?: return
         activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
             runOnUiThread { bitmap?.let { target.setImageBitmap(it) } }
+        }
+    }
+
+    private fun loadEventPreviewAnimated(event: NativeEvent, target: ImageView) {
+        event.thumbnail?.let { target.setImageBitmap(it) }
+        val activeSession = session ?: return
+        val activeApi = api ?: return
+        activeApi.loadDrawable(activeSession.token, activeApi.eventPreviewUrl(event.id)) { drawable ->
+            runOnUiThread {
+                if (drawable != null) {
+                    target.setImageDrawable(drawable)
+                    (drawable as? AnimatedImageDrawable)?.start()
+                } else if (event.thumbnail == null) {
+                    activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
+                        runOnUiThread { bitmap?.let { target.setImageBitmap(it) } }
+                    }
+                }
+            }
         }
     }
 
@@ -830,6 +917,34 @@ private class FrigateNativeApi(
         })
     }
 
+    fun loadDrawable(token: String, url: String, callback: (Drawable?) -> Unit) {
+        if (url.isBlank() || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            callback(null)
+            return
+        }
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "image/gif,image/*")
+            .header("Authorization", "Bearer $token")
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback(null)
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        callback(null)
+                        return
+                    }
+                    val bytes = it.body?.bytes()
+                    val drawable = runCatching {
+                        if (bytes == null || bytes.isEmpty()) null else ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)))
+                    }.getOrNull()
+                    callback(drawable)
+                }
+            }
+        })
+    }
+
     fun requestHlsUrl(token: String, streamName: String, callback: (Result<String>) -> Unit) {
         val request = Request.Builder()
             .url(liveWebSocketUrl(streamName))
@@ -860,8 +975,9 @@ private class FrigateNativeApi(
         })
     }
 
-    fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360")
+    fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
     fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
+    fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
     fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
     fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
         endpoint("/api/${Uri.encode(cameraName)}/recordings/${frameTime.toLong()}/snapshot.webp")
