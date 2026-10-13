@@ -1633,7 +1633,6 @@ input:focus {
 }
 
 .nav-item.is-active {
-  background: #441526;
   color: #ff336c;
 }
 
