@@ -34,11 +34,28 @@ class UrlNormalizationTest {
     }
 
     @Test
+    fun buildsRecordingVodPaths() {
+        assertEquals(
+            "/vod/Entree%20suivi/sub/start/100/end/145/master.m3u8",
+            recordingVodPath("Entree suivi", 100, 145, "sub")
+        )
+        assertEquals(
+            "/vod/devant/start/100/end/145/master.m3u8",
+            recordingVodPath("devant", 100, 145)
+        )
+    }
+
+    @Test
     fun centersTimelineRecordingWindowAroundFocus() {
         val window = timelineRecordingWindow(1_000.0)
 
         assertEquals(980L, window.startSec)
         assertEquals(1_025L, window.endSec)
         assertEquals(20_000L, window.seekMs)
+    }
+
+    @Test
+    fun placesTimelinePlayheadNearTopQuarter() {
+        assertEquals(300, timelinePlayheadOffset(1_200))
     }
 }

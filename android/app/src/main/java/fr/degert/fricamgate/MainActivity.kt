@@ -43,6 +43,7 @@ import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -332,19 +333,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView) {
         releaseCurrentPlayer()
-        val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
-            .build()
+        val player = buildExoPlayer(token)
         currentPlayer = player
         currentPlaybackKey = "event:${event.id}"
         playerView.player = player
         playerView.visibility = View.VISIBLE
-        player.setMediaItem(MediaItem.fromUri(api.eventClipUrl(event.id)))
+        player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)))
         applyPlayerVolume(player)
         player.prepare()
         player.playWhenReady = true
         player.play()
     }
+
+    private fun buildExoPlayer(token: String): ExoPlayer =
+        ExoPlayer.Builder(
+            this,
+            DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+        )
+            .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
+            .build()
 
     private fun startTimelineEventPlayer(
         api: FrigateNativeApi,
@@ -363,15 +370,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         releaseCurrentPlayer()
-        val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
-            .build()
+        val player = buildExoPlayer(token)
         currentPlayer = player
         currentPlaybackKey = key
         playerView.player = player
         playerView.visibility = View.VISIBLE
         fallback.visibility = View.VISIBLE
-        player.setMediaItem(MediaItem.fromUri(api.eventClipUrl(event.id)), startPositionMs)
+        player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)), startPositionMs)
         applyPlayerVolume(player)
         player.prepare()
         player.playWhenReady = true
@@ -408,7 +413,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (currentPlaybackKey == key && current != null && current.playerError == null) {
-            refreshFallbackFrame()
+            timelineFrameGeneration += 1
+            fallback.visibility = View.GONE
             playerView.visibility = View.VISIBLE
             current.seekTo(seekMs)
             current.playWhenReady = true
@@ -419,14 +425,13 @@ class MainActivity : AppCompatActivity() {
 
         releaseCurrentPlayer()
         refreshFallbackFrame()
-        val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
-            .build()
+        val player = buildExoPlayer(token)
         currentPlayer = player
         currentPlaybackKey = key
         playerView.player = player
         playerView.visibility = View.VISIBLE
         var firstReadySeekDone = false
+        var usingDefaultVod = false
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY && currentPlaybackKey == key) {
@@ -434,6 +439,7 @@ class MainActivity : AppCompatActivity() {
                         firstReadySeekDone = true
                         player.seekTo(seekMs)
                     }
+                    fallback.visibility = View.GONE
                     player.playWhenReady = true
                     player.play()
                 }
@@ -448,13 +454,22 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPlayerError(error: PlaybackException) {
                 if (currentPlaybackKey == key) {
+                    if (!usingDefaultVod) {
+                        usingDefaultVod = true
+                        firstReadySeekDone = false
+                        player.setMediaItem(MediaItem.fromUri(api.recordingVodUrl(camera.name, windowStart, windowEnd)))
+                        player.prepare()
+                        player.playWhenReady = true
+                        player.play()
+                        return
+                    }
                     currentPlaybackKey = null
                     playerView.visibility = View.GONE
                     fallback.visibility = View.VISIBLE
                 }
             }
         })
-        player.setMediaItem(MediaItem.fromUri(api.recordingClipUrl(camera.name, windowStart, windowEnd)))
+        player.setMediaItem(MediaItem.fromUri(api.recordingVodUrl(camera.name, windowStart, windowEnd, stream = "sub")))
         applyPlayerVolume(player)
         player.prepare()
         player.seekTo(seekMs)
@@ -747,7 +762,7 @@ class MainActivity : AppCompatActivity() {
         }
         val column = FrameLayout(this)
         val estimatedTimelineHeight = maxOf(dp(420), resources.displayMetrics.heightPixels - cameraVideoHeight() - dp(168))
-        val topSpacer = (estimatedTimelineHeight / 2).coerceIn(dp(190), dp(360))
+        val topSpacer = timelinePlayheadOffset(estimatedTimelineHeight).coerceIn(dp(120), dp(230))
         val bottomSpacer = dp(220)
         val railX = dp(164)
         val pxPerMinute = dp(zoomLevels[zoomIndex])
@@ -894,15 +909,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
         frame.addView(scroll, frameMatch())
-        frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.CENTER_VERTICAL))
+        frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.TOP).apply {
+            topMargin = topSpacer
+        })
         val currentTime = label(if (selectedToday) "Live" else formatTimelineClock(anchorSec), 14, Palette.text).apply {
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             background = rounded(Palette.liveBlue, 14)
             setPadding(dp(10), 0, dp(10), 0)
         }
-        frame.addView(currentTime, FrameLayout.LayoutParams(dp(106), dp(34), Gravity.START or Gravity.CENTER_VERTICAL).apply {
+        frame.addView(currentTime, FrameLayout.LayoutParams(dp(106), dp(34), Gravity.START or Gravity.TOP).apply {
             leftMargin = dp(28)
+            topMargin = topSpacer - dp(16)
         })
         val dateRow = FrameLayout(this).apply {
             addView(timelineDateButton(formatShortDate(selectedDayStart)).apply {
@@ -919,12 +937,12 @@ class MainActivity : AppCompatActivity() {
             topMargin = dp(16)
         })
         fun centerSecondForScroll(scrollY: Int): Double {
-            val centerOffset = scrollY + frame.height / 2
+            val centerOffset = scrollY + topSpacer
             return anchorSec - ((centerOffset - topSpacer).toDouble() / pxPerMinute.toDouble()) * 60.0
         }
 
         fun scrollForSecond(timeSec: Double): Int {
-            val target = yForTime(timeSec) - frame.height / 2
+            val target = yForTime(timeSec) - topSpacer
             return target.coerceIn(0, maxOf(0, timelineHeight - frame.height))
         }
 
@@ -1768,7 +1786,7 @@ class MainActivity : AppCompatActivity() {
     private fun appVersionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }
             .getOrDefault("")
-            .ifBlank { "0.2.15" }
+            .ifBlank { "0.2.16" }
 
     private fun loadNvrVersion(renderAboutWhenDone: Boolean) {
         val activeSession = session ?: return
@@ -2130,6 +2148,7 @@ private const val TIMELINE_RECORDING_BUCKET_SECONDS = 20L
 private const val TIMELINE_RECORDING_PREROLL_SECONDS = 8L
 private const val TIMELINE_RECORDING_WINDOW_SECONDS = 45L
 private const val TIMELINE_PLAYBACK_CLOCK_MS = 500L
+private const val TIMELINE_PLAYHEAD_FRACTION = 0.25f
 
 private class FrigateNativeApi(
     private val baseUrl: String,
@@ -2397,8 +2416,11 @@ private class FrigateNativeApi(
     fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
     fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
     fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
+    fun eventVodUrl(eventId: String): String = endpoint("/vod/event/${Uri.encode(eventId)}/master.m3u8")
     fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String =
         endpoint("/api/${Uri.encode(cameraName)}/start/$startSec/end/$endSec/clip.mp4")
+    fun recordingVodUrl(cameraName: String, startSec: Long, endSec: Long, stream: String? = null): String =
+        endpoint(recordingVodPath(cameraName, startSec, endSec, stream))
     fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
         endpoint("/api/${Uri.encode(cameraName)}/recordings/${frameTime.toLong()}/snapshot.webp")
 
@@ -2782,6 +2804,9 @@ internal fun compareVersions(left: String, right: String): Int {
 
 internal data class TimelineRecordingWindow(val startSec: Long, val endSec: Long, val seekMs: Long)
 
+internal fun timelinePlayheadOffset(containerHeightPx: Int): Int =
+    (containerHeightPx.coerceAtLeast(0) * TIMELINE_PLAYHEAD_FRACTION).toInt()
+
 internal fun timelineRecordingWindow(focusSec: Double): TimelineRecordingWindow {
     val safeFocus = focusSec.coerceAtLeast(0.0)
     val bucketStart = ((safeFocus.toLong() - TIMELINE_RECORDING_PREROLL_SECONDS)
@@ -2796,6 +2821,11 @@ internal fun timelineRecordingWindow(focusSec: Double): TimelineRecordingWindow 
 
 internal fun cameraSetFeaturePath(cameraName: String, feature: String): String =
     "/api/${urlPathSegment(cameraName)}/set/${urlPathSegment(feature)}"
+
+internal fun recordingVodPath(cameraName: String, startSec: Long, endSec: Long, stream: String? = null): String {
+    val streamPath = stream?.takeIf { it.isNotBlank() }?.let { "/${urlPathSegment(it)}" }.orEmpty()
+    return "/vod/${urlPathSegment(cameraName)}$streamPath/start/$startSec/end/$endSec/master.m3u8"
+}
 
 private fun urlPathSegment(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")
