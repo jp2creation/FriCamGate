@@ -3,16 +3,14 @@ package fr.degert.fricamgate
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.ImageDecoder
 import android.graphics.Outline
-import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.view.Gravity
-import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -32,7 +30,6 @@ import androidx.core.view.WindowInsetsCompat
 import android.graphics.drawable.GradientDrawable
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -50,8 +47,8 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
+import pl.droidsonroids.gif.GifDrawable
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,7 +64,9 @@ class MainActivity : AppCompatActivity() {
     private var cameras: List<NativeCamera> = emptyList()
     private var events: List<NativeEvent> = emptyList()
     private var currentPlayer: ExoPlayer? = null
-    private val homePlayers = mutableListOf<ExoPlayer>()
+    private val homeStreams = mutableListOf<WebSocket>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var homeStreamGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,7 +84,6 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         currentPlayer?.playWhenReady = false
-        homePlayers.forEach { it.playWhenReady = false }
     }
 
     override fun onDestroy() {
@@ -318,41 +316,56 @@ class MainActivity : AppCompatActivity() {
         player.playWhenReady = true
     }
 
-    private fun startHomeLivePlayer(
+    private fun startHomeMjpegStream(
         api: FrigateNativeApi,
         token: String,
         camera: NativeCamera,
-        textureView: TextureView,
-        fallback: View,
+        image: ImageView,
         badge: View
     ) {
-        val player = ExoPlayer.Builder(this).build()
-        player.volume = 0f
-        player.setVideoTextureView(textureView)
-        player.addListener(object : Player.Listener {
-            override fun onRenderedFirstFrame() {
-                fallback.visibility = View.GONE
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
+        val generation = homeStreamGeneration
+        fun connect(attempt: Int) {
+            if (generation != homeStreamGeneration) return
+            lateinit var stream: WebSocket
+            var receivedFrame = false
+            val startupTimeout = Runnable {
+                if (generation != homeStreamGeneration || receivedFrame) return@Runnable
+                stream.close(1000, "startup timeout")
+                homeStreams.remove(stream)
                 badge.visibility = View.GONE
-            }
-        })
-        homePlayers.add(player)
-        api.requestHlsUrl(token, camera.streamName) { result ->
-            runOnUiThread {
-                if (!homePlayers.contains(player)) return@runOnUiThread
-                result.onSuccess { url ->
-                    val source = HlsMediaSource.Factory(authDataSource(token)).createMediaSource(MediaItem.fromUri(url))
-                    player.setMediaSource(source)
-                    player.repeatMode = Player.REPEAT_MODE_ONE
-                    player.prepare()
-                    player.playWhenReady = true
-                }.onFailure {
-                    badge.visibility = View.GONE
+                if (attempt < MAX_HOME_MJPEG_RECONNECTS) {
+                    mainHandler.postDelayed({ connect(attempt + 1) }, HOME_MJPEG_RECONNECT_DELAY_MS)
                 }
             }
+            stream = api.openMjpegStream(
+                token = token,
+                streamName = camera.streamName,
+                onFrame = { bitmap ->
+                    runOnUiThread {
+                        if (!homeStreams.contains(stream) || generation != homeStreamGeneration) return@runOnUiThread
+                        receivedFrame = true
+                        mainHandler.removeCallbacks(startupTimeout)
+                        image.setImageBitmap(bitmap)
+                        badge.visibility = View.VISIBLE
+                    }
+                },
+                onError = {
+                    runOnUiThread {
+                        if (generation != homeStreamGeneration) return@runOnUiThread
+                        mainHandler.removeCallbacks(startupTimeout)
+                        homeStreams.remove(stream)
+                        stream.close(1000, "stream error")
+                        badge.visibility = View.GONE
+                        if (attempt < MAX_HOME_MJPEG_RECONNECTS) {
+                            mainHandler.postDelayed({ connect(attempt + 1) }, HOME_MJPEG_RECONNECT_DELAY_MS)
+                        }
+                    }
+                }
+            )
+            homeStreams.add(stream)
+            mainHandler.postDelayed(startupTimeout, HOME_MJPEG_STARTUP_TIMEOUT_MS)
         }
+        connect(0)
     }
 
     private fun authDataSource(token: String): DefaultHttpDataSource.Factory =
@@ -392,20 +405,19 @@ class MainActivity : AppCompatActivity() {
             applyRoundedClip(8)
             setOnClickListener { renderCameraDetail(camera) }
         }
-        val texture = TextureView(this)
-        card.addView(texture, frameMatch())
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Palette.surface)
         }
         card.addView(image, frameMatch())
         val live = liveBadge()
+        live.visibility = View.GONE
         session?.let { activeSession ->
             val activeApi = api
             activeApi?.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
                 runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
             }
-            activeApi?.let { startHomeLivePlayer(it, activeSession.token, camera, texture, image, live) }
+            activeApi?.let { startHomeMjpegStream(it, activeSession.token, camera, image, live) }
         }
         card.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28), Gravity.END or Gravity.TOP).apply {
             rightMargin = dp(12)
@@ -642,10 +654,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        homeStreamGeneration += 1
+        mainHandler.removeCallbacksAndMessages(null)
         currentPlayer?.release()
         currentPlayer = null
-        homePlayers.forEach { it.release() }
-        homePlayers.clear()
+        homeStreams.forEach { it.close(1000, "released") }
+        homeStreams.clear()
     }
 
     private fun toast(message: String) {
@@ -749,11 +763,11 @@ class MainActivity : AppCompatActivity() {
         event.thumbnail?.let { target.setImageBitmap(it) }
         val activeSession = session ?: return
         val activeApi = api ?: return
-        activeApi.loadDrawable(activeSession.token, activeApi.eventPreviewUrl(event.id)) { drawable ->
+        activeApi.loadGif(activeSession.token, activeApi.eventPreviewUrl(event.id)) { drawable ->
             runOnUiThread {
                 if (drawable != null) {
                     target.setImageDrawable(drawable)
-                    (drawable as? AnimatedImageDrawable)?.start()
+                    (drawable as? GifDrawable)?.start()
                 } else if (event.thumbnail == null) {
                     activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
                         runOnUiThread { bitmap?.let { target.setImageBitmap(it) } }
@@ -820,6 +834,12 @@ class MainActivity : AppCompatActivity() {
     private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
     private fun frameMatch() = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val HOME_MJPEG_STARTUP_TIMEOUT_MS = 8000L
+        private const val HOME_MJPEG_RECONNECT_DELAY_MS = 1200L
+        private const val MAX_HOME_MJPEG_RECONNECTS = 4
+    }
 }
 
 private class FrigateNativeApi(
@@ -917,8 +937,8 @@ private class FrigateNativeApi(
         })
     }
 
-    fun loadDrawable(token: String, url: String, callback: (Drawable?) -> Unit) {
-        if (url.isBlank() || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+    fun loadGif(token: String, url: String, callback: (Drawable?) -> Unit) {
+        if (url.isBlank()) {
             callback(null)
             return
         }
@@ -937,10 +957,50 @@ private class FrigateNativeApi(
                     }
                     val bytes = it.body?.bytes()
                     val drawable = runCatching {
-                        if (bytes == null || bytes.isEmpty()) null else ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)))
+                        if (bytes == null || bytes.isEmpty()) null else GifDrawable(bytes).apply { setLoopCount(0) }
                     }.getOrNull()
                     callback(drawable)
                 }
+            }
+        })
+    }
+
+    fun openMjpegStream(
+        token: String,
+        streamName: String,
+        onFrame: (Bitmap) -> Unit,
+        onError: () -> Unit
+    ): WebSocket {
+        val request = Request.Builder()
+            .url(liveWebSocketUrl(mjpegStreamName(streamName)))
+            .header("Authorization", "Bearer $token")
+            .header("Origin", baseUrl)
+            .build()
+        var lastFrameAt = 0L
+        return client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(JSONObject().put("type", "mjpeg").toString())
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val json = runCatching { JSONObject(text) }.getOrNull()
+                if (json?.optString("type") == "error") {
+                    onError()
+                }
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val now = System.currentTimeMillis()
+                if (now - lastFrameAt < MIN_MJPEG_FRAME_INTERVAL_MS) return
+                val data = bytes.toByteArray()
+                if (!isJpeg(data)) return
+                val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return
+                lastFrameAt = now
+                onFrame(bitmap)
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                onError()
             }
         })
     }
@@ -1093,6 +1153,14 @@ private class FrigateNativeApi(
             .toString()
     }
 
+    private fun mjpegStreamName(streamName: String): String {
+        val source = if (streamName.startsWith("ffmpeg:", ignoreCase = true)) streamName else "ffmpeg:$streamName"
+        return if (source.contains("#video=mjpeg")) source else "$source#video=mjpeg#width=640"
+    }
+
+    private fun isJpeg(data: ByteArray): Boolean =
+        data.size >= 2 && data[0] == 0xff.toByte() && data[1] == 0xd8.toByte()
+
     private fun endpoint(path: String): String = baseUrl.trimEnd('/') + path
 
     private fun parseJsonObject(payload: String, path: String, allowEmpty: Boolean = false): Result<JSONObject> {
@@ -1158,6 +1226,7 @@ private class FrigateNativeApi(
 
     companion object {
         private const val HLS_CODECS = "avc1.640029,avc1.64002A,avc1.640033,hvc1.1.6.L153.B0,mp4a.40.2,mp4a.40.5,flac,opus"
+        private const val MIN_MJPEG_FRAME_INTERVAL_MS = 110L
     }
 }
 
