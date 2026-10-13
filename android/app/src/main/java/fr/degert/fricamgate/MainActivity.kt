@@ -4,9 +4,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
+import android.app.DownloadManager
+import android.content.Context
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -25,6 +28,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.graphics.drawable.GradientDrawable
@@ -62,6 +66,10 @@ class MainActivity : AppCompatActivity() {
     private var cameras: List<NativeCamera> = emptyList()
     private var events: List<NativeEvent> = emptyList()
     private var currentPlayer: ExoPlayer? = null
+    private var currentPlaybackEventId: String? = null
+    private var nvrVersion: String? = null
+    private var updateResult: NativeUpdateResult? = null
+    private var updateChecking = false
     private val homeStreams = mutableListOf<WebSocket>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var homeStreamGeneration = 0
@@ -194,10 +202,13 @@ class MainActivity : AppCompatActivity() {
         titleRow.addView(label(message ?: "", 13, Palette.muted))
         column.addView(titleRow)
 
+        val homeCameras = visibleCameras()
         if (cameras.isEmpty()) {
             column.addView(emptyMessage("Aucune camera Frigate trouvee."))
+        } else if (homeCameras.isEmpty()) {
+            column.addView(emptyMessage("Toutes les cameras sont masquees dans FriCamGate."))
         } else {
-            cameras.filter { it.enabled }.forEach { camera ->
+            homeCameras.forEach { camera ->
                 column.addView(cameraCard(camera))
             }
         }
@@ -219,6 +230,14 @@ class MainActivity : AppCompatActivity() {
         activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
             runOnUiThread { bitmap?.let { liveImage.setImageBitmap(it) } }
         }
+        val playerView = PlayerView(this).apply {
+            useController = false
+            visibility = View.GONE
+            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            setBackgroundColor(Color.TRANSPARENT)
+            setShutterBackgroundColor(Color.TRANSPARENT)
+        }
+        playerFrame.addView(playerView, frameMatch())
         val back = roundButton("<").apply { setOnClickListener { renderHome() } }
         playerFrame.addView(back, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.START or Gravity.TOP).apply {
             leftMargin = dp(18)
@@ -235,7 +254,7 @@ class MainActivity : AppCompatActivity() {
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cameraVideoHeight()))
         body.addView(cameraToolbar(camera))
-        body.addView(cameraTimeline(camera, liveImage, live), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        body.addView(cameraTimeline(camera, liveImage, playerView, live), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Cameras, showHeader = false)
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
@@ -280,13 +299,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView) {
+        releaseCurrentPlayer()
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
             .build()
         currentPlayer = player
+        currentPlaybackEventId = event.id
         playerView.player = player
+        playerView.visibility = View.VISIBLE
         player.setMediaItem(MediaItem.fromUri(api.eventClipUrl(event.id)))
         player.prepare()
+        player.playWhenReady = true
+    }
+
+    private fun startTimelineEventPlayer(
+        api: FrigateNativeApi,
+        token: String,
+        event: NativeEvent,
+        playerView: PlayerView,
+        fallback: ImageView,
+        startPositionMs: Long
+    ) {
+        if (currentPlaybackEventId == event.id && currentPlayer != null) {
+            currentPlayer?.seekTo(startPositionMs)
+            currentPlayer?.playWhenReady = true
+            return
+        }
+
+        releaseCurrentPlayer()
+        val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
+            .build()
+        currentPlayer = player
+        currentPlaybackEventId = event.id
+        playerView.player = player
+        playerView.visibility = View.VISIBLE
+        fallback.visibility = View.VISIBLE
+        player.setMediaItem(MediaItem.fromUri(api.eventClipUrl(event.id)))
+        player.prepare()
+        player.seekTo(startPositionMs)
         player.playWhenReady = true
     }
 
@@ -443,7 +494,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun cameraTimeline(camera: NativeCamera, preview: ImageView, liveBadge: View): View {
+    private fun cameraTimeline(camera: NativeCamera, preview: ImageView, playerView: PlayerView, liveBadge: View): View {
         val activeSession = session
         val activeApi = api
         val cameraEvents = events.filter { it.camera == camera.name }
@@ -532,6 +583,7 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(12)
         })
         var selectedEventId: String? = null
+        var lastSeekMs = -1L
         var timelineMode = false
         fun updatePreviewForScroll(scrollY: Int) {
             if (cameraEvents.isEmpty() || activeSession == null || activeApi == null || frame.height <= 0) return
@@ -539,22 +591,21 @@ class MainActivity : AppCompatActivity() {
             val index = Math.round(((centerOffset - topSpacer - rowHeight / 2).toFloat()) / rowHeight.toFloat())
                 .coerceIn(0, cameraEvents.lastIndex)
             val event = cameraEvents[index]
-            if (event.id == selectedEventId) return
+            val rowStart = topSpacer + index * rowHeight
+            val progress = ((centerOffset - rowStart).toFloat() / rowHeight.toFloat()).coerceIn(0f, 1f)
+            val durationMs = eventDurationMs(event)
+            val seekMs = if (durationMs > 0L) (durationMs * progress).toLong() else 0L
+            if (event.id == selectedEventId && kotlin.math.abs(lastSeekMs - seekMs) < 900L) return
             selectedEventId = event.id
+            lastSeekMs = seekMs
             currentTime.text = event.time
             if (!timelineMode) {
                 timelineMode = true
                 stopMjpegStreams()
                 liveBadge.visibility = View.GONE
+                playerView.visibility = View.VISIBLE
             }
-            val frameTime = event.startTime ?: return
-            activeApi.loadBitmap(activeSession.token, activeApi.recordingSnapshotUrl(camera.name, frameTime)) { bitmap ->
-                runOnUiThread {
-                    if (selectedEventId == event.id && bitmap != null) {
-                        preview.setImageBitmap(bitmap)
-                    }
-                }
-            }
+            startTimelineEventPlayer(activeApi, activeSession.token, event, playerView, preview, seekMs)
         }
         scroll.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (scrollY != oldScrollY) updatePreviewForScroll(scrollY)
@@ -562,9 +613,15 @@ class MainActivity : AppCompatActivity() {
         return frame
     }
 
+    private fun eventDurationMs(event: NativeEvent): Long {
+        val start = event.startTime ?: return 0L
+        val end = event.endTime ?: return 0L
+        return maxOf(0L, ((end - start) * 1000).toLong())
+    }
+
     private fun syncCameraGrid(event: NativeEvent): View {
         val grid = vertical()
-        cameras.filter { it.name != event.camera && it.enabled }.forEach { camera ->
+        cameras.filter { it.name != event.camera && isCameraVisible(it) }.forEach { camera ->
             val row = horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(10), 0, dp(10))
@@ -636,7 +693,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     when (tab) {
                         Tab.Home -> renderHome()
-                        Tab.Cameras -> cameras.firstOrNull()?.let { renderCameraDetail(it) } ?: renderHome()
+                        Tab.Cameras -> visibleCameras().firstOrNull()?.let { renderCameraDetail(it) } ?: renderHome()
                         Tab.Grid -> renderHome()
                         Tab.Events -> events.firstOrNull()?.let { renderEventDetail(it) } ?: renderHome()
                         Tab.Settings -> renderSettings()
@@ -662,10 +719,44 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(label("Reglages", 30, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-        column.addView(settingsRow("Serveur", session?.baseUrl ?: "-"))
-        column.addView(settingsRow("Utilisateur", session?.username ?: "-"))
-        column.addView(primaryButton("Recharger").apply { setOnClickListener { loadDashboard("Recharge.") } }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
+        column.addView(pageTitle("Reglages"))
+        column.addView(sectionHeading("GENERAL"))
+        column.addView(settingsNavRow("Serveur", session?.baseUrl ?: "-", { renderServerSettings() }))
+        column.addView(settingsNavRow("Cameras", "${visibleCameras().size} / ${cameras.size} affichees", { renderCameraSettings() }))
+        column.addView(settingsNavRow("A propos", "FriCamGate ${appVersionName()}", { renderAboutSettings() }))
+        column.addView(sectionHeading("MISES A JOUR"))
+        column.addView(settingsUpdateCard())
+        column.addView(sectionHeading("ACTIONS"))
+        column.addView(settingsNavRow("Recharger", "Actualiser les cameras et evenements", { loadDashboard("Recharge.") }, showChevron = false))
+        setShell(scroll, Tab.Settings)
+        if (updateResult == null && !updateChecking) {
+            checkForUpdates(renderSettingsWhenDone = true)
+        }
+    }
+
+    private fun renderServerSettings() {
+        releasePlayer()
+        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader("Serveur"))
+        column.addView(sectionHeading("CONNEXION"))
+        val serverInput = editText("http://cam.example.fr", session?.baseUrl ?: prefs.getString("baseUrl", "").orEmpty())
+        val usernameInput = editText("admin", session?.username ?: prefs.getString("username", "").orEmpty())
+        val passwordInput = editText("mot de passe", "").apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        column.addView(label("Serveur Frigate", 12, Palette.muted).apply { setPadding(0, dp(8), 0, dp(8)) })
+        column.addView(serverInput, matchWrap())
+        column.addView(label("Utilisateur", 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
+        column.addView(usernameInput, matchWrap())
+        column.addView(label("Mot de passe", 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
+        column.addView(passwordInput, matchWrap())
+        column.addView(primaryButton("Enregistrer et reconnecter").apply {
+            setOnClickListener { connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString()) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(22) })
+        column.addView(settingsRow("Serveur actuel", session?.baseUrl ?: "-"))
+        column.addView(settingsRow("Utilisateur actuel", session?.username ?: "-"))
         column.addView(primaryButton("Deconnexion").apply {
             setOnClickListener {
                 prefs.edit().clear().apply()
@@ -673,20 +764,157 @@ class MainActivity : AppCompatActivity() {
                 api = null
                 renderLogin()
             }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(12) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
         setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderCameraSettings() {
+        releasePlayer()
+        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader("Cameras"))
+        column.addView(sectionHeading("VISIBILITE"))
+        column.addView(settingsRow("Accueil", "${visibleCameras().size} / ${cameras.size} cameras affichees"))
+        if (cameras.isEmpty()) {
+            column.addView(emptyMessage("Aucune camera Frigate trouvee."))
+        } else {
+            cameras.forEach { camera ->
+                column.addView(cameraVisibilityRow(camera))
+            }
+        }
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderAboutSettings() {
+        releasePlayer()
+        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader("A propos"))
+        column.addView(sectionHeading("APPLICATION"))
+        column.addView(settingsRow("Nom", "FriCamGate"))
+        column.addView(settingsRow("Version de l'app", appVersionName()))
+        column.addView(sectionHeading("NVR"))
+        column.addView(settingsRow("Version du NVR", nvrVersion ?: "Chargement..."))
+        column.addView(settingsRow("Serveur", session?.baseUrl ?: "-"))
+        setShell(scroll, Tab.Settings)
+        if (nvrVersion == null) {
+            loadNvrVersion(renderAboutWhenDone = true)
+        }
     }
 
     private fun settingsRow(title: String, value: String): View {
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
             background = rounded(Palette.card, 8)
-            addView(label(title, 16, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+            addView(label(title, 15, Palette.text))
             addView(label(value, 14, Palette.muted).apply { setPadding(0, dp(4), 0, 0) })
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(12)
             }
+        }
+    }
+
+    private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true): View {
+        return FrameLayout(this).apply {
+            isClickable = true
+            background = rounded(Palette.card, 8)
+            setOnClickListener { onClick() }
+            addView(vertical().apply {
+                setPadding(dp(18), dp(16), dp(if (showChevron) 48 else 18), dp(16))
+                addView(label(title, 16, Palette.text))
+                addView(label(detail, 14, Palette.muted).apply { setPadding(0, dp(5), 0, 0) })
+            }, frameMatch())
+            if (showChevron) {
+                addView(label(">", 28, Palette.muted).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END or Gravity.CENTER_VERTICAL))
+            }
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)).apply {
+                topMargin = dp(10)
+            }
+        }
+    }
+
+    private fun cameraVisibilityRow(camera: NativeCamera): View {
+        val visible = isCameraVisible(camera)
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(12), dp(14), dp(12))
+            background = rounded(Palette.card, 8)
+            addView(vertical().apply {
+                addView(label(camera.friendlyName, 16, Palette.text))
+                addView(label(if (camera.enabled) camera.name else "${camera.name} - desactivee dans Frigate", 13, Palette.muted).apply {
+                    setPadding(0, dp(5), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(SwitchCompat(context).apply {
+                isChecked = visible
+                isEnabled = camera.enabled
+                setOnCheckedChangeListener { _, checked ->
+                    setCameraHidden(camera.name, !checked)
+                    renderCameraSettings()
+                }
+            })
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+        }
+    }
+
+    private fun settingsUpdateCard(): View {
+        val result = updateResult
+        val statusText = when {
+            updateChecking -> "Recherche en cours..."
+            result == null -> "Recherche disponible depuis l'app."
+            else -> result.message
+        }
+        return vertical().apply {
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(Palette.card, 8)
+            addView(label("Mises a jour", 15, Palette.text))
+            addView(label(statusText, 14, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
+            addView(label("Installee ${appVersionName()} - Derniere ${result?.latestVersion ?: "-"}", 13, Palette.muted).apply {
+                setPadding(0, dp(6), 0, 0)
+            })
+            if (result?.available == true && !result.downloadUrl.isNullOrBlank()) {
+                addView(primaryButton("Mise a jour disponible").apply {
+                    setOnClickListener { downloadUpdate(result) }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(16) })
+            }
+            addView(secondaryButton(if (updateChecking) "Verification..." else "Verifier").apply {
+                isEnabled = !updateChecking
+                setOnClickListener { checkForUpdates(renderSettingsWhenDone = true) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(10) })
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+        }
+    }
+
+    private fun settingsPageHeader(title: String): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(roundButton("<").apply { textSize = 26f; setOnClickListener { renderSettings() } }, LinearLayout.LayoutParams(dp(50), dp(50)).apply {
+                rightMargin = dp(12)
+            })
+            addView(pageTitle(title), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun pageTitle(textValue: String): TextView {
+        return label(textValue, 28, Palette.text).apply {
+            setTypeface(typeface, android.graphics.Typeface.NORMAL)
+            setPadding(0, dp(8), 0, dp(18))
+        }
+    }
+
+    private fun sectionHeading(textValue: String): TextView {
+        return label(textValue, 12, Palette.muted).apply {
+            setPadding(dp(2), dp(22), 0, dp(2))
         }
     }
 
@@ -716,13 +944,94 @@ class MainActivity : AppCompatActivity() {
         return NativeSession(baseUrl, token, username)
     }
 
+    private fun visibleCameras(): List<NativeCamera> = cameras.filter { isCameraVisible(it) }
+
+    private fun isCameraVisible(camera: NativeCamera): Boolean =
+        camera.enabled && !hiddenCameraNames().contains(camera.name)
+
+    private fun hiddenCameraNames(): Set<String> =
+        prefs.getStringSet(hiddenCameraKey(), emptySet())?.toSet() ?: emptySet()
+
+    private fun setCameraHidden(cameraName: String, hidden: Boolean) {
+        val names = hiddenCameraNames().toMutableSet()
+        if (hidden) {
+            names.add(cameraName)
+        } else {
+            names.remove(cameraName)
+        }
+        prefs.edit().putStringSet(hiddenCameraKey(), names).apply()
+    }
+
+    private fun hiddenCameraKey(): String = "hiddenCameras:${session?.baseUrl ?: "default"}"
+
+    private fun appVersionName(): String =
+        runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }
+            .getOrDefault("")
+            .ifBlank { "0.2.11" }
+
+    private fun loadNvrVersion(renderAboutWhenDone: Boolean) {
+        val activeSession = session ?: return
+        val activeApi = api ?: return
+        nvrVersion = "Chargement..."
+        activeApi.loadNvrVersion(activeSession.token) { result ->
+            runOnUiThread {
+                nvrVersion = result.getOrElse { "Indisponible" }
+                if (renderAboutWhenDone) renderAboutSettings()
+            }
+        }
+    }
+
+    private fun checkForUpdates(renderSettingsWhenDone: Boolean) {
+        if (updateChecking) return
+        updateChecking = true
+        AppUpdateService(httpClient).check(appVersionName()) { result ->
+            runOnUiThread {
+                updateChecking = false
+                updateResult = result.getOrElse {
+                    NativeUpdateResult(
+                        available = false,
+                        message = "Recherche de mise a jour impossible.",
+                        latestVersion = null,
+                        assetName = null,
+                        downloadUrl = null
+                    )
+                }
+                if (renderSettingsWhenDone) renderSettings()
+            }
+        }
+    }
+
+    private fun downloadUpdate(update: NativeUpdateResult) {
+        val url = update.downloadUrl
+        if (url.isNullOrBlank()) {
+            toast("Telechargement indisponible.")
+            return
+        }
+        val fileName = update.assetName ?: "FriCamGate-v${update.latestVersion ?: "latest"}-debug.apk"
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle("FriCamGate ${update.latestVersion ?: ""}".trim())
+            .setDescription("Telechargement de la mise a jour")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName)
+            .addRequestHeader("User-Agent", "FriCamGate")
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.enqueue(request)
+        toast("Telechargement lance.")
+    }
+
     private fun releasePlayer() {
         homeStreamGeneration += 1
         mainHandler.removeCallbacksAndMessages(null)
-        currentPlayer?.release()
-        currentPlayer = null
+        releaseCurrentPlayer()
         homeStreams.forEach { it.close(1000, "released") }
         homeStreams.clear()
+    }
+
+    private fun releaseCurrentPlayer() {
+        currentPlayer?.release()
+        currentPlayer = null
+        currentPlaybackEventId = null
     }
 
     private fun stopMjpegStreams() {
@@ -757,6 +1066,15 @@ class MainActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Palette.text)
             background = rounded(Palette.accent, 6)
+        }
+    }
+
+    private fun secondaryButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 15f
+            setTextColor(Palette.text)
+            background = rounded(Palette.surface, 6)
         }
     }
 
@@ -1006,6 +1324,29 @@ private class FrigateNativeApi(
                 }.onFailure { callback(Result.failure(it)) }
             }
         }
+    }
+
+    fun loadNvrVersion(token: String, callback: (Result<String>) -> Unit) {
+        val request = authRequest(token, "/api/version")
+            .header("Accept", "text/plain,application/json")
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
+            override fun onResponse(call: Call, response: Response) {
+                response.use { httpResponse ->
+                    if (!httpResponse.isSuccessful) {
+                        callback(Result.failure(IOException("Frigate HTTP ${httpResponse.code}")))
+                        return
+                    }
+                    val version = parseVersionPayload(httpResponse.body?.string().orEmpty())
+                    if (version.isBlank()) {
+                        callback(Result.failure(IOException("Version NVR introuvable.")))
+                    } else {
+                        callback(Result.success(version))
+                    }
+                }
+            }
+        })
     }
 
     fun loadBitmap(token: String, url: String, callback: (Bitmap?) -> Unit) {
@@ -1286,6 +1627,17 @@ private class FrigateNativeApi(
         )
     }
 
+    private fun parseVersionPayload(payload: String): String {
+        val trimmed = payload.trim().trim('"')
+        if (trimmed.startsWith("{")) {
+            val json = runCatching { JSONObject(trimmed) }.getOrNull()
+            return json?.optString("version").orEmpty()
+                .ifBlank { json?.optString("frigate_version").orEmpty() }
+                .ifBlank { json?.optString("nvr_version").orEmpty() }
+        }
+        return trimmed
+    }
+
     private fun bearerTokenFromHeader(header: String?): String {
         val value = header?.trim().orEmpty()
         return if (value.startsWith("Bearer ", ignoreCase = true)) {
@@ -1325,6 +1677,90 @@ private class FrigateNativeApi(
     }
 }
 
+private class AppUpdateService(private val client: OkHttpClient) {
+    fun check(currentVersion: String, callback: (Result<NativeUpdateResult>) -> Unit) {
+        val request = Request.Builder()
+            .url(RELEASES_API_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "FriCamGate")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback(Result.failure(e))
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { httpResponse ->
+                    if (httpResponse.code == 403 || httpResponse.code == 404) {
+                        callback(Result.success(NativeUpdateResult(false, "Releases GitHub non accessibles depuis l'app.", null, null, null)))
+                        return
+                    }
+                    if (!httpResponse.isSuccessful) {
+                        callback(Result.failure(IOException("GitHub HTTP ${httpResponse.code}")))
+                        return
+                    }
+                    val release = latestApkRelease(httpResponse.body?.string().orEmpty())
+                    if (release == null) {
+                        callback(Result.success(NativeUpdateResult(false, "Version GitHub introuvable.", null, null, null)))
+                        return
+                    }
+                    val available = compareVersions(release.version, currentVersion) > 0
+                    callback(Result.success(
+                        NativeUpdateResult(
+                            available = available,
+                            message = if (available) "Mise a jour ${release.version} disponible." else "Application a jour.",
+                            latestVersion = release.version,
+                            assetName = release.assetName,
+                            downloadUrl = release.downloadUrl
+                        )
+                    ))
+                }
+            }
+        })
+    }
+
+    private fun latestApkRelease(payload: String): ApkRelease? {
+        val releases = runCatching { JSONArray(payload) }.getOrNull() ?: return null
+        var latest: ApkRelease? = null
+        for (index in 0 until releases.length()) {
+            val release = releases.optJSONObject(index) ?: continue
+            if (release.optBoolean("draft", false)) continue
+            val version = extractVersion(release.optString("tag_name").ifBlank { release.optString("name") })
+            if (version.isBlank()) continue
+            val asset = findApkAsset(release.optJSONArray("assets")) ?: continue
+            val candidate = ApkRelease(version, asset.first, asset.second)
+            if (latest == null || compareVersions(candidate.version, latest.version) > 0) {
+                latest = candidate
+            }
+        }
+        return latest
+    }
+
+    private fun findApkAsset(assets: JSONArray?): Pair<String, String>? {
+        if (assets == null) return null
+        for (index in 0 until assets.length()) {
+            val asset = assets.optJSONObject(index) ?: continue
+            val name = asset.optString("name")
+            val downloadUrl = asset.optString("browser_download_url")
+            if (name.lowercase(Locale.ROOT).endsWith(".apk") && downloadUrl.isNotBlank()) {
+                return name to downloadUrl
+            }
+        }
+        return null
+    }
+
+    companion object {
+        private const val RELEASES_API_URL = "https://api.github.com/repos/jp2creation/FriCamGate/releases?per_page=20"
+    }
+}
+
+private data class ApkRelease(val version: String, val assetName: String, val downloadUrl: String)
+private data class NativeUpdateResult(
+    val available: Boolean,
+    val message: String,
+    val latestVersion: String?,
+    val assetName: String?,
+    val downloadUrl: String?
+)
 private data class NativeSession(val baseUrl: String, val token: String, val username: String)
 private data class NativeLogin(val token: String, val username: String)
 private data class DashboardData(val cameras: List<NativeCamera>, val events: List<NativeEvent>)
@@ -1359,6 +1795,25 @@ private object Palette {
     const val muted = 0xff8d8d96.toInt()
     const val accent = 0xffff2d63.toInt()
     const val liveBlue = 0xff07b8ff.toInt()
+}
+
+internal fun extractVersion(input: String): String {
+    val normalized = input.trim().removePrefix("v").removePrefix("V")
+    val version = normalized.substringBefore("-")
+    return if (Regex("""^\d+(?:\.\d+){0,3}$""").matches(version)) version else ""
+}
+
+internal fun compareVersions(left: String, right: String): Int {
+    val leftParts = extractVersion(left).split(".").filter { it.isNotBlank() }.map { it.toInt() }
+    val rightParts = extractVersion(right).split(".").filter { it.isNotBlank() }.map { it.toInt() }
+    val length = maxOf(leftParts.size, rightParts.size)
+    for (index in 0 until length) {
+        val leftValue = leftParts.getOrNull(index) ?: 0
+        val rightValue = rightParts.getOrNull(index) ?: 0
+        if (leftValue > rightValue) return 1
+        if (leftValue < rightValue) return -1
+    }
+    return 0
 }
 
 internal fun normalizeBaseUrl(value: String): String {

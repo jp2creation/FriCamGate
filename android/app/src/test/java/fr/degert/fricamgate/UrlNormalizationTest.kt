@@ -19,4 +19,11 @@ class UrlNormalizationTest {
     fun keepsReverseProxySubPath() {
         assertEquals("https://example.test/frigate", normalizeBaseUrl("https://example.test/frigate/api"))
     }
+
+    @Test
+    fun comparesReleaseVersionsWithDebugTags() {
+        assertEquals("0.2.11", extractVersion("v0.2.11-kotlin-debug"))
+        assertEquals(1, compareVersions("0.2.11", "0.2.10"))
+        assertEquals(0, compareVersions("0.2.10", "v0.2.10-kotlin-debug"))
+    }
 }
