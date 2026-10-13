@@ -233,10 +233,10 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(18)
             topMargin = dp(18)
         })
-        body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
+        body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cameraVideoHeight()))
         body.addView(cameraToolbar(camera))
-        body.addView(timeline(camera), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        setShell(body, Tab.Cameras)
+        body.addView(cameraTimeline(camera, liveImage, live), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setShell(body, Tab.Cameras, showHeader = false)
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
 
@@ -419,38 +419,73 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cameraToolbar(camera: NativeCamera): View {
-        return horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), 0, dp(18), 0)
+        return FrameLayout(this).apply {
             setBackgroundColor(Palette.backgroundAlt)
-            addView(label(camera.friendlyName, 24, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-            addView(chip("son off"))
+            addView(View(context).apply {
+                background = rounded(0xff3d3d42.toInt(), 3)
+            }, FrameLayout.LayoutParams(dp(54), dp(4), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(10)
+            })
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), dp(10), dp(16), 0)
+                addView(View(context).apply {
+                    background = rounded(Palette.liveBlue, 5)
+                }, LinearLayout.LayoutParams(dp(9), dp(9)).apply { rightMargin = dp(8) })
+                addView(label(camera.friendlyName, 20, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                addView(toolbarIcon(R.drawable.ic_refresh))
+                addView(toolbarIcon(R.drawable.ic_image))
+                addView(toolbarIcon(R.drawable.ic_grid))
+                addView(toolbarIcon(R.drawable.ic_settings))
+            }, frameMatch())
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72))
         }
     }
 
-    private fun timeline(camera: NativeCamera): View {
-        val scroll = ScrollView(this)
-        val column = vertical().apply { setPadding(dp(18), dp(20), dp(18), dp(120)) }
-        scroll.addView(column)
+    private fun cameraTimeline(camera: NativeCamera, preview: ImageView, liveBadge: View): View {
+        val activeSession = session
+        val activeApi = api
         val cameraEvents = events.filter { it.camera == camera.name }
+        val frame = FrameLayout(this).apply { setBackgroundColor(Palette.backgroundAlt) }
+        val scroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val column = vertical().apply { setPadding(0, 0, 0, dp(210)) }
+        val rowHeight = dp(136)
+        val topSpacer = dp(112)
+        column.addView(View(this), LinearLayout.LayoutParams(1, topSpacer))
+        scroll.addView(column)
         if (cameraEvents.isEmpty()) {
-            column.addView(emptyMessage("Aucune video recente pour cette camera."))
+            column.addView(emptyMessage("Aucune video recente pour cette camera.").apply {
+                setPadding(dp(18), dp(18), dp(18), dp(18))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = dp(18)
+                rightMargin = dp(18)
+            })
         } else {
-            cameraEvents.forEach { event ->
-                val row = horizontal().apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(10), 0, dp(10))
-                    setOnClickListener { renderEventDetail(event) }
-                }
-                val marker = TextView(this).apply {
-                    text = "|"
-                    textSize = 42f
-                    setTextColor(Palette.accent)
-                    gravity = Gravity.CENTER
-                }
-                row.addView(marker, LinearLayout.LayoutParams(dp(42), dp(82)))
+            cameraEvents.forEachIndexed { index, event ->
+                val row = FrameLayout(this).apply { setOnClickListener { renderEventDetail(event) } }
+                row.addView(label(event.time, 13, Palette.muted).apply { gravity = Gravity.CENTER_VERTICAL }, FrameLayout.LayoutParams(dp(70), dp(32), Gravity.START or Gravity.CENTER_VERTICAL).apply {
+                    leftMargin = dp(8)
+                })
+                row.addView(View(this).apply {
+                    background = rounded(0x5cff2d63.toInt(), 9)
+                }, FrameLayout.LayoutParams(dp(10), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER_HORIZONTAL))
+                row.addView(View(this).apply {
+                    background = rounded(Palette.accent, 8)
+                }, FrameLayout.LayoutParams(dp(8), dp(if (event.endTime != null) 92 else 58), Gravity.CENTER_HORIZONTAL))
+                row.addView(View(this).apply {
+                    background = rounded(Palette.backgroundAlt, 9, 0xff3c3c42.toInt(), 2)
+                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER).apply {
+                    leftMargin = dp(4)
+                })
+                row.addView(View(this).apply {
+                    setBackgroundColor(0xff44444a.toInt())
+                }, FrameLayout.LayoutParams(dp(70), dp(1), Gravity.CENTER).apply {
+                    leftMargin = dp(178)
+                })
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     setBackgroundColor(Palette.surface)
@@ -459,18 +494,72 @@ class MainActivity : AppCompatActivity() {
                     background = rounded(Palette.card, 8)
                     applyRoundedClip(8)
                 }
-                loadEventPreview(event, thumb)
+                loadEventPreviewAnimated(event, thumb)
                 thumbFrame.addView(thumb, frameMatch())
-                row.addView(thumbFrame, LinearLayout.LayoutParams(dp(150), dp(82)))
-                row.addView(vertical().apply {
-                    setPadding(dp(14), 0, 0, 0)
-                    addView(label(event.label, 17, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-                    addView(label(event.time, 15, Palette.muted))
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                column.addView(row)
+                row.addView(thumbFrame, FrameLayout.LayoutParams(dp(184), dp(104), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                    rightMargin = dp(24)
+                })
+                row.addView(label(event.label, 14, Palette.text).apply {
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setShadowLayer(4f, 0f, 1f, Palette.black)
+                }, FrameLayout.LayoutParams(dp(170), dp(28), Gravity.END or Gravity.BOTTOM).apply {
+                    rightMargin = dp(32)
+                    bottomMargin = dp(20)
+                })
+                column.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, rowHeight))
+                if (index == cameraEvents.lastIndex) {
+                    column.addView(View(this), LinearLayout.LayoutParams(1, dp(160)))
+                }
             }
         }
-        return scroll
+        frame.addView(scroll, frameMatch())
+        frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.CENTER_VERTICAL))
+        val currentTime = label("Live", 15, Palette.text).apply {
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = rounded(Palette.liveBlue, 14)
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        frame.addView(currentTime, FrameLayout.LayoutParams(dp(86), dp(34), Gravity.START or Gravity.CENTER_VERTICAL).apply {
+            leftMargin = dp(28)
+        })
+        frame.addView(vertical().apply {
+            gravity = Gravity.CENTER
+            addView(timelineFloatButton(R.drawable.ic_refresh))
+            addView(timelineFloatButton(R.drawable.ic_grid))
+            addView(timelineFloatButton(R.drawable.ic_settings))
+        }, FrameLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            rightMargin = dp(12)
+        })
+        var selectedEventId: String? = null
+        var timelineMode = false
+        fun updatePreviewForScroll(scrollY: Int) {
+            if (cameraEvents.isEmpty() || activeSession == null || activeApi == null || frame.height <= 0) return
+            val centerOffset = scrollY + frame.height / 2
+            val index = Math.round(((centerOffset - topSpacer - rowHeight / 2).toFloat()) / rowHeight.toFloat())
+                .coerceIn(0, cameraEvents.lastIndex)
+            val event = cameraEvents[index]
+            if (event.id == selectedEventId) return
+            selectedEventId = event.id
+            currentTime.text = event.time
+            if (!timelineMode) {
+                timelineMode = true
+                stopMjpegStreams()
+                liveBadge.visibility = View.GONE
+            }
+            val frameTime = event.startTime ?: return
+            activeApi.loadBitmap(activeSession.token, activeApi.recordingSnapshotUrl(camera.name, frameTime)) { bitmap ->
+                runOnUiThread {
+                    if (selectedEventId == event.id && bitmap != null) {
+                        preview.setImageBitmap(bitmap)
+                    }
+                }
+            }
+        }
+        scroll.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            if (scrollY != oldScrollY) updatePreviewForScroll(scrollY)
+        }
+        return frame
     }
 
     private fun syncCameraGrid(event: NativeEvent): View {
@@ -509,9 +598,9 @@ class MainActivity : AppCompatActivity() {
         return grid
     }
 
-    private fun setShell(content: View, activeTab: Tab) {
+    private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true) {
         val root = vertical().apply { setBackgroundColor(Palette.background) }
-        root.addView(appHeader())
+        if (showHeader) root.addView(appHeader())
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
         keepAboveSystemNavigation(root)
@@ -636,6 +725,12 @@ class MainActivity : AppCompatActivity() {
         homeStreams.clear()
     }
 
+    private fun stopMjpegStreams() {
+        homeStreamGeneration += 1
+        homeStreams.forEach { it.close(1000, "timeline") }
+        homeStreams.clear()
+    }
+
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
@@ -718,6 +813,31 @@ class MainActivity : AppCompatActivity() {
             }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) }
+        }
+    }
+
+    private fun toolbarIcon(iconRes: Int): View {
+        return FrameLayout(this).apply {
+            addView(ImageView(context).apply {
+                setImageResource(iconRes)
+                setColorFilter(Palette.muted)
+                alpha = 0.9f
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(52))
+        }
+    }
+
+    private fun timelineFloatButton(iconRes: Int): View {
+        return FrameLayout(this).apply {
+            background = rounded(0xd61b1b1f.toInt(), 23)
+            addView(ImageView(context).apply {
+                setImageResource(iconRes)
+                setColorFilter(Palette.text)
+                alpha = 0.8f
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(12) }
         }
     }
 
@@ -807,6 +927,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
     private fun frameMatch() = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    private fun cameraVideoHeight(): Int = minOf(dp(340), maxOf(dp(220), resources.displayMetrics.widthPixels * 9 / 16))
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     companion object {
@@ -1237,6 +1358,7 @@ private object Palette {
     const val text = 0xfff7f7f9.toInt()
     const val muted = 0xff8d8d96.toInt()
     const val accent = 0xffff2d63.toInt()
+    const val liveBlue = 0xff07b8ff.toInt()
 }
 
 internal fun normalizeBaseUrl(value: String): String {
