@@ -145,4 +145,12 @@
     <string name="events_tab">Événements</string>
     <string name="grid_tab">Toutes les alertes</string>
     <string name="settings_not_allowed">Authentifiez-vous avant de modifier les réglages.</string>
+    <string name="camera_layout">Disposition des caméras</string>
+    <string name="camera_layout_column">Une colonne</string>
+    <string name="camera_layout_two_columns">Deux colonnes</string>
+    <string name="camera_layout_compact">Grille compacte</string>
+    <string name="camera_options">Options de %1$s</string>
+    <string name="camera_fullscreen">Plein écran</string>
+    <string name="camera_enable_audio">Activer le son</string>
+    <string name="camera_disable_audio">Couper le son</string>
 </resources>

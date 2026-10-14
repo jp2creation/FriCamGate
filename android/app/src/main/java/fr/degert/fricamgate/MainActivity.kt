@@ -356,8 +356,23 @@ class MainActivity : AppCompatActivity() {
         } else if (homeCameras.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.all_hidden)))
         } else {
-            homeCameras.forEach { camera ->
-                column.addView(cameraCard(camera))
+            val layout = homeCameraLayout()
+            if (layout == HomeCameraLayout.Column) {
+                homeCameras.forEach { camera -> column.addView(cameraCard(camera)) }
+            } else {
+                homeCameras.chunked(layout.columns).forEach { cameraRow ->
+                    column.addView(horizontal().apply {
+                        gravity = Gravity.TOP
+                        repeat(layout.columns) { index ->
+                            val tile = cameraRow.getOrNull(index)?.let { cameraGridTile(it) } ?: View(context)
+                            addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                if (index > 0) leftMargin = dp(8)
+                            })
+                        }
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    })
+                }
             }
         }
         setShell(content, Tab.Home, animateIn = true)
@@ -1015,6 +1030,73 @@ class MainActivity : AppCompatActivity() {
                 bottomMargin = dp(8)
             }
         }
+    }
+
+    private fun cameraGridTile(camera: NativeCamera): View {
+        val tile = vertical().apply {
+            background = rounded(Palette.card, 8)
+            applyRoundedClip(8)
+        }
+        val preview = object : FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val height = View.MeasureSpec.getSize(widthMeasureSpec) * 9 / 16
+                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            }
+        }
+        val image = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Palette.surface)
+        }
+        preview.addView(image, frameMatch())
+        val live = liveBadge().apply { visibility = View.GONE }
+        preview.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(22), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(5)
+            rightMargin = dp(5)
+        })
+        tile.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        tile.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, 0, 0)
+            addView(label(camera.friendlyName, 12, Palette.text).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                contentDescription = camera.friendlyName
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.friendlyName)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(toolbarIcon(R.drawable.ic_more_vertical, tint = Palette.text) { anchor ->
+                showGridCameraActions(camera, anchor)
+            }.apply {
+                val description = getString(R.string.camera_options, camera.friendlyName)
+                contentDescription = description
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
+            }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        session?.let { activeSession ->
+            api?.let { activeApi ->
+                activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
+                    runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
+                }
+                startMjpegStream(activeApi, activeSession.token, camera, image, live)
+            }
+        }
+        return tile
+    }
+
+    private fun showGridCameraActions(camera: NativeCamera, anchor: View) {
+        val soundActive = soundEnabled && currentPlaybackKey == homePlaybackKey(camera)
+        val actions = listOf(
+            Triple(if (soundActive) R.drawable.ic_volume else R.drawable.ic_volume_off,
+                getString(if (soundActive) R.string.camera_disable_audio else R.string.camera_enable_audio), {
+                    val enabled = toggleHomeSound(camera)
+                    toast(getString(if (enabled) R.string.sound_on else R.string.sound_off))
+                }),
+            Triple(R.drawable.ic_fullscreen, getString(R.string.camera_fullscreen), { renderCameraFullscreen(camera) }),
+            Triple(R.drawable.ic_settings, getString(R.string.settings), { showCameraOptionsPopup(camera, anchor) }),
+            Triple(R.drawable.ic_list, getString(R.string.events_tab), { renderCameraDetail(camera, showEventsList = true) })
+        )
+        showHomeViewMenu(anchor, actions.map { (icon, title, action) ->
+            homeMenuRow(icon, title, false) { action() }
+        })
     }
 
     private fun renderCameraFullscreen(camera: NativeCamera) {
@@ -1816,7 +1898,69 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, 0, dp(12), 0)
                 })
             }
+            val layout = homeCameraLayout()
+            addView(toolbarIcon(layout.iconRes, tint = Palette.text) { anchor -> showCameraLayoutMenu(anchor) }.apply {
+                val description = getString(R.string.camera_layout)
+                contentDescription = description
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
+            }, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
+    }
+
+    private fun homeCameraLayout(): HomeCameraLayout = HomeCameraLayout.fromPreference(
+        getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("homeCameraLayout", null)
+    )
+
+    private fun showCameraLayoutMenu(anchor: View) {
+        val selected = homeCameraLayout()
+        showHomeViewMenu(anchor, HomeCameraLayout.values().map { layout ->
+            homeMenuRow(layout.iconRes, getString(layout.titleRes), selected == layout) {
+                getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
+                    .putString("homeCameraLayout", layout.preference).apply()
+                if (selected != layout) renderHome()
+            }
+        })
+    }
+
+    private fun homeMenuRow(icon: Int, title: String, selected: Boolean, onClick: () -> Unit): View = horizontal().apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(12), 0, dp(12), 0)
+        isFocusable = true
+        isSelected = selected
+        contentDescription = title
+        addView(ImageView(context).apply {
+            setImageResource(icon)
+            setColorFilter(if (selected) Palette.accent else Palette.text)
+        }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { rightMargin = dp(12) })
+        addView(label(title, 14, if (selected) Palette.accent else Palette.text),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (selected) addView(android.widget.RadioButton(context).apply {
+            isChecked = true
+            isClickable = false
+            isFocusable = false
+            buttonTintList = android.content.res.ColorStateList.valueOf(Palette.accent)
+        }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        setOnClickListener {
+            dismissCameraPicker()
+            onClick()
+        }
+    }
+
+    private fun showHomeViewMenu(anchor: View, rows: List<View>) {
+        dismissTransientPopups()
+        val menu = vertical().apply {
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            background = rounded(Palette.card, 8, 0x26ffffff, 1)
+            rows.forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))) }
+        }
+        val popup = PopupWindow(menu, minOf(dp(260), resources.displayMetrics.widthPixels - dp(24)), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            elevation = dp(12).toFloat()
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setOnDismissListener { if (cameraPickerPopup === this) cameraPickerPopup = null }
+        }
+        cameraPickerPopup = popup
+        popup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
     }
 
     private fun chatButton(): View {

@@ -145,4 +145,12 @@
     <string name="events_tab">Ereignisse</string>
     <string name="grid_tab">Alle Meldungen</string>
     <string name="settings_not_allowed">Vor Änderungen authentifizieren.</string>
+    <string name="camera_layout">Kameraansicht</string>
+    <string name="camera_layout_column">Eine Spalte</string>
+    <string name="camera_layout_two_columns">Zwei Spalten</string>
+    <string name="camera_layout_compact">Kompaktes Raster</string>
+    <string name="camera_options">Optionen für %1$s</string>
+    <string name="camera_fullscreen">Vollbild</string>
+    <string name="camera_enable_audio">Ton aktivieren</string>
+    <string name="camera_disable_audio">Ton stummschalten</string>
 </resources>
