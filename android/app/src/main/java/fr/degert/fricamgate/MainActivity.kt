@@ -1,9 +1,13 @@
 package fr.degert.fricamgate
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.RectF
 import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.ContentValues
@@ -22,6 +26,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.animation.LinearInterpolator
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -34,12 +39,12 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.C
@@ -101,8 +106,10 @@ class MainActivity : AppCompatActivity() {
     private var homeAudioGeneration = 0
     private val seenAlertIdsMemory = mutableSetOf<String>()
     private var dashboardErrorMessage: String? = null
+    private val loadingAnimators = mutableListOf<ValueAnimator>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         window.statusBarColor = Palette.background
         window.navigationBarColor = Palette.black
@@ -134,6 +141,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderLogin() {
         releasePlayer()
+        releaseLoadingAnimations()
         val scroll = appScrollView().apply {
             setBackgroundColor(Palette.background)
             isFillViewport = true
@@ -260,7 +268,7 @@ class MainActivity : AppCompatActivity() {
                 column.addView(cameraCard(camera))
             }
         }
-        setShell(content, Tab.Home)
+        setShell(content, Tab.Home, animateIn = true)
     }
 
     private fun isAuthFailure(message: String): Boolean =
@@ -1586,7 +1594,8 @@ class MainActivity : AppCompatActivity() {
         return grid
     }
 
-    private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true) {
+    private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true, animateIn: Boolean = false) {
+        releaseLoadingAnimations()
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         if (showHeader) root.addView(appHeader())
@@ -1595,6 +1604,10 @@ class MainActivity : AppCompatActivity() {
         keepAboveSystemNavigation(root)
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
+        if (animateIn) {
+            root.alpha = 0f
+            root.animate().alpha(1f).setDuration(220L).start()
+        }
     }
 
     private fun appHeader(): View {
@@ -2381,13 +2394,114 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderLoading(text: String) {
         releasePlayer()
-        val root = vertical().apply {
-            gravity = Gravity.CENTER
+        releaseLoadingAnimations()
+        val root = FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
         }
-        root.addView(ProgressBar(this))
-        root.addView(label(text, 16, Palette.muted).apply { setPadding(0, dp(18), 0, 0) })
+        val content = vertical().apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), 0, dp(28), 0)
+        }
+        val logoFrame = FrameLayout(this)
+        val ring = LoadingRingView(this)
+        logoFrame.addView(ring, FrameLayout.LayoutParams(dp(128), dp(128), Gravity.CENTER))
+        logoFrame.addView(ImageView(this).apply {
+            setImageResource(R.drawable.fricamgate_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER))
+        content.addView(logoFrame, LinearLayout.LayoutParams(dp(136), dp(136)))
+        content.addView(label("CamGate", 24, Palette.text).apply {
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setPadding(0, dp(18), 0, 0)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        content.addView(label("Frigate Client", 12, Palette.muted).apply {
+            gravity = Gravity.CENTER
+            textScaleX = 1.1f
+            setPadding(0, dp(5), 0, 0)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val status = label(text.ifBlank { loadingStageMessage(0) }, 14, Palette.muted).apply {
+            gravity = Gravity.CENTER
+            alpha = 0.86f
+            setPadding(0, dp(28), 0, 0)
+        }
+        content.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val progressTrack = FrameLayout(this).apply {
+            background = rounded(Palette.surface, 2)
+        }
+        val progressFill = View(this).apply {
+            background = rounded(Palette.accent, 2)
+            pivotX = 0f
+            scaleX = 0.18f
+        }
+        progressTrack.addView(progressFill, frameMatch())
+        content.addView(progressTrack, LinearLayout.LayoutParams(dp(176), dp(3)).apply {
+            topMargin = dp(20)
+        })
+        val slowPanel = vertical().apply {
+            alpha = 0f
+            visibility = View.GONE
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(14), dp(13), dp(14), dp(14))
+            background = rounded(Palette.card, 10, 0x25ff2d70, 1)
+            addView(label("Connexion plus longue que prevu", 13, Palette.text).apply {
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER
+                addView(secondaryButton("Reessayer").apply {
+                    textSize = 13f
+                    setOnClickListener {
+                        if (session == null) renderLogin() else loadDashboard("Recharge.")
+                    }
+                }, LinearLayout.LayoutParams(0, dp(38), 1f))
+                addView(primaryButton("Serveur").apply {
+                    textSize = 13f
+                    setOnClickListener {
+                        if (session == null) renderLogin() else renderServerSettings()
+                    }
+                }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { leftMargin = dp(8) })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
+                topMargin = dp(12)
+            })
+        }
+        content.addView(slowPanel, LinearLayout.LayoutParams(dp(260), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(34)
+        })
+        root.addView(content, FrameLayout.LayoutParams(contentWidth(420), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        keepAboveSystemNavigation(root)
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
+
+        val ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1500L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animation -> ring.progress = animation.animatedValue as Float }
+            start()
+        }
+        val barAnimator = ValueAnimator.ofFloat(0.18f, 1f).apply {
+            duration = 1900L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animation -> progressFill.scaleX = animation.animatedValue as Float }
+            start()
+        }
+        val stageAnimator = ValueAnimator.ofInt(0, LOADING_STAGE_COUNT - 1).apply {
+            duration = 4200L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animation -> status.text = loadingStageMessage(animation.animatedValue as Int) }
+            start()
+        }
+        loadingAnimators.addAll(listOf(ringAnimator, barAnimator, stageAnimator))
+        mainHandler.postDelayed({
+            if (root.isAttachedToWindow && loadingAnimators.isNotEmpty()) {
+                slowPanel.visibility = View.VISIBLE
+                slowPanel.animate().alpha(1f).setDuration(220L).start()
+            }
+        }, LOADING_SLOW_ACTIONS_DELAY_MS)
     }
 
     private fun saveSession(value: NativeSession) {
@@ -2501,11 +2615,17 @@ class MainActivity : AppCompatActivity() {
         timelinePlaybackGeneration += 1
         timelineFrameGeneration += 1
         mainHandler.removeCallbacksAndMessages(null)
+        releaseLoadingAnimations()
         releaseHomeAudioWebView()
         releaseCurrentPlayer()
         homeStreams.forEach { it.close(1000, "released") }
         homeStreams.clear()
         homeSoundIcons.clear()
+    }
+
+    private fun releaseLoadingAnimations() {
+        loadingAnimators.forEach { it.cancel() }
+        loadingAnimators.clear()
     }
 
     private fun releaseCurrentPlayer() {
@@ -2885,6 +3005,55 @@ private const val TIMELINE_RECORDING_PREROLL_SECONDS = 8L
 private const val TIMELINE_RECORDING_WINDOW_SECONDS = 45L
 private const val TIMELINE_PLAYBACK_CLOCK_MS = 500L
 private const val TIMELINE_PLAYHEAD_FRACTION = 0.25f
+private const val LOADING_STAGE_COUNT = 3
+private const val LOADING_SLOW_ACTIONS_DELAY_MS = 6000L
+
+fun loadingStageMessage(index: Int): String =
+    when (((index % LOADING_STAGE_COUNT) + LOADING_STAGE_COUNT) % LOADING_STAGE_COUNT) {
+        0 -> "Connexion au NVR..."
+        1 -> "Chargement des cameras..."
+        else -> "Preparation du live..."
+    }
+
+private class LoadingRingView(context: Context) : View(context) {
+    var progress: Float = 0f
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private val bounds = RectF()
+    private val density = resources.displayMetrics.density
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 2.2f * density
+        color = 0x24ffffff
+    }
+    private val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 3.2f * density
+        color = Palette.accent
+    }
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 6.5f * density
+        color = 0x25ff2d70
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val inset = 10f * density
+        bounds.set(inset, inset, width - inset, height - inset)
+        canvas.drawOval(bounds, trackPaint)
+        val start = progress * 360f - 90f
+        canvas.drawArc(bounds, start, 112f, false, glowPaint)
+        canvas.drawArc(bounds, start, 92f, false, accentPaint)
+        canvas.drawArc(bounds, start + 178f, 34f, false, trackPaint)
+    }
+}
 
 private class FrigateNativeApi(
     private val baseUrl: String,

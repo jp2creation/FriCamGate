@@ -79,4 +79,12 @@ class UrlNormalizationTest {
         assertEquals(true, isSameOriginUrl("https://cam.degert.fr/api", "https://cam.degert.fr/chat/thread"))
         assertEquals(false, isSameOriginUrl("https://cam.degert.fr/api", "https://example.com/chat"))
     }
+
+    @Test
+    fun cyclesStartupLoadingMessages() {
+        assertEquals("Connexion au NVR...", loadingStageMessage(0))
+        assertEquals("Chargement des cameras...", loadingStageMessage(1))
+        assertEquals("Preparation du live...", loadingStageMessage(2))
+        assertEquals("Connexion au NVR...", loadingStageMessage(3))
+    }
 }
