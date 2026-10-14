@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var timelinePlaybackGeneration = 0
     private var timelineFrameGeneration = 0
     private var cameraPickerPopup: PopupWindow? = null
+    private var alertsPopup: PopupWindow? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
     private var updateChecking = false
@@ -1314,7 +1315,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true) {
-        dismissCameraPicker()
+        dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         if (showHeader) root.addView(appHeader())
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -1333,7 +1334,36 @@ class MainActivity : AppCompatActivity() {
             }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
                 topMargin = dp(42)
             })
+            addView(alertsButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+                rightMargin = dp(18)
+                topMargin = dp(52)
+            })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
+    }
+
+    private fun alertsButton(): View {
+        val alertCount = alertEvents().size
+        return FrameLayout(this).apply {
+            isClickable = true
+            contentDescription = "Alertes"
+            background = rounded(0x1118181d, 23, 0x1eff2d63, 1)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_bell)
+                setColorFilter(Palette.text)
+                alpha = 0.94f
+            }, FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER))
+            if (alertCount > 0) {
+                addView(label(alertCount.coerceAtMost(99).toString(), 9, Palette.text).apply {
+                    gravity = Gravity.CENTER
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    background = rounded(Palette.accent, 9)
+                }, FrameLayout.LayoutParams(dp(if (alertCount > 9) 20 else 16), dp(16), Gravity.END or Gravity.TOP).apply {
+                    topMargin = dp(2)
+                    rightMargin = dp(2)
+                })
+            }
+            setOnClickListener { showAlertsPopup(it) }
+        }
     }
 
     private fun homeTitleRow(message: String?): View {
@@ -1429,7 +1459,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showCameraPickerPopup(anchor: View) {
-        dismissCameraPicker()
+        dismissTransientPopups()
         val choices = visibleCameras()
         if (choices.isEmpty()) {
             toast("Aucune camera visible.")
@@ -1514,8 +1544,126 @@ class MainActivity : AppCompatActivity() {
         cameraPickerPopup = null
     }
 
-    private fun showCameraOptionsPopup(camera: NativeCamera, anchor: View) {
+    private fun dismissAlertsPopup() {
+        alertsPopup?.dismiss()
+        alertsPopup = null
+    }
+
+    private fun dismissTransientPopups() {
         dismissCameraPicker()
+        dismissAlertsPopup()
+    }
+
+    private fun alertEvents(): List<NativeEvent> {
+        val visibleNames = visibleCameras().map { it.name }.toSet()
+        val nowSec = System.currentTimeMillis() / 1000.0
+        return events
+            .asSequence()
+            .filter { it.camera in visibleNames }
+            .filter { event ->
+                val started = event.startTime ?: return@filter true
+                nowSec - started <= 24 * 60 * 60
+            }
+            .take(30)
+            .toList()
+    }
+
+    private fun showAlertsPopup(anchor: View) {
+        dismissTransientPopups()
+        val alerts = alertEvents()
+        val card = vertical().apply {
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
+        }
+        card.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_bell)
+                setColorFilter(Palette.accent)
+                alpha = 0.95f
+            }, LinearLayout.LayoutParams(dp(21), dp(21)).apply { rightMargin = dp(9) })
+            addView(vertical().apply {
+                addView(label("Alertes", 16, Palette.text).apply {
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                })
+                addView(label(if (alerts.isEmpty()) "Aucun evenement recent" else "${alerts.size} dernieres alertes", 12, Palette.muted).apply {
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(10)
+        })
+
+        if (alerts.isEmpty()) {
+            card.addView(label("Aucune alerte sur les cameras visibles.", 14, Palette.muted).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(28), dp(12), dp(28))
+                background = rounded(Palette.card, 12)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else {
+            alerts.take(12).forEach { event ->
+                card.addView(alertRow(event), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)).apply {
+                    topMargin = dp(4)
+                })
+            }
+        }
+
+        val content = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(410))
+        val popupHeight = minOf(dp(520), dp(86) + maxOf(1, alerts.take(12).size) * dp(76))
+        val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
+            isOutsideTouchable = true
+            isClippingEnabled = true
+            elevation = dp(18).toFloat()
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setOnDismissListener {
+                if (alertsPopup === this) alertsPopup = null
+            }
+        }
+        alertsPopup = popup
+        popup.showAtLocation(anchor, Gravity.TOP or Gravity.END, dp(12), dp(104))
+    }
+
+    private fun alertRow(event: NativeEvent): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = rounded(Palette.card, 12)
+            setOnClickListener {
+                dismissAlertsPopup()
+                renderEventDetail(event)
+            }
+            val thumb = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(Palette.surface)
+            }
+            addView(FrameLayout(context).apply {
+                background = rounded(Palette.surface, 8)
+                applyRoundedClip(8)
+                addView(thumb, frameMatch())
+            }, LinearLayout.LayoutParams(dp(82), dp(54)).apply { rightMargin = dp(12) })
+            loadEventPreviewAnimated(event, thumb)
+            addView(vertical().apply {
+                addView(label(eventDisplayText(event), 15, Palette.text).apply {
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                })
+                addView(label("${event.camera} - ${event.time}", 12, Palette.muted).apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(ImageView(context).apply {
+                setImageResource(eventObjectIcon(event))
+                setColorFilter(Palette.accent)
+                alpha = 0.95f
+            }, LinearLayout.LayoutParams(dp(22), dp(22)))
+        }
+    }
+
+    private fun showCameraOptionsPopup(camera: NativeCamera, anchor: View) {
+        dismissTransientPopups()
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
         val card = vertical().apply {
