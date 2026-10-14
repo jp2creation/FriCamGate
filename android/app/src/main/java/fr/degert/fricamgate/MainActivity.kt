@@ -677,7 +677,7 @@ class MainActivity : AppCompatActivity() {
             loadEventPreviewAnimated(event, thumb)
             thumbFrame.addView(thumb, frameMatch())
             card.addView(thumbFrame, LinearLayout.LayoutParams(dp(140), dp(78)))
-            card.addView(label(event.time, 16, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0) })
+            card.addView(label(event.time, 13, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
             row.addView(card, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) })
         }
         return scroll
@@ -706,9 +706,9 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(10)
             topMargin = dp(10)
         })
-        card.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
-            leftMargin = dp(16)
-            bottomMargin = dp(16)
+        card.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
+            leftMargin = dp(14)
+            bottomMargin = dp(14)
         })
         val controls = horizontal().apply {
             gravity = Gravity.CENTER
@@ -758,7 +758,7 @@ class MainActivity : AppCompatActivity() {
             leftMargin = dp(16)
             topMargin = dp(28)
         })
-        root.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
+        root.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
             leftMargin = dp(18)
             bottomMargin = dp(20)
         })
@@ -2307,12 +2307,12 @@ class MainActivity : AppCompatActivity() {
     private fun chip(textValue: String): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = 14f
+            textSize = 12.5f
             gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setTextColor(Palette.text)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = rounded(Palette.overlay, 20)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(0x98050507.toInt(), 16)
         }
     }
 
