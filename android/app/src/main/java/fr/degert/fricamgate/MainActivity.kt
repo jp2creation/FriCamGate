@@ -2540,7 +2540,8 @@ class MainActivity : AppCompatActivity() {
         scroll.setOnScrollChangeListener { _, _, y, _, _ -> appearanceScrollY = y }
         fun choices(titleRes: Int, key: String, fallback: String, options: List<Pair<String, Int>>) {
             column.addView(sectionHeading(getString(titleRes)))
-            val selected = appearancePrefs.getString(key, fallback)
+            var selected = appearancePrefs.getString(key, fallback)
+            val radios = mutableMapOf<String, android.widget.RadioButton>()
             column.addView(settingsGroup(*options.map { (value, textRes) ->
                 horizontal().apply {
                     gravity = Gravity.CENTER_VERTICAL
@@ -2553,6 +2554,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     addView(settingsTitleLabel(getString(textRes)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                     addView(android.widget.RadioButton(context).apply {
+                        radios[value] = this
                         isChecked = value == selected
                         isClickable = false
                         isFocusable = false
@@ -2561,10 +2563,23 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener {
                         if (value != selected) {
                             appearanceScrollY = scroll.scrollY
+                            val previous = selected
+                            selected = value
                             appearancePrefs.edit().putString(key, value).apply()
+                            radios.forEach { (option, radio) ->
+                                radio.isChecked = option == value
+                                radio.buttonTintList = android.content.res.ColorStateList.valueOf(if (radio.isChecked) Palette.accent else Palette.muted)
+                            }
                             if (key == "theme") {
                                 recreate()
-                            } else {
+                            } else if (key == "textSize") {
+                                val ratio = Appearance.textScale(value) / Appearance.textScale(previous)
+                                fun resize(view: View) {
+                                    if (view is TextView) view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, view.textSize * ratio)
+                                    if (view is ViewGroup) for (index in 0 until view.childCount) resize(view.getChildAt(index))
+                                }
+                                resize(window.decorView)
+                            } else if (key != "homeCameraLayout") {
                                 Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
                                 renderAppearanceSettings()
                             }
