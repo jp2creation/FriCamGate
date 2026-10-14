@@ -1778,8 +1778,9 @@ class MainActivity : AppCompatActivity() {
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         if (showHeader) root.addView(appHeader())
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(bottomNav(activeTab), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
-        keepAboveSystemNavigation(root)
+        val navigation = bottomNav(activeTab)
+        root.addView(navigation, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
+        keepAboveSystemNavigation(root, if (content is NativeChatView) navigation else null)
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
         if (animateIn) {
@@ -3251,10 +3252,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun keepAboveSystemNavigation(root: View) {
+    private fun keepAboveSystemNavigation(root: View, chatNavigation: View? = null) {
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(0, 0, 0, bars.bottom)
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+            chatNavigation?.visibility = if (keyboardVisible) View.GONE else View.VISIBLE
+            view.setPadding(0, 0, 0, if (chatNavigation != null) maxOf(bars.bottom, ime.bottom) else bars.bottom)
             insets
         }
     }
