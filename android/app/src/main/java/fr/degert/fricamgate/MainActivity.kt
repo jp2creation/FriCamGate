@@ -867,6 +867,86 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
+    private fun renderGlobalEvents() {
+        releasePlayer()
+        setShell(globalEventList(events), Tab.Grid)
+    }
+
+    private fun globalEventList(sourceEvents: List<NativeEvent>): View {
+        val visibleNames = visibleCameras().map { it.name }.toSet()
+        val globalEvents = sourceEvents
+            .filter { it.camera in visibleNames }
+            .filter { it.startTime != null }
+            .sortedByDescending { it.startTime ?: 0.0 }
+        val scroll = appScrollView().apply {
+            setBackgroundColor(Palette.background)
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(78))
+        }
+        val column = vertical().apply { setPadding(dp(18), dp(8), dp(18), dp(120)) }
+        scroll.addView(column, responsiveScrollParams(720))
+        column.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(14), 0, dp(14))
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_grid)
+                setColorFilter(Palette.accent)
+                alpha = 0.96f
+            }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { rightMargin = dp(10) })
+            addView(vertical().apply {
+                addView(label("Notifications", 25, Palette.text).apply {
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                })
+                addView(label("Toutes les cameras", 12, Palette.muted).apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        if (globalEvents.isEmpty()) {
+            column.addView(emptyMessage("Aucune notification recente sur les cameras visibles."))
+            return scroll
+        }
+        globalEvents.forEach { event ->
+            column.addView(globalEventRow(event), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)).apply {
+                bottomMargin = dp(10)
+            })
+        }
+        return scroll
+    }
+
+    private fun globalEventRow(event: NativeEvent): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(10), dp(12), dp(10))
+            background = rounded(Palette.card, 8)
+            setOnClickListener { renderEventDetail(event) }
+            val thumb = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(Palette.surface)
+            }
+            addView(FrameLayout(context).apply {
+                background = rounded(Palette.surface, 8)
+                applyRoundedClip(8)
+                addView(thumb, frameMatch())
+            }, LinearLayout.LayoutParams(dp(132), dp(76)).apply { rightMargin = dp(14) })
+            loadEventPreviewAnimated(event, thumb)
+            addView(vertical().apply {
+                addView(label(eventDisplayText(event), 17, Palette.text).apply {
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                })
+                addView(label("${event.camera} - ${event.time}", 14, Palette.muted).apply {
+                    setPadding(0, dp(6), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(ImageView(context).apply {
+                setImageResource(eventObjectIcon(event))
+                setColorFilter(Palette.accent)
+                alpha = 0.9f
+            }, LinearLayout.LayoutParams(dp(24), dp(24)))
+        }
+    }
+
     private fun cameraTimeline(
         camera: NativeCamera,
         preview: ImageView,
@@ -1386,6 +1466,10 @@ class MainActivity : AppCompatActivity() {
                 rightMargin = dp(18)
                 topMargin = dp(52)
             })
+            addView(chatButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+                rightMargin = dp(74)
+                topMargin = dp(52)
+            })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
     }
 
@@ -1438,7 +1522,6 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, 0, dp(12), 0)
                 })
             }
-            addView(chatButton(), LinearLayout.LayoutParams(dp(44), dp(44)))
         }
     }
 
@@ -1487,7 +1570,7 @@ class MainActivity : AppCompatActivity() {
                 when (tab) {
                     Tab.Home -> renderHome()
                     Tab.Cameras -> showCameraPickerPopup(item)
-                    Tab.Grid -> renderHome()
+                    Tab.Grid -> renderGlobalEvents()
                     Tab.Events -> events.firstOrNull()?.let { renderEventDetail(it) } ?: renderHome()
                     Tab.Settings -> renderSettings()
                 }
