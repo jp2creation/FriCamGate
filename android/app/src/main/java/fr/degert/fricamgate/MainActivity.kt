@@ -1370,9 +1370,11 @@ class MainActivity : AppCompatActivity() {
                     addView(label("CamGate", 24, Palette.text).apply {
                         typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                     }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
-                    addView(label("Frigate Client", 10, Palette.muted).apply {
+                    addView(label("Frigate Client", 12, Palette.muted).apply {
                         typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                         gravity = Gravity.CENTER
+                        letterSpacing = 0.03f
+                        textScaleX = 1.24f
                     }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
                 })
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(58), Gravity.START or Gravity.TOP).apply {
