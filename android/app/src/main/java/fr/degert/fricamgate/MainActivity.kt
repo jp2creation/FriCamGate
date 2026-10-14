@@ -389,18 +389,37 @@ class MainActivity : AppCompatActivity() {
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
     }
 
-    private fun renderEventDetail(event: NativeEvent) {
+    private fun renderEventDetail(event: NativeEvent, displayedCameraName: String = event.camera) {
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
         releasePlayer()
+        val displayedCamera = cameras.firstOrNull { it.name == displayedCameraName }
+            ?: cameras.firstOrNull { it.name == event.camera }
+        val activeCameraName = displayedCamera?.name ?: event.camera
+        val activeCameraLabel = displayedCamera?.friendlyName ?: activeCameraName
+        val showingEventCamera = activeCameraName == event.camera
 
         val body = vertical().apply { setBackgroundColor(Palette.background) }
         val playerFrame = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
         val fallback = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
         playerFrame.addView(fallback, frameMatch())
-        event.thumbnail?.let { fallback.setImageBitmap(it) }
-        activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
-            runOnUiThread { bitmap?.let { fallback.setImageBitmap(it) } }
+        if (showingEventCamera) {
+            event.thumbnail?.let { fallback.setImageBitmap(it) }
+            activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
+                runOnUiThread { bitmap?.let { fallback.setImageBitmap(it) } }
+            }
+        } else {
+            activeApi.loadBitmap(activeSession.token, activeApi.recordingSnapshotUrl(activeCameraName, event.startTime ?: 0.0)) { bitmap ->
+                runOnUiThread {
+                    if (bitmap != null) {
+                        fallback.setImageBitmap(bitmap)
+                    } else {
+                        activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(activeCameraName)) { latest ->
+                            runOnUiThread { latest?.let { fallback.setImageBitmap(it) } }
+                        }
+                    }
+                }
+            }
         }
         val playerView = PlayerView(this).apply {
             useController = false
@@ -420,12 +439,16 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(column)
         column.addView(label("LECTURE EVENEMENT", 12, Palette.muted))
         column.addView(label(event.label, 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-        column.addView(label("${event.camera} - ${event.time}", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
+        column.addView(label("$activeCameraLabel - ${event.time}", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
         column.addView(label("Cameras au meme moment", 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-        column.addView(syncCameraGrid(event))
+        column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Events)
-        startClipPlayer(activeApi, activeSession.token, event, playerView, fallback)
+        if (showingEventCamera || displayedCamera == null) {
+            startClipPlayer(activeApi, activeSession.token, event, playerView, fallback)
+        } else {
+            startTimelineRecordingPlayer(activeApi, activeSession.token, displayedCamera, playerView, fallback, event.startTime ?: 0.0)
+        }
     }
 
     private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
@@ -1559,39 +1582,43 @@ class MainActivity : AppCompatActivity() {
     private fun formatLongDate(value: Long): String =
         SimpleDateFormat("EEE d MMM yy", Locale.FRANCE).format(Date(value)).replaceFirstChar { it.lowercase(Locale.FRANCE) }
 
-    private fun syncCameraGrid(event: NativeEvent): View {
+    private fun syncCameraGrid(event: NativeEvent, displayedCameraName: String): View {
         val grid = vertical()
-        cameras.filter { it.name != event.camera && isCameraVisible(it) }.forEach { camera ->
-            val row = horizontal().apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(10), 0, dp(10))
-                setOnClickListener { renderCameraDetail(camera) }
-            }
-            val image = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                setBackgroundColor(Palette.surface)
-            }
-            row.addView(image, LinearLayout.LayoutParams(dp(160), dp(92)))
-            session?.let { activeSession ->
-                api?.loadBitmap(activeSession.token, api?.recordingSnapshotUrl(camera.name, event.startTime ?: 0.0).orEmpty()) { bitmap ->
-                    runOnUiThread {
-                        if (bitmap != null) {
-                            image.setImageBitmap(bitmap)
-                        } else {
-                            api?.loadBitmap(activeSession.token, api?.latestFrameUrl(camera.name).orEmpty()) { latest ->
-                                runOnUiThread { latest?.let { image.setImageBitmap(it) } }
+        val visibleNames = visibleCameras().map { it.name }.toSet()
+        val cameraByName = cameras.associateBy { it.name }
+        sameMomentCameraNames(cameras.map { it.name }, displayedCameraName, visibleNames)
+            .mapNotNull { cameraByName[it] }
+            .forEach { camera ->
+                val row = horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(10), 0, dp(10))
+                    setOnClickListener { renderEventDetail(event, camera.name) }
+                }
+                val image = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setBackgroundColor(Palette.surface)
+                }
+                row.addView(image, LinearLayout.LayoutParams(dp(160), dp(92)))
+                session?.let { activeSession ->
+                    api?.loadBitmap(activeSession.token, api?.recordingSnapshotUrl(camera.name, event.startTime ?: 0.0).orEmpty()) { bitmap ->
+                        runOnUiThread {
+                            if (bitmap != null) {
+                                image.setImageBitmap(bitmap)
+                            } else {
+                                api?.loadBitmap(activeSession.token, api?.latestFrameUrl(camera.name).orEmpty()) { latest ->
+                                    runOnUiThread { latest?.let { image.setImageBitmap(it) } }
+                                }
                             }
                         }
                     }
                 }
+                row.addView(vertical().apply {
+                    setPadding(dp(14), 0, 0, 0)
+                    addView(label(camera.friendlyName, 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+                    addView(label(event.time, 15, Palette.muted))
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                grid.addView(row)
             }
-            row.addView(vertical().apply {
-                setPadding(dp(14), 0, 0, 0)
-                addView(label(camera.friendlyName, 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-                addView(label(event.time, 15, Palette.muted))
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            grid.addView(row)
-        }
         return grid
     }
 
@@ -3069,6 +3096,15 @@ internal fun settingsMenuCornerRadiusDp(): Int = SETTINGS_MENU_RADIUS_DP
 
 internal fun settingsMenuTextEndPaddingDp(showChevron: Boolean): Int =
     if (showChevron) 44 else 18
+
+internal fun sameMomentCameraNames(
+    cameraNames: List<String>,
+    displayedCameraName: String,
+    visibleCameraNames: Set<String> = cameraNames.toSet()
+): List<String> =
+    cameraNames.filter { cameraName ->
+        cameraName != displayedCameraName && cameraName in visibleCameraNames
+    }
 
 fun loadingStageMessage(index: Int): String =
     when (((index % LOADING_STAGE_COUNT) + LOADING_STAGE_COUNT) % LOADING_STAGE_COUNT) {

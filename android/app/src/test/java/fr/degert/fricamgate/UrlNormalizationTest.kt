@@ -95,4 +95,18 @@ class UrlNormalizationTest {
         assertEquals(44, settingsMenuTextEndPaddingDp(showChevron = true))
         assertEquals(18, settingsMenuTextEndPaddingDp(showChevron = false))
     }
+
+    @Test
+    fun swapsSameMomentCameraListAroundDisplayedCamera() {
+        val cameraNames = listOf("reolink_134_suivi", "devant", "allee", "entree")
+
+        assertEquals(
+            listOf("reolink_134_suivi", "allee", "entree"),
+            sameMomentCameraNames(cameraNames, displayedCameraName = "devant")
+        )
+        assertEquals(
+            listOf("devant", "allee", "entree"),
+            sameMomentCameraNames(cameraNames, displayedCameraName = "reolink_134_suivi")
+        )
+    }
 }
