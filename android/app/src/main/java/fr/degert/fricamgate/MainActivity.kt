@@ -21,6 +21,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.text.TextUtils
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -2195,13 +2196,17 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(column, centeredScrollParams(620))
         column.addView(pageTitle("Reglages"))
         column.addView(sectionHeading("GENERAL"))
-        column.addView(settingsNavRow("Serveur", session?.baseUrl ?: "-", { renderServerSettings() }))
-        column.addView(settingsNavRow("Cameras", "${visibleCameras().size} / ${cameras.size} affichees", { renderCameraSettings() }))
-        column.addView(settingsNavRow("A propos", "FriCamGate ${appVersionName()}", { renderAboutSettings() }))
+        column.addView(settingsGroup(
+            settingsNavRow("Serveur", session?.baseUrl ?: "-", { renderServerSettings() }),
+            settingsNavRow("Cameras", "${visibleCameras().size} / ${cameras.size} affichees", { renderCameraSettings() }),
+            settingsNavRow("A propos", "FriCamGate ${appVersionName()}", { renderAboutSettings() })
+        ))
         column.addView(sectionHeading("MISES A JOUR"))
         column.addView(settingsUpdateCard())
         column.addView(sectionHeading("ACTIONS"))
-        column.addView(settingsNavRow("Recharger", "Actualiser les cameras et evenements", { loadDashboard("Recharge.") }, showChevron = false))
+        column.addView(settingsGroup(
+            settingsNavRow("Recharger", "Actualiser les cameras et evenements", { loadDashboard("Recharge.") }, showChevron = false)
+        ))
         setShell(scroll, Tab.Settings)
         if (updateResult == null && !updateChecking) {
             checkForUpdates(renderSettingsWhenDone = true)
@@ -2229,8 +2234,10 @@ class MainActivity : AppCompatActivity() {
         column.addView(primaryButton("Enregistrer et reconnecter").apply {
             setOnClickListener { connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString()) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(22) })
-        column.addView(settingsRow("Serveur actuel", session?.baseUrl ?: "-"))
-        column.addView(settingsRow("Utilisateur actuel", session?.username ?: "-"))
+        column.addView(settingsGroup(
+            settingsRow("Serveur actuel", session?.baseUrl ?: "-"),
+            settingsRow("Utilisateur actuel", session?.username ?: "-")
+        ))
         column.addView(primaryButton("Deconnexion").apply {
             setOnClickListener {
                 prefs.edit().clear().apply()
@@ -2249,13 +2256,11 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader("Cameras"))
         column.addView(sectionHeading("VISIBILITE"))
-        column.addView(settingsRow("Accueil", "${visibleCameras().size} / ${cameras.size} cameras affichees"))
+        column.addView(settingsGroup(settingsRow("Accueil", "${visibleCameras().size} / ${cameras.size} cameras affichees")))
         if (cameras.isEmpty()) {
             column.addView(emptyMessage("Aucune camera Frigate trouvee."))
         } else {
-            cameras.forEach { camera ->
-                column.addView(cameraVisibilityRow(camera))
-            }
+            column.addView(settingsGroup(*cameras.map { cameraVisibilityRow(it) }.toTypedArray()))
         }
         setShell(scroll, Tab.Settings)
     }
@@ -2267,11 +2272,15 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader("A propos"))
         column.addView(sectionHeading("APPLICATION"))
-        column.addView(settingsRow("Nom", "FriCamGate"))
-        column.addView(settingsRow("Version de l'app", appVersionName()))
+        column.addView(settingsGroup(
+            settingsRow("Nom", "FriCamGate"),
+            settingsRow("Version de l'app", appVersionName())
+        ))
         column.addView(sectionHeading("NVR"))
-        column.addView(settingsRow("Version du NVR", nvrVersion ?: "Chargement..."))
-        column.addView(settingsRow("Serveur", session?.baseUrl ?: "-"))
+        column.addView(settingsGroup(
+            settingsRow("Version du NVR", nvrVersion ?: "Chargement..."),
+            settingsRow("Serveur", session?.baseUrl ?: "-")
+        ))
         setShell(scroll, Tab.Settings)
         if (nvrVersion == null) {
             loadNvrVersion(renderAboutWhenDone = true)
@@ -2279,34 +2288,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun settingsRow(title: String, value: String): View {
-        return vertical().apply {
-            setPadding(dp(18), dp(16), dp(18), dp(16))
-            background = rounded(Palette.card, 8)
-            addView(label(title, 15, Palette.text))
-            addView(label(value, 14, Palette.muted).apply { setPadding(0, dp(4), 0, 0) })
-        }.also {
-            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(12)
-            }
+        return FrameLayout(this).apply {
+            addView(vertical().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), 0, dp(18), 0)
+                addView(settingsTitleLabel(title))
+                addView(settingsDetailLabel(value))
+            }, frameMatch())
         }
     }
 
     private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true): View {
         return FrameLayout(this).apply {
             isClickable = true
-            background = rounded(Palette.card, 8)
+            isFocusable = true
             setOnClickListener { onClick() }
             addView(vertical().apply {
-                setPadding(dp(18), dp(16), dp(if (showChevron) 48 else 18), dp(16))
-                addView(label(title, 16, Palette.text))
-                addView(label(detail, 14, Palette.muted).apply { setPadding(0, dp(5), 0, 0) })
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), 0, dp(settingsMenuTextEndPaddingDp(showChevron)), 0)
+                addView(settingsTitleLabel(title))
+                addView(settingsDetailLabel(detail))
             }, frameMatch())
             if (showChevron) {
-                addView(label(">", 28, Palette.muted).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END or Gravity.CENTER_VERTICAL))
-            }
-        }.also {
-            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)).apply {
-                topMargin = dp(10)
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_chevron_right)
+                    setColorFilter(Palette.muted)
+                    alpha = 0.7f
+                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                    rightMargin = dp(18)
+                })
             }
         }
     }
@@ -2315,13 +2325,10 @@ class MainActivity : AppCompatActivity() {
         val visible = isCameraVisible(camera)
         return horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(12), dp(14), dp(12))
-            background = rounded(Palette.card, 8)
+            setPadding(dp(18), 0, dp(12), 0)
             addView(vertical().apply {
-                addView(label(camera.friendlyName, 16, Palette.text))
-                addView(label(if (camera.enabled) camera.name else "${camera.name} - desactivee dans Frigate", 13, Palette.muted).apply {
-                    setPadding(0, dp(5), 0, 0)
-                })
+                addView(settingsTitleLabel(camera.friendlyName))
+                addView(settingsDetailLabel(if (camera.enabled) camera.name else "${camera.name} - desactivee dans Frigate"))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(SwitchCompat(context).apply {
                 isChecked = visible
@@ -2331,10 +2338,6 @@ class MainActivity : AppCompatActivity() {
                     renderCameraSettings()
                 }
             })
-        }.also {
-            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
-            }
         }
     }
 
@@ -2347,12 +2350,10 @@ class MainActivity : AppCompatActivity() {
         }
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
-            background = rounded(Palette.card, 8)
-            addView(label("Mises a jour", 15, Palette.text))
-            addView(label(statusText, 14, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
-            addView(label("Installee ${appVersionName()} - Derniere ${result?.latestVersion ?: "-"}", 13, Palette.muted).apply {
-                setPadding(0, dp(6), 0, 0)
-            })
+            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+            addView(settingsTitleLabel("Mises a jour"))
+            addView(settingsDetailLabel(statusText))
+            addView(settingsDetailLabel("Installee ${appVersionName()} - Derniere ${result?.latestVersion ?: "-"}"))
             if (result?.available == true && !result.downloadUrl.isNullOrBlank()) {
                 addView(primaryButton("Mise a jour disponible").apply {
                     setOnClickListener { downloadUpdate(result) }
@@ -2372,10 +2373,60 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPageHeader(title: String): View {
         return horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(roundButton("<").apply { textSize = 26f; setOnClickListener { renderSettings() } }, LinearLayout.LayoutParams(dp(50), dp(50)).apply {
+            addView(settingsBackButton(), LinearLayout.LayoutParams(dp(44), dp(44)).apply {
                 rightMargin = dp(12)
             })
             addView(pageTitle(title), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun settingsBackButton(): View {
+        return FrameLayout(this).apply {
+            isClickable = true
+            isFocusable = true
+            background = rounded(Palette.overlay, 22)
+            setOnClickListener { renderSettings() }
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_arrow_back)
+                setColorFilter(Palette.text)
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        }
+    }
+
+    private fun settingsGroup(vararg rows: View): View {
+        return vertical().apply {
+            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+            rows.forEachIndexed { index, row ->
+                if (index > 0) {
+                    addView(View(context).apply {
+                        setBackgroundColor(0x14ffffff)
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
+                        leftMargin = dp(18)
+                        rightMargin = dp(14)
+                    })
+                }
+                addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(settingsMenuRowHeightDp())))
+            }
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+        }
+    }
+
+    private fun settingsTitleLabel(textValue: String): TextView {
+        return label(textValue, SETTINGS_MENU_TITLE_SP, Palette.text).apply {
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+    }
+
+    private fun settingsDetailLabel(textValue: String): TextView {
+        return label(textValue, SETTINGS_MENU_DETAIL_SP, Palette.muted).apply {
+            setPadding(0, dp(4), 0, 0)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
     }
 
@@ -3007,6 +3058,17 @@ private const val TIMELINE_PLAYBACK_CLOCK_MS = 500L
 private const val TIMELINE_PLAYHEAD_FRACTION = 0.25f
 private const val LOADING_STAGE_COUNT = 3
 private const val LOADING_SLOW_ACTIONS_DELAY_MS = 6000L
+private const val SETTINGS_MENU_ROW_HEIGHT_DP = 68
+private const val SETTINGS_MENU_RADIUS_DP = 12
+private const val SETTINGS_MENU_TITLE_SP = 15
+private const val SETTINGS_MENU_DETAIL_SP = 12
+
+internal fun settingsMenuRowHeightDp(): Int = SETTINGS_MENU_ROW_HEIGHT_DP
+
+internal fun settingsMenuCornerRadiusDp(): Int = SETTINGS_MENU_RADIUS_DP
+
+internal fun settingsMenuTextEndPaddingDp(showChevron: Boolean): Int =
+    if (showChevron) 44 else 18
 
 fun loadingStageMessage(index: Int): String =
     when (((index % LOADING_STAGE_COUNT) + LOADING_STAGE_COUNT) % LOADING_STAGE_COUNT) {

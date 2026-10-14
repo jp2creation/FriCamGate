@@ -87,4 +87,12 @@ class UrlNormalizationTest {
         assertEquals("Preparation du live...", loadingStageMessage(2))
         assertEquals("Connexion au NVR...", loadingStageMessage(3))
     }
+
+    @Test
+    fun keepsSettingsMenuRowsCompact() {
+        assertEquals(68, settingsMenuRowHeightDp())
+        assertEquals(12, settingsMenuCornerRadiusDp())
+        assertEquals(44, settingsMenuTextEndPaddingDp(showChevron = true))
+        assertEquals(18, settingsMenuTextEndPaddingDp(showChevron = false))
+    }
 }
