@@ -383,16 +383,18 @@ class MainActivity : AppCompatActivity() {
         column.addView(syncCameraGrid(event))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Events)
-        startClipPlayer(activeApi, activeSession.token, event, playerView)
+        startClipPlayer(activeApi, activeSession.token, event, playerView, fallback)
     }
 
-    private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView) {
+    private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
         releaseCurrentPlayer()
         val player = buildExoPlayer(token)
         currentPlayer = player
-        currentPlaybackKey = "event:${event.id}"
+        val key = "event:${event.id}"
+        currentPlaybackKey = key
         playerView.player = player
         playerView.visibility = View.VISIBLE
+        attachFallbackHider(player, key, fallback, playerView)
         player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)))
         applyPlayerVolume(player)
         player.prepare()
@@ -418,6 +420,8 @@ class MainActivity : AppCompatActivity() {
     ) {
         val key = "event:${event.id}"
         if (currentPlaybackKey == key && currentPlayer != null) {
+            fallback.visibility = View.GONE
+            playerView.visibility = View.VISIBLE
             currentPlayer?.seekTo(startPositionMs)
             currentPlayer?.playWhenReady = true
             currentPlayer?.play()
@@ -431,11 +435,38 @@ class MainActivity : AppCompatActivity() {
         playerView.player = player
         playerView.visibility = View.VISIBLE
         fallback.visibility = View.VISIBLE
+        attachFallbackHider(player, key, fallback, playerView)
         player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)), startPositionMs)
         applyPlayerVolume(player)
         player.prepare()
         player.playWhenReady = true
         player.play()
+    }
+
+    private fun attachFallbackHider(player: ExoPlayer, playbackKey: String, fallback: ImageView, playerView: PlayerView) {
+        fun showVideoOnly() {
+            if (currentPlaybackKey == playbackKey && currentPlayer === player) {
+                fallback.visibility = View.GONE
+                playerView.visibility = View.VISIBLE
+            }
+        }
+
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) showVideoOnly()
+            }
+
+            override fun onRenderedFirstFrame() {
+                showVideoOnly()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (currentPlaybackKey == playbackKey && currentPlayer === player) {
+                    fallback.visibility = View.VISIBLE
+                    playerView.visibility = View.GONE
+                }
+            }
+        })
     }
 
     private fun startTimelineRecordingPlayer(
