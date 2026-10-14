@@ -8,6 +8,7 @@ import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -208,16 +209,10 @@ class MainActivity : AppCompatActivity() {
             clipToPadding = false
             setPadding(0, 0, 0, dp(78))
         }
-        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(24)) }
+        val column = vertical().apply { setPadding(dp(12), dp(10), dp(12), dp(24)) }
         content.addView(column, responsiveScrollParams(720))
         column.addView(eventStrip())
-        val titleRow = horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(22), 0, dp(14))
-        }
-        titleRow.addView(label("Accueil", 30, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        titleRow.addView(label(message ?: "", 13, Palette.muted))
-        column.addView(titleRow)
+        column.addView(homeTitleRow(message))
 
         val homeCameras = visibleCameras()
         if (cameras.isEmpty()) {
@@ -1230,8 +1225,66 @@ class MainActivity : AppCompatActivity() {
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.fricamgate_logo)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(84)) }
+            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(24)
+            })
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)) }
+    }
+
+    private fun homeTitleRow(message: String?): View {
+        return horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(18), 0, dp(12))
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(FrameLayout(context).apply {
+                    addView(ImageView(context).apply {
+                        setImageResource(R.drawable.ic_videocam)
+                        setColorFilter(Palette.accent)
+                        rotation = -10f
+                    }, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
+                }, LinearLayout.LayoutParams(dp(34), dp(34)).apply {
+                    rightMargin = dp(7)
+                })
+                addView(label("Cameras", 25, Palette.text).apply {
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (!message.isNullOrBlank() && resources.configuration.screenWidthDp >= 700) {
+                addView(label(message, 12, Palette.muted).apply {
+                    setPadding(0, 0, dp(12), 0)
+                })
+            }
+            addView(chatButton(), LinearLayout.LayoutParams(dp(44), dp(44)))
+        }
+    }
+
+    private fun chatButton(): View {
+        return FrameLayout(this).apply {
+            isClickable = true
+            contentDescription = "Chat IA"
+            background = rounded(0x1118181d, 22, 0x22ff2d63, 1)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_chat)
+                setColorFilter(Palette.accent)
+                alpha = 0.96f
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            setOnClickListener { openLiaChat() }
+        }
+    }
+
+    private fun openLiaChat() {
+        val activeSession = session
+        if (activeSession == null) {
+            toast("Chat IA indisponible hors connexion.")
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(liaChatUrl(activeSession.baseUrl)))
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            toast("Impossible d'ouvrir le chat IA.")
+        }
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
@@ -2843,6 +2896,9 @@ internal fun recordingVodPath(cameraName: String, startSec: Long, endSec: Long, 
     val streamPath = stream?.takeIf { it.isNotBlank() }?.let { "/${urlPathSegment(it)}" }.orEmpty()
     return "/vod/${urlPathSegment(cameraName)}$streamPath/start/$startSec/end/$endSec/master.m3u8"
 }
+
+internal fun liaChatUrl(baseUrl: String): String =
+    "${normalizeBaseUrl(baseUrl)}/chat"
 
 private fun urlPathSegment(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")

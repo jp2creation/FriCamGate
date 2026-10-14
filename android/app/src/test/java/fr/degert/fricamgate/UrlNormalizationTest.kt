@@ -68,4 +68,9 @@ class UrlNormalizationTest {
     fun keepsCameraPickerFloatingOnLandscapeScreens() {
         assertEquals(720, cameraPickerPopupWidth(1_920, 1_080, 720, 64))
     }
+
+    @Test
+    fun buildsLiaChatUrlFromFrigateBaseUrl() {
+        assertEquals("https://cam.degert.fr/chat", liaChatUrl("https://cam.degert.fr/api"))
+    }
 }
