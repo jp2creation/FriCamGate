@@ -96,6 +96,7 @@ class MainActivity : AppCompatActivity() {
     private val homeStreams = mutableListOf<WebSocket>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var homeStreamGeneration = 0
+    private val seenAlertIdsMemory = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1556,10 +1557,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun alertEvents(): List<NativeEvent> {
         val visibleNames = visibleCameras().map { it.name }.toSet()
+        val seenIds = seenAlertIds()
+        val seenCutoffSec = seenAlertsCutoffMillis() / 1000.0
         val nowSec = System.currentTimeMillis() / 1000.0
         return events
             .asSequence()
             .filter { it.camera in visibleNames }
+            .filter { it.id !in seenIds }
+            .filter { event ->
+                val started = event.startTime ?: return@filter true
+                started > seenCutoffSec
+            }
             .filter { event ->
                 val started = event.startTime ?: return@filter true
                 nowSec - started <= 24 * 60 * 60
@@ -1590,6 +1598,18 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(3), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (alerts.isNotEmpty()) {
+                addView(label("Effacer", 12, Palette.accent).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(13), 0, dp(13), 0)
+                    background = rounded(Palette.surface, 14)
+                    setOnClickListener {
+                        markAlertsSeen(alerts, advanceCutoff = true)
+                        dismissAlertsPopup()
+                        renderHome("Alertes effacees.")
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
+            }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(10)
         })
@@ -1633,6 +1653,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(8), dp(6), dp(8), dp(6))
             background = rounded(Palette.card, 12)
             setOnClickListener {
+                markAlertSeen(event)
                 dismissAlertsPopup()
                 renderEventDetail(event)
             }
@@ -1660,6 +1681,31 @@ class MainActivity : AppCompatActivity() {
                 alpha = 0.95f
             }, LinearLayout.LayoutParams(dp(22), dp(22)))
         }
+    }
+
+    private fun markAlertSeen(event: NativeEvent) {
+        markAlertsSeen(listOf(event), advanceCutoff = false)
+    }
+
+    private fun markAlertsSeen(items: List<NativeEvent>, advanceCutoff: Boolean) {
+        val currentEventIds = events.map { it.id }.toSet()
+        val ids = seenAlertIds()
+            .filter { it in currentEventIds }
+            .toMutableSet()
+        ids.addAll(items.map { it.id }.filter { it.isNotBlank() })
+        seenAlertIdsMemory.clear()
+        seenAlertIdsMemory.addAll(ids)
+        val editor = prefs.edit().putStringSet(seenAlertsKey(), ids)
+        if (advanceCutoff) {
+            val newestSeenMillis = items
+                .mapNotNull { it.startTime }
+                .maxOrNull()
+                ?.times(1000)
+                ?.toLong()
+                ?: System.currentTimeMillis()
+            editor.putLong(seenAlertsCutoffKey(), maxOf(seenAlertsCutoffMillis(), newestSeenMillis))
+        }
+        editor.commit()
     }
 
     private fun showCameraOptionsPopup(camera: NativeCamera, anchor: View) {
@@ -2090,6 +2136,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hiddenCameraKey(): String = "hiddenCameras:${session?.baseUrl ?: "default"}"
+
+    private fun seenAlertIds(): Set<String> {
+        val saved = prefs.getStringSet(seenAlertsKey(), emptySet())?.toSet() ?: emptySet()
+        if (saved.isNotEmpty()) seenAlertIdsMemory.addAll(saved)
+        return saved + seenAlertIdsMemory
+    }
+
+    private fun seenAlertsKey(): String = "seenAlerts:${session?.baseUrl ?: "default"}"
+
+    private fun seenAlertsCutoffMillis(): Long =
+        prefs.getLong(seenAlertsCutoffKey(), 0L)
+
+    private fun seenAlertsCutoffKey(): String = "seenAlertsCutoff:${session?.baseUrl ?: "default"}"
 
     private fun appVersionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }
