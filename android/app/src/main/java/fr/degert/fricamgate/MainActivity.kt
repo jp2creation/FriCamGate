@@ -8,7 +8,6 @@ import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -23,6 +22,11 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -62,6 +66,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pl.droidsonroids.gif.GifDrawable
 import java.io.IOException
+import java.net.URI
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -225,6 +230,59 @@ class MainActivity : AppCompatActivity() {
             }
         }
         setShell(content, Tab.Home)
+    }
+
+    private fun renderLiaChat() {
+        releasePlayer()
+        val activeSession = session
+        if (activeSession == null) {
+            renderLogin()
+            toast("Chat IA indisponible hors connexion.")
+            return
+        }
+        val chatUrl = liaChatUrl(activeSession.baseUrl)
+        val content = vertical().apply {
+            setBackgroundColor(Palette.background)
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        content.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(10))
+            addView(toolbarIcon(R.drawable.ic_chat, tint = Palette.accent))
+            addView(label("Chat IA", 22, Palette.text).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label("Cameras", 13, Palette.muted).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(14), 0, dp(14), 0)
+                background = rounded(Palette.surface, 18)
+                setOnClickListener { renderHome() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val webView = WebView(this).apply {
+            setBackgroundColor(Palette.background)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.loadWithOverviewMode = true
+            settings.useWideViewPort = true
+            webChromeClient = WebChromeClient()
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val url = request.url.toString()
+                    return if (isSameOriginUrl(activeSession.baseUrl, url)) {
+                        false
+                    } else {
+                        toast("Lien externe bloque dans le chat.")
+                        true
+                    }
+                }
+            }
+        }
+        content.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setShell(content, Tab.Home)
+        syncWebViewAuthCookie(webView, activeSession)
+        webView.loadUrl(chatUrl, mapOf("Authorization" to "Bearer ${activeSession.token}"))
     }
 
     private fun renderCameraDetail(
@@ -1269,22 +1327,19 @@ class MainActivity : AppCompatActivity() {
                 setColorFilter(Palette.accent)
                 alpha = 0.96f
             }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-            setOnClickListener { openLiaChat() }
+            setOnClickListener { renderLiaChat() }
         }
     }
 
-    private fun openLiaChat() {
-        val activeSession = session
-        if (activeSession == null) {
-            toast("Chat IA indisponible hors connexion.")
-            return
+    private fun syncWebViewAuthCookie(webView: WebView, activeSession: NativeSession) {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
         }
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(liaChatUrl(activeSession.baseUrl)))
-        try {
-            startActivity(intent)
-        } catch (_: Exception) {
-            toast("Impossible d'ouvrir le chat IA.")
-        }
+        val secure = if (normalizeBaseUrl(activeSession.baseUrl).startsWith("https://", ignoreCase = true)) "; Secure" else ""
+        cookieManager.setCookie(activeSession.baseUrl, "frigate_token=${activeSession.token}; Path=/$secure")
+        cookieManager.flush()
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
@@ -2899,6 +2954,26 @@ internal fun recordingVodPath(cameraName: String, startSec: Long, endSec: Long, 
 
 internal fun liaChatUrl(baseUrl: String): String =
     "${normalizeBaseUrl(baseUrl)}/chat"
+
+internal fun isSameOriginUrl(baseUrl: String, targetUrl: String): Boolean {
+    return try {
+        val base = URI(normalizeBaseUrl(baseUrl))
+        val target = URI(targetUrl)
+        base.scheme.equals(target.scheme, ignoreCase = true) &&
+            base.host.equals(target.host, ignoreCase = true) &&
+            (base.port.takeIf { it != -1 } ?: defaultPort(base.scheme)) ==
+            (target.port.takeIf { it != -1 } ?: defaultPort(target.scheme))
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun defaultPort(scheme: String?): Int =
+    when (scheme?.lowercase(Locale.ROOT)) {
+        "http" -> 80
+        "https" -> 443
+        else -> -1
+    }
 
 private fun urlPathSegment(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")

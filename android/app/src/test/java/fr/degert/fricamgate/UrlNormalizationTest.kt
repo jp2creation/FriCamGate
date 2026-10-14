@@ -73,4 +73,10 @@ class UrlNormalizationTest {
     fun buildsLiaChatUrlFromFrigateBaseUrl() {
         assertEquals("https://cam.degert.fr/chat", liaChatUrl("https://cam.degert.fr/api"))
     }
+
+    @Test
+    fun allowsOnlySameOriginChatNavigation() {
+        assertEquals(true, isSameOriginUrl("https://cam.degert.fr/api", "https://cam.degert.fr/chat/thread"))
+        assertEquals(false, isSameOriginUrl("https://cam.degert.fr/api", "https://example.com/chat"))
+    }
 }
