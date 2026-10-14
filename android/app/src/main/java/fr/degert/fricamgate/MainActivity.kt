@@ -124,7 +124,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderLogin() {
         releasePlayer()
-        val scroll = ScrollView(this).apply {
+        val scroll = appScrollView().apply {
             setBackgroundColor(Palette.background)
             isFillViewport = true
         }
@@ -211,7 +211,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderHome(message: String? = null) {
         releasePlayer()
-        val content = ScrollView(this).apply {
+        val content = appScrollView().apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
             setPadding(0, 0, 0, dp(78))
@@ -263,6 +263,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val webView = WebView(this).apply {
+            hideScrollIndicators()
             setBackgroundColor(Palette.background)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -373,7 +374,7 @@ class MainActivity : AppCompatActivity() {
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
 
-        val scroll = ScrollView(this)
+        val scroll = appScrollView()
         val column = vertical().apply { setPadding(dp(16), dp(20), dp(16), dp(120)) }
         scroll.addView(column)
         column.addView(label("LECTURE EVENEMENT", 12, Palette.muted))
@@ -657,7 +658,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun eventStrip(): View {
         if (events.isEmpty()) return emptyMessage("Aucun evenement recent.")
-        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val scroll = appHorizontalScrollView()
         val row = horizontal().apply { setPadding(0, 0, 0, dp(4)) }
         scroll.addView(row)
         events.take(12).forEach { event ->
@@ -815,9 +816,8 @@ class MainActivity : AppCompatActivity() {
             .filter { it.camera == camera.name }
             .filter { it.startTime != null }
             .sortedByDescending { it.startTime ?: 0.0 }
-        val scroll = ScrollView(this).apply {
+        val scroll = appScrollView().apply {
             setBackgroundColor(Palette.backgroundAlt)
-            isVerticalScrollBarEnabled = false
         }
         val column = vertical().apply { setPadding(dp(18), dp(18), dp(18), dp(120)) }
         scroll.addView(column)
@@ -889,8 +889,7 @@ class MainActivity : AppCompatActivity() {
         val zoomLevels = intArrayOf(18, 34, 62, 100)
         var zoomIndex = prefs.getInt("timelineZoomIndex", 1).coerceIn(0, zoomLevels.lastIndex)
         val frame = FrameLayout(this).apply { setBackgroundColor(Palette.backgroundAlt) }
-        val scroll = ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
+        val scroll = appScrollView().apply {
             clipToPadding = false
         }
         val column = FrameLayout(this)
@@ -1547,8 +1546,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val content = ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
+        val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val popupWidth = cameraPickerPopupWidth(
@@ -1659,8 +1657,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val content = ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
+        val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(410))
@@ -1766,8 +1763,7 @@ class MainActivity : AppCompatActivity() {
         card.addView(disabledCameraOptionRow("Micro", "Non expose par l'API Frigate native"))
         card.addView(disabledCameraOptionRow("Alarme", "Non expose par l'API Frigate native"))
 
-        val content = ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
+        val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(390))
@@ -1920,7 +1916,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         releasePlayer()
-        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(pageTitle("Reglages"))
@@ -1940,7 +1936,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderServerSettings() {
         releasePlayer()
-        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader("Serveur"))
@@ -1974,7 +1970,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderCameraSettings() {
         releasePlayer()
-        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader("Cameras"))
@@ -1992,7 +1988,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderAboutSettings() {
         releasePlayer()
-        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background) }
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader("A propos"))
@@ -2563,6 +2559,18 @@ class MainActivity : AppCompatActivity() {
     private fun frameMatch() = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     private fun cameraVideoHeight(): Int = minOf(dp(340), maxOf(dp(220), resources.displayMetrics.widthPixels * 9 / 16))
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun appScrollView(): ScrollView =
+        ScrollView(this).apply { hideScrollIndicators() }
+
+    private fun appHorizontalScrollView(): HorizontalScrollView =
+        HorizontalScrollView(this).apply { hideScrollIndicators() }
+
+    private fun View.hideScrollIndicators() {
+        isVerticalScrollBarEnabled = false
+        isHorizontalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+    }
 
     companion object {
         private const val HOME_MJPEG_STARTUP_TIMEOUT_MS = 8000L
