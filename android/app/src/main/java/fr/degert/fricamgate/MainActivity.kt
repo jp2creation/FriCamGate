@@ -653,7 +653,6 @@ class MainActivity : AppCompatActivity() {
         val card = FrameLayout(this).apply {
             background = rounded(Palette.card, 8)
             applyRoundedClip(8)
-            setOnClickListener { renderCameraDetail(camera) }
         }
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -679,9 +678,15 @@ class MainActivity : AppCompatActivity() {
         })
         val controls = horizontal().apply {
             gravity = Gravity.CENTER
-            addView(iconBubble(R.drawable.ic_refresh))
-            addView(iconBubble(R.drawable.ic_videocam))
-            addView(iconBubble(R.drawable.ic_settings))
+            addView(homeSoundBubble())
+            if (camera.audioEnabled == true) {
+                addView(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
+                    toast("Micro non expose par l'API Frigate native.")
+                })
+            }
+            addView(iconBubble(R.drawable.ic_fullscreen) { renderCameraFullscreen(camera) })
+            addView(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
+            addView(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
         }
         card.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
             rightMargin = dp(12)
@@ -692,6 +697,48 @@ class MainActivity : AppCompatActivity() {
                 bottomMargin = dp(8)
             }
         }
+    }
+
+    private fun renderCameraFullscreen(camera: NativeCamera) {
+        val activeSession = session ?: return renderLogin()
+        val activeApi = api ?: return renderLogin()
+        releasePlayer()
+        val root = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
+        val image = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Palette.black)
+        }
+        root.addView(image, frameMatch())
+        activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
+            runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
+        }
+        val live = liveBadge().apply { visibility = View.GONE }
+        root.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
+            rightMargin = dp(18)
+            topMargin = dp(38)
+        })
+        root.addView(roundButton("<").apply {
+            textSize = 26f
+            setOnClickListener { renderHome() }
+        }, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.START or Gravity.TOP).apply {
+            leftMargin = dp(16)
+            topMargin = dp(28)
+        })
+        root.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.START or Gravity.BOTTOM).apply {
+            leftMargin = dp(18)
+            bottomMargin = dp(20)
+        })
+        root.addView(horizontal().apply {
+            gravity = Gravity.CENTER
+            addView(homeSoundBubble())
+            addView(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
+            addView(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
+            rightMargin = dp(14)
+            bottomMargin = dp(18)
+        })
+        setContentView(root)
+        startMjpegStream(activeApi, activeSession.token, camera, image, live)
     }
 
     private fun cameraToolbar(
@@ -1284,9 +1331,9 @@ class MainActivity : AppCompatActivity() {
                 setImageResource(R.drawable.fricamgate_logo)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(24)
+                topMargin = dp(42)
             })
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)) }
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
     }
 
     private fun homeTitleRow(message: String?): View {
@@ -2057,15 +2104,44 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun iconBubble(iconRes: Int): View {
+    private fun iconBubble(
+        iconRes: Int,
+        tint: Int = Palette.text,
+        alphaValue: Float = 1f,
+        onClick: ((View) -> Unit)? = null
+    ): View {
         return FrameLayout(this).apply {
+            isClickable = onClick != null
+            if (onClick != null) setOnClickListener { onClick(it) }
             background = rounded(Palette.overlay, 22)
             addView(ImageView(context).apply {
                 setImageResource(iconRes)
-                setColorFilter(Palette.text)
+                setColorFilter(tint)
+                alpha = alphaValue
             }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
         }.also {
-            it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) }
+            it.layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(6) }
+        }
+    }
+
+    private fun homeSoundBubble(): View {
+        val icon = ImageView(this).apply { setColorFilter(Palette.text) }
+        fun refresh() {
+            icon.setImageResource(if (soundEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off)
+            icon.alpha = if (soundEnabled) 1f else 0.72f
+        }
+        return FrameLayout(this).apply {
+            isClickable = true
+            background = rounded(Palette.overlay, 22)
+            addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            setOnClickListener {
+                val enabled = toggleSound()
+                refresh()
+                toast(if (enabled) "Son active." else "Son coupe.")
+            }
+            refresh()
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(6) }
         }
     }
 
