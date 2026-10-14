@@ -94,8 +94,11 @@ class MainActivity : AppCompatActivity() {
     private var updateChecking = false
     private var soundEnabled = false
     private val homeStreams = mutableListOf<WebSocket>()
+    private val homeSoundIcons = mutableMapOf<String, ImageView>()
+    private var homeAudioWebView: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var homeStreamGeneration = 0
+    private var homeAudioGeneration = 0
     private val seenAlertIdsMemory = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,6 +118,12 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         currentPlayer?.playWhenReady = false
+        homeAudioWebView?.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        homeAudioWebView?.onResume()
     }
 
     override fun onDestroy() {
@@ -656,6 +665,135 @@ class MainActivity : AppCompatActivity() {
         return soundEnabled
     }
 
+    private fun homePlaybackKey(camera: NativeCamera): String = "home:${camera.name}"
+
+    private fun isHomeSoundActive(camera: NativeCamera): Boolean =
+        soundEnabled && currentPlaybackKey == homePlaybackKey(camera)
+
+    private fun refreshHomeSoundIcons() {
+        homeSoundIcons.forEach { (cameraName, icon) ->
+            val active = soundEnabled && currentPlaybackKey == "home:$cameraName"
+            icon.setImageResource(if (active) R.drawable.ic_volume else R.drawable.ic_volume_off)
+            icon.alpha = if (active) 1f else 0.72f
+        }
+    }
+
+    private fun toggleHomeSound(camera: NativeCamera): Boolean {
+        val key = homePlaybackKey(camera)
+        if (isHomeSoundActive(camera)) {
+            homeAudioGeneration += 1
+            soundEnabled = false
+            prefs.edit().putBoolean("soundEnabled", false).apply()
+            releaseHomeAudioWebView()
+            releaseCurrentPlayer()
+            refreshHomeSoundIcons()
+            return false
+        }
+
+        soundEnabled = true
+        prefs.edit().putBoolean("soundEnabled", true).apply()
+        releaseHomeAudioWebView()
+        releaseCurrentPlayer()
+        currentPlaybackKey = key
+        refreshHomeSoundIcons()
+        startHomeLiveAudio(camera, key, ++homeAudioGeneration)
+        return true
+    }
+
+    private fun startHomeLiveAudio(camera: NativeCamera, playbackKey: String, generation: Int) {
+        val activeSession = session
+        val activeApi = api
+        if (activeSession == null || activeApi == null) {
+            failHomeLiveAudio(playbackKey, "Son live indisponible hors connexion.")
+            return
+        }
+
+        if (generation != homeAudioGeneration || currentPlaybackKey != playbackKey || !soundEnabled) {
+            return
+        }
+
+        val webView = WebView(this).apply {
+            alpha = 0.01f
+            setBackgroundColor(Color.TRANSPARENT)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            webChromeClient = WebChromeClient()
+        }
+        homeAudioWebView = webView
+        addContentView(webView, FrameLayout.LayoutParams(1, 1, Gravity.START or Gravity.TOP))
+        syncWebViewAuthCookie(webView, activeSession)
+        webView.loadDataWithBaseURL(
+            activeSession.baseUrl,
+            liveAudioHtml(activeApi.liveMseWebSocketUrl(camera.streamName)),
+            "text/html",
+            "UTF-8",
+            null
+        )
+    }
+
+    private fun failHomeLiveAudio(playbackKey: String, message: String) {
+        if (currentPlaybackKey != playbackKey) return
+        releaseHomeAudioWebView()
+        releaseCurrentPlayer()
+        soundEnabled = false
+        prefs.edit().putBoolean("soundEnabled", false).apply()
+        refreshHomeSoundIcons()
+        toast(message)
+    }
+
+    private fun liveAudioHtml(wsUrl: String): String {
+        val wsLiteral = JSONObject.quote(wsUrl)
+        val codecsLiteral = JSONObject.quote("mp4a.40.2,mp4a.40.5,flac,opus")
+        return """
+            <!doctype html>
+            <html>
+            <body style="margin:0;background:transparent">
+            <video id="video" autoplay playsinline style="width:1px;height:1px"></video>
+            <script>
+            const video = document.getElementById('video');
+            video.muted = false;
+            video.volume = 1;
+            const queue = [];
+            let sourceBuffer;
+            let socket;
+            function pump() {
+              if (video.error) return;
+              if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
+              sourceBuffer.appendBuffer(queue.shift());
+            }
+            video.addEventListener('error', () => {
+              try { if (socket) socket.close(); } catch (_) {}
+            });
+            const mediaSource = new MediaSource();
+            video.src = URL.createObjectURL(mediaSource);
+            mediaSource.addEventListener('sourceopen', () => {
+              socket = new WebSocket($wsLiteral);
+              socket.binaryType = 'arraybuffer';
+              socket.onopen = () => {
+                socket.send(JSON.stringify({ type: 'mse', value: $codecsLiteral }));
+              };
+              socket.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                  const message = JSON.parse(event.data);
+                  if (message.type === 'mse' && !sourceBuffer) {
+                    sourceBuffer = mediaSource.addSourceBuffer(message.value);
+                    sourceBuffer.mode = 'segments';
+                    sourceBuffer.addEventListener('updateend', pump);
+                    video.play().catch(() => {});
+                  }
+                  return;
+                }
+                queue.push(event.data);
+                pump();
+              };
+            });
+            </script>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
     private fun eventStrip(): View {
         if (events.isEmpty()) return emptyMessage("Aucun evenement recent.")
         val scroll = appHorizontalScrollView()
@@ -712,7 +850,7 @@ class MainActivity : AppCompatActivity() {
         })
         val controls = horizontal().apply {
             gravity = Gravity.CENTER
-            addView(homeSoundBubble())
+            addView(homeSoundBubble(camera))
             if (camera.audioEnabled == true) {
                 addView(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
                     toast("Micro non expose par l'API Frigate native.")
@@ -764,7 +902,7 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(horizontal().apply {
             gravity = Gravity.CENTER
-            addView(homeSoundBubble())
+            addView(homeSoundBubble(camera))
             addView(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
             addView(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
@@ -2336,18 +2474,31 @@ class MainActivity : AppCompatActivity() {
     private fun releasePlayer() {
         dismissCameraPicker()
         homeStreamGeneration += 1
+        homeAudioGeneration += 1
         timelinePlaybackGeneration += 1
         timelineFrameGeneration += 1
         mainHandler.removeCallbacksAndMessages(null)
+        releaseHomeAudioWebView()
         releaseCurrentPlayer()
         homeStreams.forEach { it.close(1000, "released") }
         homeStreams.clear()
+        homeSoundIcons.clear()
     }
 
     private fun releaseCurrentPlayer() {
         currentPlayer?.release()
         currentPlayer = null
         currentPlaybackKey = null
+    }
+
+    private fun releaseHomeAudioWebView() {
+        homeAudioWebView?.let { webView ->
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+            webView.destroy()
+        }
+        homeAudioWebView = null
     }
 
     private fun stopMjpegStreams() {
@@ -2458,22 +2609,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun homeSoundBubble(): View {
+    private fun homeSoundBubble(camera: NativeCamera): View {
         val icon = ImageView(this).apply { setColorFilter(Palette.text) }
-        fun refresh() {
-            icon.setImageResource(if (soundEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off)
-            icon.alpha = if (soundEnabled) 1f else 0.72f
-        }
+        homeSoundIcons[camera.name] = icon
         return FrameLayout(this).apply {
             isClickable = true
             background = rounded(Palette.overlay, 22)
             addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
             setOnClickListener {
-                val enabled = toggleSound()
-                refresh()
+                val enabled = toggleHomeSound(camera)
+                refreshHomeSoundIcons()
                 toast(if (enabled) "Son active." else "Son coupe.")
             }
-            refresh()
+            refreshHomeSoundIcons()
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(6) }
         }
@@ -2958,6 +3106,7 @@ private class FrigateNativeApi(
         endpoint(recordingVodPath(cameraName, startSec, endSec, stream))
     fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
         endpoint("/api/${Uri.encode(cameraName)}/recordings/${frameTime.toLong()}/snapshot.webp")
+    fun liveMseWebSocketUrl(streamName: String): String = liveWebSocketUrl(streamName)
 
     private fun getJson(token: String, path: String, callback: (Result<JSONObject>) -> Unit) {
         val request = authRequest(token, path).build()
