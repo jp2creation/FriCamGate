@@ -401,56 +401,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderLiaChat() {
         releasePlayer()
-        val activeSession = session
-        if (activeSession == null) {
-            renderLogin()
-            toast(getString(R.string.chat_offline))
-            return
-        }
-        val chatUrl = liaChatUrl(activeSession.baseUrl)
-        val content = vertical().apply {
-            setBackgroundColor(Palette.background)
-            setPadding(dp(12), 0, dp(12), 0)
-        }
-        content.addView(horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, dp(10))
-            addView(toolbarIcon(R.drawable.ic_chat, tint = Palette.accent))
-            addView(label(getString(R.string.ai_chat), 22, Palette.text).apply {
-                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(getString(R.string.cameras), 13, Palette.muted).apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(14), 0, dp(14), 0)
-                background = rounded(Palette.surface, 18)
-                setOnClickListener { renderHome() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        val webView = WebView(this).apply {
-            hideScrollIndicators()
-            setBackgroundColor(Palette.background)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.loadWithOverviewMode = true
-            settings.useWideViewPort = true
-            webChromeClient = WebChromeClient()
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val url = request.url.toString()
-                    return if (isSameOriginUrl(activeSession.baseUrl, url)) {
-                        false
-                    } else {
-                        toast(getString(R.string.external_blocked))
-                        true
-                    }
-                }
-            }
-        }
-        content.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        setShell(content, Tab.Home)
-        syncWebViewAuthCookie(webView, activeSession)
-        webView.loadUrl(chatUrl, mapOf("Authorization" to "Bearer ${activeSession.token}"))
+        val activeSession = session ?: run { renderLogin(); return }
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        setShell(NativeChatView(this, activeSession.baseUrl, activeSession.token, activeSession.username, httpClient), Tab.Home)
     }
 
     private fun renderCameraDetail(

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_message">Nachricht</string>
+    <string name="chat_clear">Unterhaltung löschen</string>
+    <string name="chat_clear_confirm">Diese Unterhaltung von diesem Gerät löschen?</string>
+    <string name="chat_welcome">Was möchtest du über deine Kameras wissen?</string>
+    <string name="chat_thinking">Antwort wird vorbereitet…</string>
+    <string name="chat_failed">Keine Antwort erhalten. Bitte erneut versuchen.</string>
+    <string name="chat_unsupported">Nativer Chat ist auf diesem Server nicht verfügbar.</string>
+    <string name="chat_stop">Antwort stoppen</string>
+    <string name="chat_send">Nachricht senden</string>
+</resources>

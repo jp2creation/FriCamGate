@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_message">Messaggio</string>
+    <string name="chat_clear">Cancella conversazione</string>
+    <string name="chat_clear_confirm">Cancellare questa conversazione da questo dispositivo?</string>
+    <string name="chat_welcome">Cosa vuoi sapere sulle tue telecamere?</string>
+    <string name="chat_thinking">Elaborazione…</string>
+    <string name="chat_failed">Impossibile ricevere una risposta. Riprova.</string>
+    <string name="chat_unsupported">La chat nativa non è disponibile su questo server.</string>
+    <string name="chat_stop">Interrompi risposta</string>
+    <string name="chat_send">Invia messaggio</string>
+</resources>
