@@ -1529,12 +1529,12 @@ class MainActivity : AppCompatActivity() {
         return FrameLayout(this).apply {
             isClickable = true
             contentDescription = "Chat IA"
-            background = rounded(0x1118181d, 22, 0x22ff2d63, 1)
+            background = rounded(0x1118181d, 22, 0x26ffffff, 1)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_chat)
-                setColorFilter(Palette.accent)
+                setColorFilter(Palette.text)
                 alpha = 0.96f
-            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
             setOnClickListener { renderLiaChat() }
         }
     }
