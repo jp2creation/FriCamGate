@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance">Tema y apariencia</string>
+    <string name="appearance_detail">Tema, colores y visualización</string>
+    <string name="theme">Tema</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="theme_light">Claro</string>
+    <string name="accent_color">Color de acento</string>
+    <string name="accent_red">Rojo</string>
+    <string name="accent_blue">Azul</string>
+    <string name="accent_green">Verde</string>
+    <string name="accent_violet">Violeta</string>
+    <string name="text_size">Tamaño del texto</string>
+    <string name="size_small">Pequeño</string>
+    <string name="size_standard">Normal</string>
+    <string name="size_large">Grande</string>
+    <string name="animations">Animaciones</string>
+    <string name="reduce_motion">Reducir movimiento</string>
+    <string name="reduce_motion_detail">Limitar las animaciones sin cambiar la reproducción de vídeo.</string>
+</resources>

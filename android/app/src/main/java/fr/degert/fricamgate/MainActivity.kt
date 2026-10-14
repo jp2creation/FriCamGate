@@ -94,6 +94,8 @@ class MainActivity : AppCompatActivity() {
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private val prefs by lazy { getSharedPreferences("fricamgate-native", MODE_PRIVATE) }
+    private val appearancePrefs by lazy { getSharedPreferences("camgate-settings", MODE_PRIVATE) }
+    private val reducedMotion get() = appearancePrefs.getBoolean("reducedMotion", false)
     private var session: NativeSession? = null
     private var api: FrigateNativeApi? = null
     private var cameras: List<NativeCamera> = emptyList()
@@ -136,7 +138,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
+        delegate.localNightMode = when (appearancePrefs.getString("theme", "system")) {
+            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+            "light" -> AppCompatDelegate.MODE_NIGHT_NO
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
         super.onCreate(savedInstanceState)
+        Palette.dark = Appearance.isDark(appearancePrefs.getString("theme", "system"),
+            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
+        Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
         getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
             .putString("language", AppCompatDelegate.getApplicationLocales().toLanguageTags()).apply()
         appLock = BiometricAppLock(this) {
@@ -148,6 +158,10 @@ class MainActivity : AppCompatActivity() {
         pendingEventId = intent?.getStringExtra(CameraNotifications.EVENT_ID)
         window.statusBarColor = Palette.background
         window.navigationBarColor = Palette.black
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !Palette.dark
+            isAppearanceLightNavigationBars = !Palette.dark
+        }
         soundEnabled = prefs.getBoolean("soundEnabled", false)
         session = loadSession()
         api = session?.let { FrigateNativeApi(it.baseUrl, httpClient) }
@@ -305,6 +319,7 @@ class MainActivity : AppCompatActivity() {
                     restoredSettingsPage = null
                     when (restoredPage) {
                         "language" -> renderLanguageSettings()
+                        "appearance" -> renderAppearanceSettings()
                         "notifications" -> renderNotificationSettings()
                         "server" -> renderServerSettings()
                         "cameras" -> renderCameraSettings()
@@ -1374,13 +1389,13 @@ class MainActivity : AppCompatActivity() {
             val isHour = minutesFromAnchor % 60 == 0
             val isMajor = isHour || tickStepMinutes <= 2 || minutesFromAnchor % (tickStepMinutes * 3) == 0
             column.addView(View(this).apply {
-                setBackgroundColor(if (isMajor) 0xff585860.toInt() else 0xff303037.toInt())
+                setBackgroundColor(if (isMajor) Palette.tick else Palette.tickMinor)
             }, FrameLayout.LayoutParams(dp(if (isMajor) 22 else 8), dp(1), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(4)
                 topMargin = y
             })
             if (isMajor) {
-                column.addView(label(formatTimelineTime(timeSec), 12, 0xff66666e.toInt()), FrameLayout.LayoutParams(dp(76), dp(24), Gravity.START or Gravity.TOP).apply {
+                column.addView(label(formatTimelineTime(timeSec), 12, Palette.muted), FrameLayout.LayoutParams(dp(76), dp(24), Gravity.START or Gravity.TOP).apply {
                     leftMargin = dp(28)
                     topMargin = y - dp(11)
                 })
@@ -1392,7 +1407,7 @@ class MainActivity : AppCompatActivity() {
                     val minorY = y + (offsetSeconds / 60.0 * pxPerMinute).toInt()
                     if (minorY < timelineHeight - bottomSpacer) {
                         column.addView(View(this).apply {
-                            setBackgroundColor(0xff303037.toInt())
+                            setBackgroundColor(Palette.tickMinor)
                         }, FrameLayout.LayoutParams(dp(8), dp(1), Gravity.START or Gravity.TOP).apply {
                             leftMargin = dp(4)
                             topMargin = minorY
@@ -1433,13 +1448,13 @@ class MainActivity : AppCompatActivity() {
                 })
                 val eventCenter = eventTop + eventHeight / 2
                 column.addView(View(this).apply {
-                    background = rounded(Palette.backgroundAlt, 9, 0xff3c3c42.toInt(), 2)
+                    background = rounded(Palette.backgroundAlt, 9, Palette.border, 2)
                 }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.START or Gravity.TOP).apply {
                     leftMargin = railX - dp(9)
                     topMargin = eventCenter - dp(9)
                 })
                 column.addView(View(this).apply {
-                    setBackgroundColor(0xff4d4d55.toInt())
+                    setBackgroundColor(Palette.tick)
                 }, FrameLayout.LayoutParams(dp(84), dp(1), Gravity.START or Gravity.TOP).apply {
                     leftMargin = railX + dp(10)
                     topMargin = eventCenter
@@ -1450,9 +1465,9 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER
                     addView(ImageView(context).apply {
                         setImageResource(icon)
-                        setColorFilter(0xff686870.toInt())
+                        setColorFilter(Palette.muted)
                     }, LinearLayout.LayoutParams(dp(22), dp(22)))
-                    addView(label(eventText, 11, 0xff7b7b84.toInt()).apply {
+                    addView(label(eventText, 11, Palette.muted).apply {
                         gravity = Gravity.CENTER
                         setPadding(0, dp(3), 0, 0)
                     }, LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -1576,6 +1591,11 @@ class MainActivity : AppCompatActivity() {
         fun returnToLive() {
             if (!selectedToday) {
                 renderCameraDetail(camera)
+                return
+            }
+            if (reducedMotion) {
+                scroll.scrollTo(0, 0)
+                resumeLive()
                 return
             }
             val current = scroll.scrollY
@@ -1808,7 +1828,7 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.requestApplyInsets(root)
         if (animateIn) {
             root.alpha = 0f
-            root.animate().alpha(1f).setDuration(220L).start()
+            root.animate().alpha(1f).setDuration(if (reducedMotion) 0L else 220L).start()
         }
     }
 
@@ -1854,7 +1874,7 @@ class MainActivity : AppCompatActivity() {
         return FrameLayout(this).apply {
             isClickable = true
             contentDescription = getString(R.string.alerts)
-            background = rounded(0x1118181d, 23, 0x1eff2d63, 1)
+            background = rounded(Palette.card, 23, 0x1eff2d63, 1)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_bell)
                 setColorFilter(Palette.text)
@@ -1950,7 +1970,7 @@ class MainActivity : AppCompatActivity() {
         dismissTransientPopups()
         val menu = vertical().apply {
             setPadding(dp(4), dp(6), dp(4), dp(6))
-            background = rounded(Palette.card, 8, 0x26ffffff, 1)
+            background = rounded(Palette.card, 8, Palette.divider, 1)
             rows.forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))) }
         }
         val popup = PopupWindow(menu, minOf(dp(260), resources.displayMetrics.widthPixels - dp(24)), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
@@ -1967,7 +1987,7 @@ class MainActivity : AppCompatActivity() {
         return FrameLayout(this).apply {
             isClickable = true
             contentDescription = getString(R.string.ai_chat)
-            background = rounded(0x1118181d, 22, 0x26ffffff, 1)
+            background = rounded(Palette.card, 22, Palette.divider, 1)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_chat)
                 setColorFilter(Palette.text)
@@ -2042,7 +2062,7 @@ class MainActivity : AppCompatActivity() {
         }
         val card = vertical().apply {
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
+            background = rounded(Palette.card, 16, Palette.border, 1)
         }
         card.addView(label(getString(R.string.pick_camera), 13, Palette.muted).apply {
             setPadding(dp(8), dp(4), dp(8), dp(10))
@@ -2154,7 +2174,7 @@ class MainActivity : AppCompatActivity() {
         val alerts = alertEvents()
         val card = vertical().apply {
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
+            background = rounded(Palette.card, 16, Palette.border, 1)
         }
         card.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -2286,7 +2306,7 @@ class MainActivity : AppCompatActivity() {
         val activeApi = api ?: return renderLogin()
         val card = vertical().apply {
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
+            background = rounded(Palette.card, 16, Palette.border, 1)
         }
         card.addView(label(camera.friendlyName, 16, Palette.text).apply {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -2470,7 +2490,8 @@ class MainActivity : AppCompatActivity() {
             settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { renderServerSettings() }),
             settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, visibleCameras().size, cameras.size), { renderCameraSettings() }),
             settingsNavRow(getString(R.string.about), "FriCamGate ${appVersionName()}", { renderAboutSettings() }),
-            settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() })
+            settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() }),
+            settingsNavRow(getString(R.string.appearance), getString(R.string.appearance_detail), { renderAppearanceSettings() })
         ))
         column.addView(sectionHeading(getString(R.string.security)))
         val biometricSwitch = SwitchCompat(this).apply {
@@ -2504,6 +2525,63 @@ class MainActivity : AppCompatActivity() {
         val code = AppCompatDelegate.getApplicationLocales().get(0)?.language.orEmpty()
         return appLanguages.firstOrNull { it.first == code }?.second
             ?.takeIf { it.isNotEmpty() } ?: getString(R.string.system_language)
+    }
+
+    private fun renderAppearanceSettings() {
+        settingsPage = "appearance"
+        releasePlayer()
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader(getString(R.string.appearance)))
+        fun choices(titleRes: Int, key: String, fallback: String, options: List<Pair<String, Int>>) {
+            column.addView(sectionHeading(getString(titleRes)))
+            val selected = appearancePrefs.getString(key, fallback)
+            column.addView(settingsGroup(*options.map { (value, textRes) ->
+                horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(18), 0, dp(12), 0)
+                    isFocusable = true
+                    if (key == "accent") {
+                        addView(View(context).apply {
+                            background = rounded(Appearance.accent(value), 8)
+                        }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(12) })
+                    }
+                    addView(settingsTitleLabel(getString(textRes)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(android.widget.RadioButton(context).apply {
+                        isChecked = value == selected
+                        isClickable = false
+                        isFocusable = false
+                        buttonTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Palette.accent else Palette.muted)
+                    })
+                    setOnClickListener {
+                        if (value != selected) {
+                            appearancePrefs.edit().putString(key, value).apply()
+                            if (key == "theme") {
+                                recreate()
+                            } else {
+                                Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
+                                renderAppearanceSettings()
+                            }
+                        }
+                    }
+                }
+            }.toTypedArray()))
+        }
+        choices(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light))
+        choices(R.string.accent_color, "accent", "red", listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet))
+        choices(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))
+        choices(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })
+        column.addView(sectionHeading(getString(R.string.animations)))
+        val motionSwitch = SwitchCompat(this).apply {
+            isChecked = reducedMotion
+            contentDescription = getString(R.string.reduce_motion)
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("reducedMotion", checked).apply()
+            }
+        }
+        column.addView(preferenceToggleRow(getString(R.string.reduce_motion), getString(R.string.reduce_motion_detail), motionSwitch))
+        setShell(scroll, Tab.Settings)
     }
 
     private fun renderLanguageSettings() {
@@ -2606,7 +2684,7 @@ class MainActivity : AppCompatActivity() {
     private fun preferenceToggleRow(title: String, detail: String, toggle: SwitchCompat): View = horizontal().apply {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(16), dp(12), dp(16))
-        background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+        background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
         addView(vertical().apply {
             setPadding(0, 0, dp(12), 0)
             addView(settingsTitleLabel(title).apply { maxLines = 2 })
@@ -2760,7 +2838,7 @@ class MainActivity : AppCompatActivity() {
         }
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
-            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
             addView(settingsTitleLabel(getString(R.string.updates)))
             addView(settingsDetailLabel(statusText))
             addView(settingsDetailLabel(getString(R.string.installed_latest, appVersionName(), result?.latestVersion ?: "-")))
@@ -2805,11 +2883,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun settingsGroup(vararg rows: View): View {
         return vertical().apply {
-            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
             rows.forEachIndexed { index, row ->
                 if (index > 0) {
                     addView(View(context).apply {
-                        setBackgroundColor(0x14ffffff)
+                        setBackgroundColor(Palette.divider)
                     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
                         leftMargin = dp(18)
                         rightMargin = dp(14)
@@ -2934,6 +3012,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
 
+        if (reducedMotion) {
+            progressFill.scaleX = 1f
+            mainHandler.postDelayed({
+                if (root.isAttachedToWindow) slowPanel.visibility = View.VISIBLE
+            }, LOADING_SLOW_ACTIONS_DELAY_MS)
+            return
+        }
         val ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 1500L
             repeatCount = ValueAnimator.INFINITE
@@ -3128,7 +3213,7 @@ class MainActivity : AppCompatActivity() {
         return EditText(this).apply {
             hint = hintValue
             setText(textValue)
-            textSize = 17f
+            textSize = 17f * Appearance.textScale(appearancePrefs.getString("textSize", null))
             setTextColor(Palette.text)
             setHintTextColor(Palette.muted)
             setSingleLine(true)
@@ -3140,8 +3225,8 @@ class MainActivity : AppCompatActivity() {
     private fun primaryButton(textValue: String): Button {
         return Button(this).apply {
             text = textValue
-            textSize = 16f
-            setTextColor(Palette.text)
+            textSize = 16f * Appearance.textScale(appearancePrefs.getString("textSize", null))
+            setTextColor(Color.WHITE)
             background = rounded(Palette.accent, 6)
         }
     }
@@ -3149,7 +3234,7 @@ class MainActivity : AppCompatActivity() {
     private fun secondaryButton(textValue: String): Button {
         return Button(this).apply {
             text = textValue
-            textSize = 15f
+            textSize = 15f * Appearance.textScale(appearancePrefs.getString("textSize", null))
             setTextColor(Palette.text)
             background = rounded(Palette.surface, 6)
         }
@@ -3168,12 +3253,12 @@ class MainActivity : AppCompatActivity() {
     private fun chip(textValue: String): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = 12.5f
+            textSize = 12.5f * Appearance.textScale(appearancePrefs.getString("textSize", null))
             gravity = Gravity.CENTER
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setTextColor(Palette.text)
             setPadding(dp(12), 0, dp(12), 0)
-            background = rounded(0x98050507.toInt(), 16)
+            background = rounded(Palette.overlay, 16)
         }
     }
 
@@ -3274,7 +3359,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun timelineFloatButton(iconRes: Int): View {
         return FrameLayout(this).apply {
-            background = rounded(0xd61b1b1f.toInt(), 23)
+            background = rounded(Palette.card, 23)
             addView(ImageView(context).apply {
                 setImageResource(iconRes)
                 setColorFilter(Palette.text)
@@ -3318,7 +3403,7 @@ class MainActivity : AppCompatActivity() {
         return horizontal().apply {
             gravity = Gravity.CENTER
             setPadding(dp(12), 0, dp(12), 0)
-            background = rounded(0xd61b1b1f.toInt(), 10)
+            background = rounded(Palette.card, 10)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_calendar)
                 setColorFilter(Palette.muted)
@@ -3400,7 +3485,7 @@ class MainActivity : AppCompatActivity() {
     private fun label(textValue: String, size: Int, color: Int): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = size.toFloat()
+            textSize = size * Appearance.textScale(appearancePrefs.getString("textSize", null))
             setTextColor(color)
             includeFontPadding = false
         }
@@ -3515,7 +3600,7 @@ private class LoadingRingView(context: Context) : View(context) {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeWidth = 2.2f * density
-        color = 0x24ffffff
+        color = Palette.divider
     }
     private val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -4197,17 +4282,21 @@ private enum class Tab(val label: String, val iconRes: Int) {
     Settings("Reglages", R.drawable.ic_settings)
 }
 
-private object Palette {
-    const val background = 0xff09090a.toInt()
-    const val backgroundAlt = 0xff151518.toInt()
-    const val black = 0xff000000.toInt()
-    const val card = 0xff17171c.toInt()
-    const val surface = 0xff22222a.toInt()
-    const val overlay = 0xcc050507.toInt()
-    const val navActive = 0xff3b0d1b.toInt()
-    const val text = 0xfff7f7f9.toInt()
-    const val muted = 0xff8d8d96.toInt()
-    const val accent = 0xffff2d63.toInt()
+internal object Palette {
+    var dark = true
+    var accent = 0xffff2d63.toInt()
+    val background get() = if (dark) 0xff09090a.toInt() else 0xfff5f6f8.toInt()
+    val backgroundAlt get() = if (dark) 0xff151518.toInt() else 0xfff0f1f4.toInt()
+    val black get() = if (dark) 0xff000000.toInt() else 0xffffffff.toInt()
+    val card get() = if (dark) 0xff17171c.toInt() else 0xffffffff.toInt()
+    val surface get() = if (dark) 0xff22222a.toInt() else 0xffe5e7ec.toInt()
+    val overlay get() = if (dark) 0xcc050507.toInt() else 0xe6ffffff.toInt()
+    val text get() = if (dark) 0xfff7f7f9.toInt() else 0xff202127.toInt()
+    val muted get() = if (dark) 0xff8d8d96.toInt() else 0xff60636e.toInt()
+    val border get() = if (dark) 0xff2c2c34.toInt() else 0xffd7d9e0.toInt()
+    val divider get() = if (dark) 0x14ffffff else 0x18000000
+    val tick get() = if (dark) 0xff585860.toInt() else 0xff858995.toInt()
+    val tickMinor get() = if (dark) 0xff303037.toInt() else 0xffc9cdd5.toInt()
     const val liveBlue = 0xff07b8ff.toInt()
 }
 
