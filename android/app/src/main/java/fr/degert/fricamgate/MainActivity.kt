@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
     private var homeStreamGeneration = 0
     private var homeAudioGeneration = 0
     private val seenAlertIdsMemory = mutableSetOf<String>()
+    private var dashboardErrorMessage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -187,6 +188,7 @@ class MainActivity : AppCompatActivity() {
                     saveSession(nextSession)
                     session = nextSession
                     api = nextApi
+                    dashboardErrorMessage = null
                     loadDashboard("Connecte a $normalizedUrl")
                 }.onFailure {
                     renderLogin()
@@ -210,9 +212,24 @@ class MainActivity : AppCompatActivity() {
                 result.onSuccess { data ->
                     cameras = data.cameras
                     events = data.events
+                    dashboardErrorMessage = null
                     renderHome(message)
-                }.onFailure {
-                    renderHome(it.message ?: "Frigate indisponible")
+                }.onFailure { error ->
+                    val errorMessage = error.message ?: "Frigate indisponible."
+                    if (isAuthFailure(errorMessage)) {
+                        prefs.edit().remove("token").apply()
+                        session = null
+                        api = null
+                        cameras = emptyList()
+                        events = emptyList()
+                        dashboardErrorMessage = null
+                        renderLogin()
+                        toast("Session Frigate expiree. Reconnecte-toi.")
+                    } else {
+                        dashboardErrorMessage = errorMessage
+                        renderHome(errorMessage)
+                        toast(errorMessage)
+                    }
                 }
             }
         }
@@ -231,7 +248,10 @@ class MainActivity : AppCompatActivity() {
         column.addView(homeTitleRow(message))
 
         val homeCameras = visibleCameras()
-        if (cameras.isEmpty()) {
+        val dashboardError = dashboardErrorMessage
+        if (!dashboardError.isNullOrBlank()) {
+            column.addView(dashboardErrorCard(dashboardError))
+        } else if (cameras.isEmpty()) {
             column.addView(emptyMessage("Aucune camera Frigate trouvee."))
         } else if (homeCameras.isEmpty()) {
             column.addView(emptyMessage("Toutes les cameras sont masquees dans FriCamGate."))
@@ -242,6 +262,9 @@ class MainActivity : AppCompatActivity() {
         }
         setShell(content, Tab.Home)
     }
+
+    private fun isAuthFailure(message: String): Boolean =
+        message.contains("HTTP 401") || message.contains("HTTP 403")
 
     private fun renderLiaChat() {
         releasePlayer()
@@ -2803,6 +2826,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun dashboardErrorCard(message: String): View {
+        return vertical().apply {
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(Palette.card, 8)
+            addView(label("Frigate ne repond pas correctement", 16, Palette.text).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            })
+            addView(label(message, 13, Palette.muted).apply {
+                setPadding(0, dp(8), 0, 0)
+            })
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(secondaryButton("Recharger").apply {
+                    setOnClickListener { loadDashboard("Recharge.") }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f))
+                addView(primaryButton("Serveur").apply {
+                    setOnClickListener { renderServerSettings() }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                    leftMargin = dp(10)
+                })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply {
+                topMargin = dp(14)
+            })
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            }
+        }
+    }
+
     private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
     private fun frameMatch() = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     private fun cameraVideoHeight(): Int = minOf(dp(340), maxOf(dp(220), resources.displayMetrics.widthPixels * 9 / 16))
@@ -2894,8 +2947,15 @@ private class FrigateNativeApi(
                         val cameras = parseCameras(configResult.getOrThrow())
                         val events = parseEvents(eventArray)
                         DashboardData(cameras, events)
-                    }.onSuccess {
-                        callback(Result.success(it))
+                    }.onSuccess { dashboard ->
+                        if (dashboard.cameras.isNotEmpty()) {
+                            callback(Result.success(dashboard))
+                        } else {
+                            loadCameraStats(token) { statsResult ->
+                                val fallbackCameras = statsResult.getOrElse { emptyList() }
+                                callback(Result.success(dashboard.copy(cameras = fallbackCameras)))
+                            }
+                        }
                     }.onFailure {
                         callback(Result.failure(IOException("Tableau de bord Frigate invalide.", it)))
                     }
@@ -2941,6 +3001,15 @@ private class FrigateNativeApi(
                 }
             }
         })
+    }
+
+    private fun loadCameraStats(token: String, callback: (Result<List<NativeCamera>>) -> Unit) {
+        getJson(token, "/api/stats") { statsResult ->
+            statsResult
+                .mapCatching { parseCamerasFromStats(it) }
+                .onSuccess { callback(Result.success(it)) }
+                .onFailure { callback(Result.failure(it)) }
+        }
     }
 
     fun loadBitmap(token: String, url: String, callback: (Bitmap?) -> Unit) {
@@ -3155,6 +3224,25 @@ private class FrigateNativeApi(
                 audioEnabled = cameraFeatureEnabled(camera, "audio"),
                 notificationsEnabled = cameraFeatureEnabled(camera, "notifications"),
                 audioTranscriptionEnabled = cameraFeatureEnabled(camera, "audio_transcription")
+            )
+        }.toList()
+    }
+
+    private fun parseCamerasFromStats(stats: JSONObject): List<NativeCamera> {
+        val cameras = stats.optJSONObject("cameras") ?: return emptyList()
+        return cameras.keys().asSequence().map { name ->
+            NativeCamera(
+                name = name,
+                friendlyName = titleFromName(name),
+                enabled = true,
+                streamName = name,
+                detectEnabled = null,
+                motionEnabled = null,
+                recordingsEnabled = null,
+                snapshotsEnabled = null,
+                audioEnabled = null,
+                notificationsEnabled = null,
+                audioTranscriptionEnabled = null
             )
         }.toList()
     }
