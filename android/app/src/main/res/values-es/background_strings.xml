@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="background_style">Fondo de la aplicación</string>
+    <string name="background_auto">Automático</string>
+    <string name="background_oled">Negro puro (OLED)</string>
+    <string name="background_anthracite">Antracita</string>
+    <string name="background_graphite">Gris grafito</string>
+    <string name="background_midnight">Azul noche</string>
+    <string name="background_forest">Verde bosque oscuro</string>
+</resources>

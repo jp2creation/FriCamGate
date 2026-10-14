@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AppearanceTest {
+    @Test fun backgroundChoicesHaveDistinctTonesAndSafeFallback() {
+        assertEquals(BackgroundStyle.Automatic, BackgroundStyle.fromPreference("unknown"))
+        assertEquals(0xff000000.toInt(), BackgroundStyle.Oled.background)
+        assertEquals(5, BackgroundStyle.values().filter { it != BackgroundStyle.Automatic }.map { it.background }.distinct().size)
+    }
     @Test fun themeFollowsSystemUnlessOverridden() {
         assertTrue(Appearance.isDark("system", true))
         assertFalse(Appearance.isDark("system", false))

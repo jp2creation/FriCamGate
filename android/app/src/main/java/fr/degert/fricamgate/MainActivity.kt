@@ -145,6 +145,7 @@ class MainActivity : AppCompatActivity() {
             else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
         super.onCreate(savedInstanceState)
+        Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
         Palette.dark = Appearance.isDark(appearancePrefs.getString("theme", "system"),
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
@@ -2501,9 +2502,9 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER_VERTICAL
                     setPadding(dp(18), 0, dp(12), 0)
                     isFocusable = true
-                    if (key == "accent") {
+                    if (key == "accent" || key == "backgroundStyle") {
                         addView(View(context).apply {
-                            background = rounded(Appearance.accent(value), 8)
+                            background = rounded(if (key == "accent") Appearance.accent(value) else BackgroundStyle.fromPreference(value).background, 8, Palette.border, 1)
                         }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(12) })
                     }
                     addView(settingsTitleLabel(getString(textRes)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -2535,6 +2536,13 @@ class MainActivity : AppCompatActivity() {
                                 resize(window.decorView)
                             } else if (key != "homeCameraLayout") {
                                 Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
+                                Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
+                                window.statusBarColor = Palette.background
+                                window.navigationBarColor = Palette.black
+                                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                                    isAppearanceLightStatusBars = !Palette.dark
+                                    isAppearanceLightNavigationBars = !Palette.dark
+                                }
                                 renderAppearanceSettings()
                             }
                         }
@@ -2543,6 +2551,7 @@ class MainActivity : AppCompatActivity() {
             }.toTypedArray()))
         }
         choices(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light))
+        choices(R.string.background_style, "backgroundStyle", "automatic", BackgroundStyle.values().map { it.preference to it.titleRes })
         choices(R.string.accent_color, "accent", "red", listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet))
         choices(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))
         choices(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })
@@ -2557,7 +2566,13 @@ class MainActivity : AppCompatActivity() {
         column.addView(preferenceToggleRow(getString(R.string.reduce_motion), getString(R.string.reduce_motion_detail), motionSwitch))
         val restoreY = appearanceScrollY
         setShell(scroll, Tab.Settings)
-        scroll.post { scroll.scrollTo(0, restoreY) }
+        scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                scroll.scrollTo(0, restoreY)
+                return true
+            }
+        })
     }
 
     private fun renderLanguageSettings() {
@@ -4262,16 +4277,20 @@ private enum class Tab(val label: String, val iconRes: Int) {
 }
 
 internal object Palette {
-    var dark = true
+    private var themeDark = true
+    var backgroundStyle = BackgroundStyle.Automatic
+    var dark: Boolean
+        get() = backgroundStyle != BackgroundStyle.Automatic || themeDark
+        set(value) { themeDark = value }
     var accent = 0xffff2d63.toInt()
-    val background get() = if (dark) 0xff09090a.toInt() else 0xfff5f6f8.toInt()
-    val backgroundAlt get() = if (dark) 0xff151518.toInt() else 0xfff0f1f4.toInt()
-    val black get() = if (dark) 0xff000000.toInt() else 0xffffffff.toInt()
-    val card get() = if (dark) 0xff17171c.toInt() else 0xffffffff.toInt()
-    val surface get() = if (dark) 0xff22222a.toInt() else 0xffe5e7ec.toInt()
+    val background get() = if (dark) backgroundStyle.background else 0xfff5f6f8.toInt()
+    val backgroundAlt get() = if (backgroundStyle != BackgroundStyle.Automatic) backgroundStyle.background else if (dark) 0xff151518.toInt() else 0xfff0f1f4.toInt()
+    val black get() = if (backgroundStyle != BackgroundStyle.Automatic) backgroundStyle.background else if (dark) 0xff000000.toInt() else 0xffffffff.toInt()
+    val card get() = if (dark) backgroundStyle.card else 0xffffffff.toInt()
+    val surface get() = if (dark) backgroundStyle.surface else 0xffe5e7ec.toInt()
     val overlay get() = if (dark) 0xcc050507.toInt() else 0xe6ffffff.toInt()
     val text get() = if (dark) 0xfff7f7f9.toInt() else 0xff202127.toInt()
-    val muted get() = if (dark) 0xff8d8d96.toInt() else 0xff60636e.toInt()
+    val muted get() = if (backgroundStyle != BackgroundStyle.Automatic) 0xffb0b3be.toInt() else if (dark) 0xff8d8d96.toInt() else 0xff60636e.toInt()
     val border get() = if (dark) 0xff2c2c34.toInt() else 0xffd7d9e0.toInt()
     val divider get() = if (dark) 0x14ffffff else 0x18000000
     val tick get() = if (dark) 0xff585860.toInt() else 0xff858995.toInt()
