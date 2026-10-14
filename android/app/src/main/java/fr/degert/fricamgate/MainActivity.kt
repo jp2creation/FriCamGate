@@ -12,6 +12,9 @@ import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -21,6 +24,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.Settings
 import android.text.TextUtils
 import android.util.Base64
 import android.view.Gravity
@@ -44,6 +48,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.os.LocaleListCompat
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
@@ -80,6 +88,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class MainActivity : AppCompatActivity() {
     private val httpClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -108,10 +117,35 @@ class MainActivity : AppCompatActivity() {
     private val seenAlertIdsMemory = mutableSetOf<String>()
     private var dashboardErrorMessage: String? = null
     private val loadingAnimators = mutableListOf<ValueAnimator>()
+    private lateinit var appLock: BiometricAppLock
+    private var activeTab = Tab.Home
+    private var settingsPage = "main"
+    private var restoredSettingsPage: String? = null
+    private var pendingEventId: String? = null
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        CameraNotifications.configure(this, granted)
+        getSharedPreferences("camgate-settings", MODE_PRIVATE).edit().putBoolean("notificationEnablePending", false).apply()
+        if (activeTab == Tab.Settings && settingsPage == "notifications") renderNotificationSettings()
+    }
+    private val notificationPoll = object : Runnable {
+        override fun run() {
+            if (session != null) CameraNotifications.checkNow(this@MainActivity)
+            mainHandler.postDelayed(this, 20_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
+            .putString("language", AppCompatDelegate.getApplicationLocales().toLanguageTags()).apply()
+        appLock = BiometricAppLock(this) {
+            currentPlayer?.playWhenReady = true
+            homeAudioWebView?.onResume()
+            openPendingNotification()
+        }
+        restoredSettingsPage = savedInstanceState?.getString("settingsPage")
+        pendingEventId = intent?.getStringExtra(CameraNotifications.EVENT_ID)
         window.statusBarColor = Palette.background
         window.navigationBarColor = Palette.black
         soundEnabled = prefs.getBoolean("soundEnabled", false)
@@ -120,22 +154,67 @@ class MainActivity : AppCompatActivity() {
         if (session == null) {
             renderLogin()
         } else {
-            loadDashboard("Session restauree pour ${session?.username}.")
+            loadDashboard(getString(R.string.restored, session?.username.orEmpty()))
         }
     }
 
     override fun onStop() {
         super.onStop()
+        mainHandler.removeCallbacks(notificationPoll)
+        if (!isChangingConfigurations) appLock.onBackground()
         currentPlayer?.playWhenReady = false
         homeAudioWebView?.onPause()
     }
 
+    override fun onPause() {
+        if (::appLock.isInitialized && appLock.enabled && !isChangingConfigurations) {
+            dismissTransientPopups()
+            appLock.onBackground()
+        }
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
-        homeAudioWebView?.onResume()
+        appLock.onForeground()
+        if (!appLock.locked) homeAudioWebView?.onResume()
+        val settingsPrefs = getSharedPreferences("camgate-settings", MODE_PRIVATE)
+        if (settingsPrefs.getBoolean("notificationEnablePending", false) && CameraNotifications.permitted(this)) {
+            settingsPrefs.edit().putBoolean("notificationEnablePending", false).apply()
+            CameraNotifications.configure(this, true)
+        }
+        CameraNotifications.schedule(this)
+        mainHandler.removeCallbacks(notificationPoll)
+        mainHandler.post(notificationPoll)
+        if (activeTab == Tab.Settings && settingsPage == "notifications") renderNotificationSettings()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (activeTab == Tab.Settings) outState.putString("settingsPage", settingsPage)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingEventId = intent.getStringExtra(CameraNotifications.EVENT_ID)
+        openPendingNotification()
+    }
+
+    override fun setContentView(view: View) {
+        super.setContentView(view)
+        if (::appLock.isInitialized) appLock.protectContent()
+    }
+
+    private fun openPendingNotification() {
+        if (appLock.locked || cameras.isEmpty()) return
+        val id = pendingEventId ?: return
+        pendingEventId = null
+        events.firstOrNull { it.id == id }?.let { renderEventDetail(it) } ?: renderGlobalEvents()
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(notificationPoll)
         releasePlayer()
         super.onDestroy()
     }
@@ -154,24 +233,24 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(root, centeredScrollParams(560))
         root.addView(logoHeader())
-        root.addView(label("Serveur Frigate", 12, Palette.muted).apply { setPadding(0, dp(28), 0, dp(8)) })
+        root.addView(label(getString(R.string.frigate_server), 12, Palette.muted).apply { setPadding(0, dp(28), 0, dp(8)) })
         val serverInput = editText("http://cam.example.fr", prefs.getString("baseUrl", "") ?: "")
         root.addView(serverInput, matchWrap())
-        root.addView(label("Utilisateur", 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
+        root.addView(label(getString(R.string.username), 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
         val usernameInput = editText("admin", prefs.getString("username", "") ?: "")
         root.addView(usernameInput, matchWrap())
-        root.addView(label("Mot de passe", 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
-        val passwordInput = editText("mot de passe", "").apply {
+        root.addView(label(getString(R.string.password), 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
+        val passwordInput = editText(getString(R.string.password_hint), "").apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         root.addView(passwordInput, matchWrap())
-        val button = primaryButton("Connexion").apply {
+        val button = primaryButton(getString(R.string.login)).apply {
             setOnClickListener {
                 connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString())
             }
         }
         root.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        root.addView(label("Chaque utilisateur renseigne son propre serveur. Le HTTP est accepte pour les installations Frigate exposees ainsi.", 14, Palette.muted).apply {
+        root.addView(label(getString(R.string.login_hint), 14, Palette.muted).apply {
             setPadding(0, dp(20), 0, 0)
         })
         setContentView(scroll)
@@ -180,7 +259,7 @@ class MainActivity : AppCompatActivity() {
     private fun connect(baseUrlValue: String, username: String, password: String) {
         val normalizedUrl = normalizeBaseUrl(baseUrlValue)
         if (normalizedUrl.isBlank() || username.isBlank() || password.isBlank()) {
-            toast("Serveur, utilisateur et mot de passe obligatoires.")
+            toast(getString(R.string.required_login))
             return
         }
 
@@ -188,7 +267,7 @@ class MainActivity : AppCompatActivity() {
             .putString("baseUrl", normalizedUrl)
             .putString("username", username)
             .apply()
-        renderLoading("Connexion a Frigate...")
+        renderLoading(getString(R.string.connecting))
         val nextApi = FrigateNativeApi(normalizedUrl, httpClient)
         nextApi.login(username, password) { result ->
             runOnUiThread {
@@ -198,10 +277,10 @@ class MainActivity : AppCompatActivity() {
                     session = nextSession
                     api = nextApi
                     dashboardErrorMessage = null
-                    loadDashboard("Connecte a $normalizedUrl")
+                    loadDashboard(getString(R.string.connected, normalizedUrl))
                 }.onFailure {
                     renderLogin()
-                    toast(it.message ?: "Connexion impossible")
+                    toast(it.message ?: getString(R.string.login_failed))
                 }
             }
         }
@@ -215,16 +294,28 @@ class MainActivity : AppCompatActivity() {
             renderLogin()
             return
         }
-        renderLoading("Chargement des cameras...")
+        renderLoading(getString(R.string.loading_cameras))
         activeApi.loadDashboard(activeSession.token) { result ->
             runOnUiThread {
                 result.onSuccess { data ->
                     cameras = data.cameras
                     events = data.events
                     dashboardErrorMessage = null
-                    renderHome(message)
+                    val restoredPage = restoredSettingsPage
+                    restoredSettingsPage = null
+                    when (restoredPage) {
+                        "language" -> renderLanguageSettings()
+                        "notifications" -> renderNotificationSettings()
+                        "server" -> renderServerSettings()
+                        "cameras" -> renderCameraSettings()
+                        "about" -> renderAboutSettings()
+                        "main" -> renderSettings()
+                        else -> renderHome(message)
+                    }
+                    CameraNotifications.schedule(this)
+                    openPendingNotification()
                 }.onFailure { error ->
-                    val errorMessage = error.message ?: "Frigate indisponible."
+                    val errorMessage = error.message ?: getString(R.string.frigate_unavailable)
                     if (isAuthFailure(errorMessage)) {
                         prefs.edit().remove("token").apply()
                         session = null
@@ -233,7 +324,7 @@ class MainActivity : AppCompatActivity() {
                         events = emptyList()
                         dashboardErrorMessage = null
                         renderLogin()
-                        toast("Session Frigate expiree. Reconnecte-toi.")
+                        toast(getString(R.string.session_expired))
                     } else {
                         dashboardErrorMessage = errorMessage
                         renderHome(errorMessage)
@@ -261,9 +352,9 @@ class MainActivity : AppCompatActivity() {
         if (!dashboardError.isNullOrBlank()) {
             column.addView(dashboardErrorCard(dashboardError))
         } else if (cameras.isEmpty()) {
-            column.addView(emptyMessage("Aucune camera Frigate trouvee."))
+            column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else if (homeCameras.isEmpty()) {
-            column.addView(emptyMessage("Toutes les cameras sont masquees dans FriCamGate."))
+            column.addView(emptyMessage(getString(R.string.all_hidden)))
         } else {
             homeCameras.forEach { camera ->
                 column.addView(cameraCard(camera))
@@ -280,7 +371,7 @@ class MainActivity : AppCompatActivity() {
         val activeSession = session
         if (activeSession == null) {
             renderLogin()
-            toast("Chat IA indisponible hors connexion.")
+            toast(getString(R.string.chat_offline))
             return
         }
         val chatUrl = liaChatUrl(activeSession.baseUrl)
@@ -292,10 +383,10 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(8), 0, dp(10))
             addView(toolbarIcon(R.drawable.ic_chat, tint = Palette.accent))
-            addView(label("Chat IA", 22, Palette.text).apply {
+            addView(label(getString(R.string.ai_chat), 22, Palette.text).apply {
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label("Cameras", 13, Palette.muted).apply {
+            addView(label(getString(R.string.cameras), 13, Palette.muted).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(14), 0, dp(14), 0)
                 background = rounded(Palette.surface, 18)
@@ -317,7 +408,7 @@ class MainActivity : AppCompatActivity() {
                     return if (isSameOriginUrl(activeSession.baseUrl, url)) {
                         false
                     } else {
-                        toast("Lien externe bloque dans le chat.")
+                        toast(getString(R.string.external_blocked))
                         true
                     }
                 }
@@ -437,10 +528,10 @@ class MainActivity : AppCompatActivity() {
         val scroll = appScrollView()
         val column = vertical().apply { setPadding(dp(16), dp(20), dp(16), dp(120)) }
         scroll.addView(column)
-        column.addView(label("LECTURE EVENEMENT", 12, Palette.muted))
-        column.addView(label(event.label, 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        column.addView(label(getString(R.string.event_playback), 12, Palette.muted))
+        column.addView(label(eventDisplayText(event), 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(label("$activeCameraLabel - ${event.time}", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
-        column.addView(label("Cameras au meme moment", 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        column.addView(label(getString(R.string.same_moment), 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Events)
@@ -759,7 +850,7 @@ class MainActivity : AppCompatActivity() {
         val activeSession = session
         val activeApi = api
         if (activeSession == null || activeApi == null) {
-            failHomeLiveAudio(playbackKey, "Son live indisponible hors connexion.")
+            failHomeLiveAudio(playbackKey, getString(R.string.sound_unavailable))
             return
         }
 
@@ -850,7 +941,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun eventStrip(): View {
-        if (events.isEmpty()) return emptyMessage("Aucun evenement recent.")
+        if (events.isEmpty()) return emptyMessage(getString(R.string.no_recent_events))
         val scroll = appHorizontalScrollView()
         val row = horizontal().apply { setPadding(0, 0, 0, dp(4)) }
         scroll.addView(row)
@@ -908,7 +999,7 @@ class MainActivity : AppCompatActivity() {
             addView(homeSoundBubble(camera))
             if (camera.audioEnabled == true) {
                 addView(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
-                    toast("Micro non expose par l'API Frigate native.")
+                    toast(getString(R.string.micro_unavailable))
                 })
             }
             addView(iconBubble(R.drawable.ic_fullscreen) { renderCameraFullscreen(camera) })
@@ -1014,11 +1105,11 @@ class MainActivity : AppCompatActivity() {
         }
         val column = vertical().apply { setPadding(dp(18), dp(18), dp(18), dp(120)) }
         scroll.addView(column)
-        column.addView(label("EVENEMENTS", 12, Palette.muted).apply {
+        column.addView(label(getString(R.string.events_heading), 12, Palette.muted).apply {
             setPadding(0, 0, 0, dp(10))
         })
         if (cameraEvents.isEmpty()) {
-            column.addView(emptyMessage("Aucun evenement pour cette camera."))
+            column.addView(emptyMessage(getString(R.string.no_camera_events)))
             return scroll
         }
         cameraEvents.forEach { event ->
@@ -1087,17 +1178,17 @@ class MainActivity : AppCompatActivity() {
                 alpha = 0.96f
             }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { rightMargin = dp(10) })
             addView(vertical().apply {
-                addView(label("Notifications", 25, Palette.text).apply {
+                addView(label(getString(R.string.notifications), 25, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
-                addView(label("Toutes les cameras", 12, Palette.muted).apply {
+                addView(label(getString(R.string.all_cameras), 12, Palette.muted).apply {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         if (globalEvents.isEmpty()) {
-            column.addView(emptyMessage("Aucune notification recente sur les cameras visibles."))
+            column.addView(emptyMessage(getString(R.string.no_notifications)))
             return scroll
         }
         globalEvents.forEach { event ->
@@ -1237,7 +1328,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (cameraEvents.isEmpty()) {
-            column.addView(emptyMessage("Aucune video recente pour cette camera.").apply {
+            column.addView(emptyMessage(getString(R.string.no_recent_video)).apply {
                 setPadding(dp(18), dp(18), dp(18), dp(18))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
                 leftMargin = dp(18)
@@ -1317,7 +1408,7 @@ class MainActivity : AppCompatActivity() {
         frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.TOP).apply {
             topMargin = topSpacer
         })
-        val currentTime = label(if (selectedToday) "Live" else formatTimelineClock(anchorSec), 14, Palette.text).apply {
+        val currentTime = label(if (selectedToday) getString(R.string.live) else formatTimelineClock(anchorSec), 14, Palette.text).apply {
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             background = rounded(Palette.liveBlue, 14)
@@ -1388,7 +1479,7 @@ class MainActivity : AppCompatActivity() {
             lastPlaybackSec = null
             pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
             pendingScrollPlayback = null
-            currentTime.text = "Live"
+            currentTime.text = getString(R.string.live)
             onFocusChanged(null, true)
             returnLive.visibility = View.GONE
             releaseCurrentPlayer()
@@ -1435,7 +1526,7 @@ class MainActivity : AppCompatActivity() {
                 pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
                 pendingScrollPlayback = null
                 if (timelineMode) resumeLive()
-                currentTime.text = "Live"
+                currentTime.text = getString(R.string.live)
                 onFocusChanged(null, true)
                 returnLive.visibility = View.GONE
                 return
@@ -1471,7 +1562,7 @@ class MainActivity : AppCompatActivity() {
                 updatePreviewForScroll(target)
             } else if (selectedToday) {
                 scroll.scrollTo(0, 0)
-                currentTime.text = "Live"
+                currentTime.text = getString(R.string.live)
                 onFocusChanged(null, true)
                 returnLive.visibility = View.GONE
             }
@@ -1512,7 +1603,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun eventDisplayText(event: NativeEvent): String =
-        event.subLabel?.takeIf { it.isNotBlank() } ?: event.objectLabel.ifBlank { event.label }
+        event.subLabel?.takeIf { it.isNotBlank() } ?: localizedAlertLabel(this, event.objectLabel.ifBlank { event.label })
 
     private fun showTimelineDatePicker(camera: NativeCamera, timelineDayMillis: Long) {
         val calendar = Calendar.getInstance().apply { timeInMillis = timelineDayMillis }
@@ -1541,13 +1632,13 @@ class MainActivity : AppCompatActivity() {
         val activeApi = api ?: return renderLogin()
         val dayStart = startOfLocalDayMillis(dayMillis)
         val dayEnd = dayStart + TimeUnit.DAYS.toMillis(1) - 1000L
-        renderLoading("Chargement du ${formatShortDate(dayStart)}...")
+        renderLoading(getString(R.string.loading_day, formatShortDate(dayStart)))
         activeApi.loadEvents(activeSession.token, camera.name, dayStart / 1000.0, dayEnd / 1000.0) { result ->
             runOnUiThread {
                 result.onSuccess { loadedEvents ->
                     renderCameraDetail(camera, dayStart, loadedEvents)
                 }.onFailure {
-                    toast(it.message ?: "Videos indisponibles pour cette date.")
+                    toast(it.message ?: getString(R.string.videos_unavailable))
                     renderCameraDetail(camera, dayStart, emptyList())
                 }
             }
@@ -1571,16 +1662,16 @@ class MainActivity : AppCompatActivity() {
         }.timeInMillis
 
     private fun formatTimelineTime(timeSec: Double): String =
-        SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date((timeSec * 1000).toLong()))
+        SimpleDateFormat("HH:mm", resources.configuration.locales[0]).format(Date((timeSec * 1000).toLong()))
 
     private fun formatTimelineClock(timeSec: Double): String =
-        SimpleDateFormat("HH:mm:ss", Locale.FRANCE).format(Date((timeSec * 1000).toLong()))
+        SimpleDateFormat("HH:mm:ss", resources.configuration.locales[0]).format(Date((timeSec * 1000).toLong()))
 
     private fun formatShortDate(value: Long): String =
-        SimpleDateFormat("d MMM", Locale.FRANCE).format(Date(value))
+        SimpleDateFormat("d MMM", resources.configuration.locales[0]).format(Date(value))
 
     private fun formatLongDate(value: Long): String =
-        SimpleDateFormat("EEE d MMM yy", Locale.FRANCE).format(Date(value)).replaceFirstChar { it.lowercase(Locale.FRANCE) }
+        SimpleDateFormat("EEE d MMM yy", resources.configuration.locales[0]).format(Date(value)).replaceFirstChar { it.lowercase(resources.configuration.locales[0]) }
 
     private fun syncCameraGrid(event: NativeEvent, displayedCameraName: String): View {
         val grid = vertical()
@@ -1623,6 +1714,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true, animateIn: Boolean = false) {
+        this.activeTab = activeTab
         releaseLoadingAnimations()
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
@@ -1679,7 +1771,7 @@ class MainActivity : AppCompatActivity() {
         val alertCount = alertEvents().size
         return FrameLayout(this).apply {
             isClickable = true
-            contentDescription = "Alertes"
+            contentDescription = getString(R.string.alerts)
             background = rounded(0x1118181d, 23, 0x1eff2d63, 1)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_bell)
@@ -1715,7 +1807,7 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(dp(34), dp(34)).apply {
                     rightMargin = dp(7)
                 })
-                addView(label("Cameras", 25, Palette.text).apply {
+                addView(label(getString(R.string.cameras), 25, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -1730,7 +1822,7 @@ class MainActivity : AppCompatActivity() {
     private fun chatButton(): View {
         return FrameLayout(this).apply {
             isClickable = true
-            contentDescription = "Chat IA"
+            contentDescription = getString(R.string.ai_chat)
             background = rounded(0x1118181d, 22, 0x26ffffff, 1)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_chat)
@@ -1766,7 +1858,13 @@ class MainActivity : AppCompatActivity() {
         Tab.values().forEach { tab ->
             val item = FrameLayout(this).apply {
                 isClickable = true
-                contentDescription = tab.label
+                contentDescription = getString(when (tab) {
+                    Tab.Home -> R.string.home
+                    Tab.Cameras -> R.string.cameras
+                    Tab.Grid -> R.string.grid_tab
+                    Tab.Events -> R.string.events_tab
+                    Tab.Settings -> R.string.settings
+                })
             }
             item.setOnClickListener {
                 when (tab) {
@@ -1795,14 +1893,14 @@ class MainActivity : AppCompatActivity() {
         dismissTransientPopups()
         val choices = visibleCameras()
         if (choices.isEmpty()) {
-            toast("Aucune camera visible.")
+            toast(getString(R.string.no_visible))
             return
         }
         val card = vertical().apply {
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = rounded(0xf018181d.toInt(), 16, 0xff2c2c34.toInt(), 1)
         }
-        card.addView(label("Choisir une camera", 13, Palette.muted).apply {
+        card.addView(label(getString(R.string.pick_camera), 13, Palette.muted).apply {
             setPadding(dp(8), dp(4), dp(8), dp(10))
         })
         val activeSession = session
@@ -1830,7 +1928,7 @@ class MainActivity : AppCompatActivity() {
             })
             row.addView(vertical().apply {
                 addView(label(camera.friendlyName, 15, Palette.text))
-                addView(label("Ouvrir le live", 12, Palette.muted).apply {
+                addView(label(getString(R.string.open_live), 12, Palette.muted).apply {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -1922,22 +2020,22 @@ class MainActivity : AppCompatActivity() {
                 alpha = 0.95f
             }, LinearLayout.LayoutParams(dp(21), dp(21)).apply { rightMargin = dp(9) })
             addView(vertical().apply {
-                addView(label("Alertes", 16, Palette.text).apply {
+                addView(label(getString(R.string.alerts), 16, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
-                addView(label(if (alerts.isEmpty()) "Aucun evenement recent" else "${alerts.size} dernieres alertes", 12, Palette.muted).apply {
+                addView(label(if (alerts.isEmpty()) getString(R.string.no_events_short) else getString(R.string.alert_count, alerts.size), 12, Palette.muted).apply {
                     setPadding(0, dp(3), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             if (alerts.isNotEmpty()) {
-                addView(label("Effacer", 12, Palette.accent).apply {
+                addView(label(getString(R.string.clear), 12, Palette.accent).apply {
                     gravity = Gravity.CENTER
                     setPadding(dp(13), 0, dp(13), 0)
                     background = rounded(Palette.surface, 14)
                     setOnClickListener {
                         markAlertsSeen(alerts, advanceCutoff = true)
                         dismissAlertsPopup()
-                        renderHome("Alertes effacees.")
+                        renderHome(getString(R.string.cleared))
                     }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
             }
@@ -1946,7 +2044,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (alerts.isEmpty()) {
-            card.addView(label("Aucune alerte sur les cameras visibles.", 14, Palette.muted).apply {
+            card.addView(label(getString(R.string.no_alerts), 14, Palette.muted).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(12), dp(28), dp(12), dp(28))
                 background = rounded(Palette.card, 12)
@@ -2052,18 +2150,18 @@ class MainActivity : AppCompatActivity() {
         })
         card.addView(localSoundRow())
         listOf(
-            CameraFeatureControl("Detection", "Analyse objets Frigate", "detect", camera.detectEnabled),
-            CameraFeatureControl("Mouvement", "Detection de mouvement", "motion", camera.motionEnabled),
-            CameraFeatureControl("Enregistrements", "Clips et recordings", "recordings", camera.recordingsEnabled),
-            CameraFeatureControl("Snapshots", "Images d'evenements", "snapshots", camera.snapshotsEnabled),
-            CameraFeatureControl("Audio", "Detection audio Frigate", "audio", camera.audioEnabled),
-            CameraFeatureControl("Transcription", "Audio transcription", "audio_transcription", camera.audioTranscriptionEnabled),
-            CameraFeatureControl("Notifications", "Notifications camera", "notifications", camera.notificationsEnabled)
+            CameraFeatureControl(getString(R.string.detection), getString(R.string.object_analysis), "detect", camera.detectEnabled),
+            CameraFeatureControl(getString(R.string.motion), getString(R.string.motion_detection), "motion", camera.motionEnabled),
+            CameraFeatureControl(getString(R.string.recordings), getString(R.string.recordings_detail), "recordings", camera.recordingsEnabled),
+            CameraFeatureControl(getString(R.string.snapshots), getString(R.string.event_images), "snapshots", camera.snapshotsEnabled),
+            CameraFeatureControl(getString(R.string.audio), getString(R.string.audio_detection), "audio", camera.audioEnabled),
+            CameraFeatureControl(getString(R.string.transcription), getString(R.string.audio_transcription), "audio_transcription", camera.audioTranscriptionEnabled),
+            CameraFeatureControl(getString(R.string.notifications), getString(R.string.camera_notifications), "notifications", camera.notificationsEnabled)
         ).forEach { control ->
             card.addView(cameraFeatureToggleRow(activeApi, activeSession.token, camera, control))
         }
-        card.addView(disabledCameraOptionRow("Micro", "Non expose par l'API Frigate native"))
-        card.addView(disabledCameraOptionRow("Alarme", "Non expose par l'API Frigate native"))
+        card.addView(disabledCameraOptionRow(getString(R.string.microphone), getString(R.string.api_unavailable)))
+        card.addView(disabledCameraOptionRow(getString(R.string.alarm), getString(R.string.api_unavailable)))
 
         val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -2092,7 +2190,7 @@ class MainActivity : AppCompatActivity() {
             if (internalChange) return@setOnCheckedChangeListener
             if (checked != soundEnabled) toggleSound()
         }
-        return settingsToggleRow("Son de lecture", "Son de la video dans FriCamGate", switchView)
+        return settingsToggleRow(getString(R.string.playback_sound), getString(R.string.playback_sound_detail), switchView)
     }
 
     private fun cameraFeatureToggleRow(
@@ -2110,9 +2208,9 @@ class MainActivity : AppCompatActivity() {
             api.setCameraFeature(token, camera.name, control.feature, checked) { result ->
                 runOnUiThread {
                     result.onSuccess {
-                        toast("${control.title} ${if (checked) "active" else "desactive"}.")
+                        toast(getString(R.string.feature_changed, control.title, getString(if (checked) R.string.enabled else R.string.disabled)))
                     }.onFailure {
-                        toast("${control.title} indisponible.")
+                        toast(getString(R.string.feature_unavailable, control.title))
                         internalChange = true
                         switchView.isChecked = !checked
                         internalChange = false
@@ -2120,7 +2218,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val detail = if (control.enabled == null) "${control.detail} - etat inconnu" else control.detail
+        val detail = if (control.enabled == null) getString(R.string.unknown_state, control.detail) else control.detail
         return settingsToggleRow(control.title, detail, switchView)
     }
 
@@ -2169,11 +2267,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             activeApi.latestFrameUrl(camera.name)
         }
-        toast("Capture en cours...")
+        toast(getString(R.string.capture_pending))
         activeApi.loadBitmap(activeSession.token, url) { bitmap ->
             runOnUiThread {
                 if (bitmap == null) {
-                    toast("Capture impossible.")
+                    toast(getString(R.string.capture_failed))
                 } else {
                     saveBitmapToGallery(bitmap, camera)
                 }
@@ -2194,7 +2292,7 @@ class MainActivity : AppCompatActivity() {
         val resolver = contentResolver
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
         if (uri == null) {
-            toast("Enregistrement impossible.")
+            toast(getString(R.string.save_failed))
             return
         }
         runCatching {
@@ -2209,30 +2307,48 @@ class MainActivity : AppCompatActivity() {
                 resolver.update(uri, values, null, null)
             }
         }.onSuccess {
-            toast("Capture enregistree dans Photos.")
+            toast(getString(R.string.capture_saved))
         }.onFailure {
             resolver.delete(uri, null, null)
-            toast("Enregistrement impossible.")
+            toast(getString(R.string.save_failed))
         }
     }
 
     private fun renderSettings() {
+        settingsPage = "main"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(pageTitle("Reglages"))
-        column.addView(sectionHeading("GENERAL"))
+        column.addView(pageTitle(getString(R.string.settings)))
+        column.addView(sectionHeading(getString(R.string.general)))
         column.addView(settingsGroup(
-            settingsNavRow("Serveur", session?.baseUrl ?: "-", { renderServerSettings() }),
-            settingsNavRow("Cameras", "${visibleCameras().size} / ${cameras.size} affichees", { renderCameraSettings() }),
-            settingsNavRow("A propos", "FriCamGate ${appVersionName()}", { renderAboutSettings() })
+            settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { renderServerSettings() }),
+            settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, visibleCameras().size, cameras.size), { renderCameraSettings() }),
+            settingsNavRow(getString(R.string.about), "FriCamGate ${appVersionName()}", { renderAboutSettings() }),
+            settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() })
         ))
-        column.addView(sectionHeading("MISES A JOUR"))
+        column.addView(sectionHeading(getString(R.string.security)))
+        val biometricSwitch = SwitchCompat(this).apply {
+            isChecked = appLock.enabled
+            contentDescription = getString(R.string.biometric_lock)
+            setOnCheckedChangeListener { button, checked ->
+                button.isEnabled = false
+                appLock.changeEnabled(checked) { actual ->
+                    button.isEnabled = true
+                    if (actual != checked) renderSettings()
+                }
+            }
+        }
+        column.addView(preferenceToggleRow(getString(R.string.biometric_lock),
+            getString(if (appLock.available() || appLock.enabled) R.string.biometric_detail else R.string.biometric_unavailable), biometricSwitch))
+        column.addView(sectionHeading(getString(R.string.notifications)))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.device_alerts), notificationStatus(), { renderNotificationSettings() })))
+        column.addView(sectionHeading(getString(R.string.updates_heading)))
         column.addView(settingsUpdateCard())
-        column.addView(sectionHeading("ACTIONS"))
+        column.addView(sectionHeading(getString(R.string.actions)))
         column.addView(settingsGroup(
-            settingsNavRow("Recharger", "Actualiser les cameras et evenements", { loadDashboard("Recharge.") }, showChevron = false)
+            settingsNavRow(getString(R.string.reload), getString(R.string.reload_detail), { loadDashboard(getString(R.string.reloaded)) }, showChevron = false)
         ))
         setShell(scroll, Tab.Settings)
         if (updateResult == null && !updateChecking) {
@@ -2240,36 +2356,155 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun currentLanguageLabel(): String {
+        val code = AppCompatDelegate.getApplicationLocales().get(0)?.language.orEmpty()
+        return appLanguages.firstOrNull { it.first == code }?.second
+            ?.takeIf { it.isNotEmpty() } ?: getString(R.string.system_language)
+    }
+
+    private fun renderLanguageSettings() {
+        settingsPage = "language"
+        releasePlayer()
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader(getString(R.string.language)))
+        column.addView(sectionHeading(getString(R.string.language_detail)))
+        val selected = AppCompatDelegate.getApplicationLocales().get(0)?.language.orEmpty()
+        column.addView(settingsGroup(*appLanguages.map { (code, nativeName) ->
+            val title = if (code.isEmpty()) getString(R.string.system_language) else nativeName
+            horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), 0, dp(12), 0)
+                isFocusable = true
+                contentDescription = title
+                addView(settingsTitleLabel(title), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(android.widget.RadioButton(context).apply {
+                    isChecked = code == selected
+                    isClickable = false
+                    isFocusable = false
+                    buttonTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Palette.accent else Palette.muted)
+                })
+                setOnClickListener {
+                    if (code != selected) {
+                        restoredSettingsPage = "language"
+                        getSharedPreferences("camgate-settings", MODE_PRIVATE).edit().putString("language", code).apply()
+                        AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(code))
+                    }
+                }
+            }
+        }.toTypedArray()))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun notificationStatus(): String = getString(when {
+        !CameraNotifications.permitted(this) -> R.string.notifications_blocked
+        CameraNotifications.enabled(this) -> R.string.notifications_enabled
+        else -> R.string.notifications_disabled
+    })
+
+    private fun renderNotificationSettings() {
+        settingsPage = "notifications"
+        releasePlayer()
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
+        scroll.addView(column, centeredScrollParams(620))
+        column.addView(settingsPageHeader(getString(R.string.notifications)))
+        val switch = SwitchCompat(this).apply {
+            isChecked = CameraNotifications.enabled(context) && CameraNotifications.permitted(context)
+            contentDescription = getString(R.string.device_alerts)
+            setOnCheckedChangeListener { _, checked ->
+                if (checked) enableDeviceNotifications() else {
+                    CameraNotifications.configure(this@MainActivity, false)
+                    renderNotificationSettings()
+                }
+            }
+        }
+        column.addView(preferenceToggleRow(getString(R.string.device_alerts), notificationStatus(), switch))
+        column.addView(label(getString(R.string.notifications_background), 13, Palette.muted).apply {
+            setPadding(dp(2), dp(16), dp(2), dp(16))
+        })
+        column.addView(settingsGroup(
+            settingsNavRow(getString(R.string.android_settings), getString(R.string.device_alerts), { openAndroidNotificationSettings() }),
+            settingsNavRow(getString(R.string.test_notification), getString(R.string.event_channel), {
+                if (CameraNotifications.enabled(this) && CameraNotifications.permitted(this)) CameraNotifications.test(this)
+                else enableDeviceNotifications()
+            }, showChevron = false)
+        ))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun enableDeviceNotifications() {
+        val settingsPrefs = getSharedPreferences("camgate-settings", MODE_PRIVATE)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            val asked = settingsPrefs.getBoolean("notificationPermissionAsked", false)
+            settingsPrefs.edit().putBoolean("notificationPermissionAsked", true).putBoolean("notificationEnablePending", true).apply()
+            if (asked && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) openAndroidNotificationSettings()
+            else notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (!CameraNotifications.permitted(this)) {
+            settingsPrefs.edit().putBoolean("notificationEnablePending", true).apply()
+            openAndroidNotificationSettings()
+        } else {
+            CameraNotifications.configure(this, true)
+            renderNotificationSettings()
+        }
+    }
+
+    private fun openAndroidNotificationSettings() {
+        val settingsIntent = if (Build.VERSION.SDK_INT >= 26) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        }
+        startActivity(settingsIntent)
+    }
+
+    private fun preferenceToggleRow(title: String, detail: String, toggle: SwitchCompat): View = horizontal().apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(18), dp(16), dp(12), dp(16))
+        background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
+        addView(vertical().apply {
+            setPadding(0, 0, dp(12), 0)
+            addView(settingsTitleLabel(title).apply { maxLines = 2 })
+            addView(label(detail, 13, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(toggle)
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+    }
+
     private fun renderServerSettings() {
+        settingsPage = "server"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(settingsPageHeader("Serveur"))
-        column.addView(sectionHeading("CONNEXION"))
+        column.addView(settingsPageHeader(getString(R.string.server)))
+        column.addView(sectionHeading(getString(R.string.connection)))
         val serverInput = editText("http://cam.example.fr", session?.baseUrl ?: prefs.getString("baseUrl", "").orEmpty())
         val usernameInput = editText("admin", session?.username ?: prefs.getString("username", "").orEmpty())
-        val passwordInput = editText("mot de passe", "").apply {
+        val passwordInput = editText(getString(R.string.password_hint), "").apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        column.addView(label("Serveur Frigate", 12, Palette.muted).apply { setPadding(0, dp(8), 0, dp(8)) })
+        column.addView(label(getString(R.string.frigate_server), 12, Palette.muted).apply { setPadding(0, dp(8), 0, dp(8)) })
         column.addView(serverInput, matchWrap())
-        column.addView(label("Utilisateur", 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
+        column.addView(label(getString(R.string.username), 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
         column.addView(usernameInput, matchWrap())
-        column.addView(label("Mot de passe", 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
+        column.addView(label(getString(R.string.password), 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
         column.addView(passwordInput, matchWrap())
-        column.addView(primaryButton("Enregistrer et reconnecter").apply {
+        column.addView(primaryButton(getString(R.string.save_reconnect)).apply {
             setOnClickListener { connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString()) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(22) })
         column.addView(settingsGroup(
-            settingsRow("Serveur actuel", session?.baseUrl ?: "-"),
-            settingsRow("Utilisateur actuel", session?.username ?: "-")
+            settingsRow(getString(R.string.current_server), session?.baseUrl ?: "-"),
+            settingsRow(getString(R.string.current_user), session?.username ?: "-")
         ))
-        column.addView(primaryButton("Deconnexion").apply {
+        column.addView(primaryButton(getString(R.string.logout)).apply {
             setOnClickListener {
-                prefs.edit().clear().apply()
+                prefs.edit().remove("token").apply()
                 session = null
                 api = null
+                CameraNotifications.schedule(this@MainActivity)
                 renderLogin()
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
@@ -2277,15 +2512,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCameraSettings() {
+        settingsPage = "cameras"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(settingsPageHeader("Cameras"))
-        column.addView(sectionHeading("VISIBILITE"))
-        column.addView(settingsGroup(settingsRow("Accueil", "${visibleCameras().size} / ${cameras.size} cameras affichees")))
+        column.addView(settingsPageHeader(getString(R.string.cameras)))
+        column.addView(sectionHeading(getString(R.string.visibility)))
+        column.addView(settingsGroup(settingsRow(getString(R.string.home), getString(R.string.camera_count_detail, visibleCameras().size, cameras.size))))
         if (cameras.isEmpty()) {
-            column.addView(emptyMessage("Aucune camera Frigate trouvee."))
+            column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else {
             column.addView(settingsGroup(*cameras.map { cameraVisibilityRow(it) }.toTypedArray()))
         }
@@ -2293,20 +2529,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderAboutSettings() {
+        settingsPage = "about"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
-        column.addView(settingsPageHeader("A propos"))
-        column.addView(sectionHeading("APPLICATION"))
+        column.addView(settingsPageHeader(getString(R.string.about)))
+        column.addView(sectionHeading(getString(R.string.application)))
         column.addView(settingsGroup(
-            settingsRow("Nom", "FriCamGate"),
-            settingsRow("Version de l'app", appVersionName())
+            settingsRow(getString(R.string.name), "FriCamGate"),
+            settingsRow(getString(R.string.app_version), appVersionName())
         ))
         column.addView(sectionHeading("NVR"))
         column.addView(settingsGroup(
-            settingsRow("Version du NVR", nvrVersion ?: "Chargement..."),
-            settingsRow("Serveur", session?.baseUrl ?: "-")
+            settingsRow(getString(R.string.nvr_version), nvrVersion ?: getString(R.string.loading)),
+            settingsRow(getString(R.string.server), session?.baseUrl ?: "-")
         ))
         setShell(scroll, Tab.Settings)
         if (nvrVersion == null) {
@@ -2355,7 +2592,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(18), 0, dp(12), 0)
             addView(vertical().apply {
                 addView(settingsTitleLabel(camera.friendlyName))
-                addView(settingsDetailLabel(if (camera.enabled) camera.name else "${camera.name} - desactivee dans Frigate"))
+                addView(settingsDetailLabel(if (camera.enabled) camera.name else getString(R.string.camera_disabled, camera.name)))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(SwitchCompat(context).apply {
                 isChecked = visible
@@ -2371,22 +2608,24 @@ class MainActivity : AppCompatActivity() {
     private fun settingsUpdateCard(): View {
         val result = updateResult
         val statusText = when {
-            updateChecking -> "Recherche en cours..."
-            result == null -> "Recherche disponible depuis l'app."
-            else -> result.message
+            updateChecking -> getString(R.string.searching)
+            result == null -> getString(R.string.search_available)
+            result.available -> getString(R.string.update_new)
+            result.latestVersion != null -> getString(R.string.up_to_date)
+            else -> getString(R.string.update_failed)
         }
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
             background = rounded(Palette.card, settingsMenuCornerRadiusDp(), 0x12ffffff, 1)
-            addView(settingsTitleLabel("Mises a jour"))
+            addView(settingsTitleLabel(getString(R.string.updates)))
             addView(settingsDetailLabel(statusText))
-            addView(settingsDetailLabel("Installee ${appVersionName()} - Derniere ${result?.latestVersion ?: "-"}"))
+            addView(settingsDetailLabel(getString(R.string.installed_latest, appVersionName(), result?.latestVersion ?: "-")))
             if (result?.available == true && !result.downloadUrl.isNullOrBlank()) {
-                addView(primaryButton("Mise a jour disponible").apply {
+                addView(primaryButton(getString(R.string.update_available)).apply {
                     setOnClickListener { downloadUpdate(result) }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(16) })
             }
-            addView(secondaryButton(if (updateChecking) "Verification..." else "Verifier").apply {
+            addView(secondaryButton(if (updateChecking) getString(R.string.checking) else getString(R.string.check)).apply {
                 isEnabled = !updateChecking
                 setOnClickListener { checkForUpdates(renderSettingsWhenDone = true) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(10) })
@@ -2498,7 +2737,7 @@ class MainActivity : AppCompatActivity() {
             textScaleX = 1.1f
             setPadding(0, dp(5), 0, 0)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val status = label(text.ifBlank { loadingStageMessage(0) }, 14, Palette.muted).apply {
+        val status = label(text.ifBlank { localizedLoadingStage(0) }, 14, Palette.muted).apply {
             gravity = Gravity.CENTER
             alpha = 0.86f
             setPadding(0, dp(28), 0, 0)
@@ -2522,18 +2761,18 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(14), dp(13), dp(14), dp(14))
             background = rounded(Palette.card, 10, 0x25ff2d70, 1)
-            addView(label("Connexion plus longue que prevu", 13, Palette.text).apply {
+            addView(label(getString(R.string.slow_connection), 13, Palette.text).apply {
                 gravity = Gravity.CENTER
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(horizontal().apply {
                 gravity = Gravity.CENTER
-                addView(secondaryButton("Reessayer").apply {
+                addView(secondaryButton(getString(R.string.retry)).apply {
                     textSize = 13f
                     setOnClickListener {
-                        if (session == null) renderLogin() else loadDashboard("Recharge.")
+                        if (session == null) renderLogin() else loadDashboard(getString(R.string.reloaded))
                     }
                 }, LinearLayout.LayoutParams(0, dp(38), 1f))
-                addView(primaryButton("Serveur").apply {
+                addView(primaryButton(getString(R.string.server)).apply {
                     textSize = 13f
                     setOnClickListener {
                         if (session == null) renderLogin() else renderServerSettings()
@@ -2570,7 +2809,7 @@ class MainActivity : AppCompatActivity() {
             duration = 4200L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
-            addUpdateListener { animation -> status.text = loadingStageMessage(animation.animatedValue as Int) }
+            addUpdateListener { animation -> status.text = localizedLoadingStage(animation.animatedValue as Int) }
             start()
         }
         loadingAnimators.addAll(listOf(ringAnimator, barAnimator, stageAnimator))
@@ -2589,6 +2828,12 @@ class MainActivity : AppCompatActivity() {
             .putString("username", value.username)
             .apply()
     }
+
+    private fun localizedLoadingStage(index: Int): String = getString(when (((index % 3) + 3) % 3) {
+        0 -> R.string.connecting_nvr
+        1 -> R.string.loading_cameras
+        else -> R.string.preparing_live
+    })
 
     private fun loadSession(): NativeSession? {
         val baseUrl = prefs.getString("baseUrl", null) ?: return null
@@ -2638,10 +2883,10 @@ class MainActivity : AppCompatActivity() {
     private fun loadNvrVersion(renderAboutWhenDone: Boolean) {
         val activeSession = session ?: return
         val activeApi = api ?: return
-        nvrVersion = "Chargement..."
+        nvrVersion = getString(R.string.loading)
         activeApi.loadNvrVersion(activeSession.token) { result ->
             runOnUiThread {
-                nvrVersion = result.getOrElse { "Indisponible" }
+                nvrVersion = result.getOrElse { getString(R.string.unavailable) }
                 if (renderAboutWhenDone) renderAboutSettings()
             }
         }
@@ -2656,13 +2901,13 @@ class MainActivity : AppCompatActivity() {
                 updateResult = result.getOrElse {
                     NativeUpdateResult(
                         available = false,
-                        message = "Recherche de mise a jour impossible.",
+                        message = getString(R.string.update_failed),
                         latestVersion = null,
                         assetName = null,
                         downloadUrl = null
                     )
                 }
-                if (renderSettingsWhenDone) renderSettings()
+                if (renderSettingsWhenDone && activeTab == Tab.Settings && settingsPage == "main") renderSettings()
             }
         }
     }
@@ -2670,20 +2915,20 @@ class MainActivity : AppCompatActivity() {
     private fun downloadUpdate(update: NativeUpdateResult) {
         val url = update.downloadUrl
         if (url.isNullOrBlank()) {
-            toast("Telechargement indisponible.")
+            toast(getString(R.string.download_unavailable))
             return
         }
         val fileName = update.assetName ?: "FriCamGate-v${update.latestVersion ?: "latest"}-debug.apk"
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("FriCamGate ${update.latestVersion ?: ""}".trim())
-            .setDescription("Telechargement de la mise a jour")
+            .setDescription(getString(R.string.download_description))
             .setMimeType("application/vnd.android.package-archive")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName)
             .addRequestHeader("User-Agent", "FriCamGate")
         val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         manager.enqueue(request)
-        toast("Telechargement lance.")
+        toast(getString(R.string.download_started))
     }
 
     private fun releasePlayer() {
@@ -2796,7 +3041,7 @@ class MainActivity : AppCompatActivity() {
             addView(View(context).apply {
                 background = rounded(Palette.accent, 3)
             }, LinearLayout.LayoutParams(dp(5), dp(5)).apply { rightMargin = dp(5) })
-            addView(label("Live", 10, Palette.text).apply {
+            addView(label(getString(R.string.live), 10, Palette.text).apply {
                 alpha = 0.92f
             })
         }
@@ -2840,7 +3085,7 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val enabled = toggleHomeSound(camera)
                 refreshHomeSoundIcons()
-                toast(if (enabled) "Son active." else "Son coupe.")
+                toast(if (enabled) getString(R.string.sound_on) else getString(R.string.sound_off))
             }
             refreshHomeSoundIcons()
         }.also {
@@ -3028,7 +3273,7 @@ class MainActivity : AppCompatActivity() {
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
             background = rounded(Palette.card, 8)
-            addView(label("Frigate ne repond pas correctement", 16, Palette.text).apply {
+            addView(label(getString(R.string.frigate_error), 16, Palette.text).apply {
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             })
             addView(label(message, 13, Palette.muted).apply {
@@ -3036,10 +3281,10 @@ class MainActivity : AppCompatActivity() {
             })
             addView(horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
-                addView(secondaryButton("Recharger").apply {
-                    setOnClickListener { loadDashboard("Recharge.") }
+                addView(secondaryButton(getString(R.string.reload)).apply {
+                    setOnClickListener { loadDashboard(getString(R.string.reloaded)) }
                 }, LinearLayout.LayoutParams(0, dp(42), 1f))
-                addView(primaryButton("Serveur").apply {
+                addView(primaryButton(getString(R.string.server)).apply {
                     setOnClickListener { renderServerSettings() }
                 }, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
                     leftMargin = dp(10)
