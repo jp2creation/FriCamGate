@@ -1334,7 +1334,12 @@ class MainActivity : AppCompatActivity() {
             isVerticalScrollBarEnabled = false
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(32), dp(360))
+        val popupWidth = cameraPickerPopupWidth(
+            resources.displayMetrics.widthPixels,
+            resources.displayMetrics.heightPixels,
+            dp(360),
+            dp(32)
+        )
         val popupHeight = minOf(dp(390), dp(56) + choices.size * dp(62))
         val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
             isOutsideTouchable = true
@@ -2817,6 +2822,18 @@ internal fun timelineRecordingWindow(focusSec: Double): TimelineRecordingWindow 
         .coerceIn(0.0, (TIMELINE_RECORDING_WINDOW_SECONDS * 1000L).toDouble())
         .toLong()
     return TimelineRecordingWindow(startSec, endSec, seekMs)
+}
+
+internal fun cameraPickerPopupWidth(
+    screenWidthPx: Int,
+    screenHeightPx: Int,
+    floatingMaxWidthPx: Int,
+    floatingHorizontalMarginPx: Int
+): Int {
+    val safeWidth = screenWidthPx.coerceAtLeast(0)
+    if (screenHeightPx >= safeWidth) return safeWidth
+    return minOf(safeWidth - floatingHorizontalMarginPx, floatingMaxWidthPx)
+        .coerceAtLeast(0)
 }
 
 internal fun cameraSetFeaturePath(cameraName: String, feature: String): String =

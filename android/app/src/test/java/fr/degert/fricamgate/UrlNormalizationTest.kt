@@ -58,4 +58,14 @@ class UrlNormalizationTest {
     fun placesTimelinePlayheadNearTopQuarter() {
         assertEquals(300, timelinePlayheadOffset(1_200))
     }
+
+    @Test
+    fun expandsCameraPickerToFullWidthOnPortraitScreens() {
+        assertEquals(1080, cameraPickerPopupWidth(1_080, 2_400, 720, 64))
+    }
+
+    @Test
+    fun keepsCameraPickerFloatingOnLandscapeScreens() {
+        assertEquals(720, cameraPickerPopupWidth(1_920, 1_080, 720, 64))
+    }
 }
