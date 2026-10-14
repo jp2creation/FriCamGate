@@ -1359,10 +1359,24 @@ class MainActivity : AppCompatActivity() {
     private fun appHeader(): View {
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.fricamgate_logo)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.fricamgate_logo)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                }, LinearLayout.LayoutParams(dp(50), dp(50)))
+                addView(vertical().apply {
+                    setPadding(dp(10), 0, 0, 0)
+                    addView(label("CamGate", 24, Palette.text).apply {
+                        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                    }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
+                    addView(label("Frigate Client", 10, Palette.muted).apply {
+                        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                        gravity = Gravity.CENTER
+                    }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
+                })
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(58), Gravity.START or Gravity.TOP).apply {
+                leftMargin = dp(18)
                 topMargin = dp(42)
             })
             addView(alertsButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
