@@ -123,6 +123,7 @@ class MainActivity : AppCompatActivity() {
     private var activeTab = Tab.Home
     private var settingsPage = "main"
     private var restoredSettingsPage: String? = null
+    private var appearanceScrollY = 0
     private var pendingEventId: String? = null
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         CameraNotifications.configure(this, granted)
@@ -155,6 +156,7 @@ class MainActivity : AppCompatActivity() {
             openPendingNotification()
         }
         restoredSettingsPage = savedInstanceState?.getString("settingsPage")
+        appearanceScrollY = savedInstanceState?.getInt("appearanceScrollY") ?: 0
         pendingEventId = intent?.getStringExtra(CameraNotifications.EVENT_ID)
         window.statusBarColor = Palette.background
         window.navigationBarColor = Palette.black
@@ -205,6 +207,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         if (activeTab == Tab.Settings) outState.putString("settingsPage", settingsPage)
+        outState.putInt("appearanceScrollY", appearanceScrollY)
         super.onSaveInstanceState(outState)
     }
 
@@ -2534,6 +2537,7 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader(getString(R.string.appearance)))
+        scroll.setOnScrollChangeListener { _, _, y, _, _ -> appearanceScrollY = y }
         fun choices(titleRes: Int, key: String, fallback: String, options: List<Pair<String, Int>>) {
             column.addView(sectionHeading(getString(titleRes)))
             val selected = appearancePrefs.getString(key, fallback)
@@ -2556,6 +2560,7 @@ class MainActivity : AppCompatActivity() {
                     })
                     setOnClickListener {
                         if (value != selected) {
+                            appearanceScrollY = scroll.scrollY
                             appearancePrefs.edit().putString(key, value).apply()
                             if (key == "theme") {
                                 recreate()
@@ -2581,7 +2586,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         column.addView(preferenceToggleRow(getString(R.string.reduce_motion), getString(R.string.reduce_motion_detail), motionSwitch))
+        val restoreY = appearanceScrollY
         setShell(scroll, Tab.Settings)
+        scroll.post { scroll.scrollTo(0, restoreY) }
     }
 
     private fun renderLanguageSettings() {
