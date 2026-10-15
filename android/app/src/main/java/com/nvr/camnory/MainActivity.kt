@@ -549,15 +549,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val playerView = PlayerView(this).apply {
-            useController = false
+            useController = true
+            controllerShowTimeoutMs = 4000
+            controllerHideOnTouch = true
+            setShowNextButton(false)
+            setShowPreviousButton(false)
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             setBackgroundColor(Color.TRANSPARENT)
             setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
-        playerFrame.addView(soundToggleButton(), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.BOTTOM).apply {
+        playerFrame.addView(soundToggleButton(), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.TOP).apply {
             rightMargin = dp(18)
-            bottomMargin = dp(14)
+            topMargin = dp(14)
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
 
@@ -581,6 +585,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             startTimelineRecordingPlayer(activeApi, activeSession.token, displayedCamera, playerView, fallback, event.startTime ?: 0.0)
         }
+        playerView.showController()
     }
 
     private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
@@ -1238,7 +1243,7 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER_VERTICAL
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-                addView(toolbarIcon(R.drawable.ic_refresh, onClick = { onRefresh() }))
+                addView(toolbarIcon(R.drawable.ic_timeline, onClick = { onRefresh() }))
                 addView(soundToolbarIcon(onSound))
                 addView(toolbarIcon(R.drawable.ic_image, onClick = { onSnapshot() }))
                 addView(toolbarIcon(R.drawable.ic_grid, tint = if (showEventsList) Palette.accent else Palette.muted, onClick = { onToggleEvents() }))

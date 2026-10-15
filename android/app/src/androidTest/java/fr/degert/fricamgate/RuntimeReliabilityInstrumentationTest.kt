@@ -86,6 +86,28 @@ class RuntimeReliabilityInstrumentationTest {
         }
     }
 
+    @Test fun notificationVideoExposesPlaybackAndSeekControls() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val event = NativeEvent("test", "front", "person", "person", null, "12:00", 1000.0, 1020.0, null)
+                MainActivity::class.java.getDeclaredMethod("renderEventDetail", NativeEvent::class.java, String::class.java)
+                    .apply { isAccessible = true }.invoke(activity, event, "front")
+                fun find(view: android.view.View): androidx.media3.ui.PlayerView? {
+                    if (view is androidx.media3.ui.PlayerView) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                        find(view.getChildAt(index))?.let { return it }
+                    }
+                    return null
+                }
+                val player = find(activity.findViewById(android.R.id.content))!!
+                assertTrue(player.useController)
+                assertNotNull(player.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress))
+                assertNotNull(player.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause))
+            }
+        }
+    }
+
     @Test fun cameraDetailLiveSoundStartsAndStopsTheAudioTransport() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
