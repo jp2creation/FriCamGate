@@ -2,6 +2,8 @@ package fr.degert.fricamgate
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -109,8 +111,19 @@ internal class BiometricAppLock(
             })
             addView(Button(activity).apply {
                 setText(R.string.unlock)
+                isAllCaps = false
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                backgroundTintList = ColorStateList.valueOf(Palette.accent)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(8).toFloat()
+                    setColor(Palette.accent)
+                }
+                setPadding(dp(20), 0, dp(20), 0)
+                compoundDrawablePadding = dp(10)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_unlock_outline, 0, 0, 0)
                 setOnClickListener { unlock() }
-            })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)))
         }
         overlay = panel
         container.addView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

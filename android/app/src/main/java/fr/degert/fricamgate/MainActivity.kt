@@ -2125,7 +2125,7 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             val layout = homeCameraLayout()
-            addView(toolbarIcon(layout.iconRes, tint = Palette.text) { anchor -> showCameraLayoutMenu(anchor) }.apply {
+            addView(toolbarIcon(R.drawable.ic_layout_selector, tint = Palette.muted) { anchor -> showCameraLayoutMenu(anchor) }.apply {
                 val description = getString(R.string.camera_layout)
                 contentDescription = description
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
