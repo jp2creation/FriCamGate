@@ -1,0 +1,14 @@
+<resources>
+    <string name="filter_all">Todos los tipos</string>
+    <string name="filter_type">Tipo de detección</string>
+    <string name="filter_name">Nombre reconocido</string>
+    <string name="filter_any_time">Cualquier fecha</string>
+    <string name="filter_day">24 horas</string>
+    <string name="filter_week">7 días</string>
+    <string name="filter_month">30 días</string>
+    <string name="filter_period">Periodo</string>
+    <string name="filter_reset">Restablecer</string>
+    <string name="filter_retry">Reintentar</string>
+    <string name="filter_loading">Cargando…</string>
+    <string name="filter_more">Cargar eventos anteriores</string>
+</resources>

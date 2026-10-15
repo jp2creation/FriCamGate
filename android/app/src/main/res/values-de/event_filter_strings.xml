@@ -1,0 +1,14 @@
+<resources>
+    <string name="filter_all">Alle Typen</string>
+    <string name="filter_type">Erkennungstyp</string>
+    <string name="filter_name">Erkannter Name</string>
+    <string name="filter_any_time">Alle Zeiträume</string>
+    <string name="filter_day">24 Stunden</string>
+    <string name="filter_week">7 Tage</string>
+    <string name="filter_month">30 Tage</string>
+    <string name="filter_period">Zeitraum</string>
+    <string name="filter_reset">Zurücksetzen</string>
+    <string name="filter_retry">Erneut versuchen</string>
+    <string name="filter_loading">Wird geladen…</string>
+    <string name="filter_more">Ältere Ereignisse laden</string>
+</resources>

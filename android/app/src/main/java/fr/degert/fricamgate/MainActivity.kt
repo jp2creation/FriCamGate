@@ -111,9 +111,14 @@ class MainActivity : AppCompatActivity() {
     private var updateChecking = false
     private var soundEnabled = false
     private val homeStreams = mutableListOf<WebSocket>()
+    private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
+    private var streamsSuspended = false
+    private val playbackResume = PlaybackResumeGate<ExoPlayer>()
     private val homeSoundIcons = mutableMapOf<String, ImageView>()
     private var homeAudioWebView: WebView? = null
+    private var resumeHomeAudioKey: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val notificationHandler = Handler(Looper.getMainLooper())
     private var homeStreamGeneration = 0
     private var homeAudioGeneration = 0
     private val seenAlertIdsMemory = mutableSetOf<String>()
@@ -124,6 +129,14 @@ class MainActivity : AppCompatActivity() {
     private var settingsPage = "main"
     private var restoredSettingsPage: String? = null
     private var appearanceScrollY = 0
+    private var eventSearch = EventSearch()
+    private var globalResults: List<NativeEvent>? = null
+    private var globalResultsContainer: LinearLayout? = null
+    private var globalLoading = false
+    private var globalHasMore = false
+    private var globalError = false
+    private var globalQueryGeneration = 0
+    private var globalQueryAnchor = 0.0
     private var pendingEventId: String? = null
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         CameraNotifications.configure(this, granted)
@@ -133,7 +146,7 @@ class MainActivity : AppCompatActivity() {
     private val notificationPoll = object : Runnable {
         override fun run() {
             if (session != null) CameraNotifications.checkNow(this@MainActivity)
-            mainHandler.postDelayed(this, 20_000L)
+            notificationHandler.postDelayed(this, 20_000L)
         }
     }
 
@@ -152,7 +165,7 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
             .putString("language", AppCompatDelegate.getApplicationLocales().toLanguageTags()).apply()
         appLock = BiometricAppLock(this) {
-            currentPlayer?.playWhenReady = true
+            resumeAfterBackground()
             homeAudioWebView?.onResume()
             openPendingNotification()
         }
@@ -177,10 +190,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        mainHandler.removeCallbacks(notificationPoll)
+        notificationHandler.removeCallbacks(notificationPoll)
         if (!isChangingConfigurations) appLock.onBackground()
+        playbackResume.remember(currentPlayer, currentPlayer?.playWhenReady == true)
         currentPlayer?.playWhenReady = false
-        homeAudioWebView?.onPause()
+        resumeHomeAudioKey = currentPlaybackKey.takeIf { soundEnabled && homeAudioWebView != null }
+        if (homeAudioWebView != null) {
+            homeAudioGeneration++
+            releaseHomeAudioWebView()
+        }
+        streamsSuspended = true
+        homeStreamGeneration++
+        homeStreams.forEach { it.cancel() }
+        homeStreams.clear()
     }
 
     override fun onPause() {
@@ -194,15 +216,18 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         appLock.onForeground()
-        if (!appLock.locked) homeAudioWebView?.onResume()
+        if (!appLock.locked) {
+            resumeAfterBackground()
+            homeAudioWebView?.onResume()
+        }
         val settingsPrefs = getSharedPreferences("camgate-settings", MODE_PRIVATE)
         if (settingsPrefs.getBoolean("notificationEnablePending", false) && CameraNotifications.permitted(this)) {
             settingsPrefs.edit().putBoolean("notificationEnablePending", false).apply()
             CameraNotifications.configure(this, true)
         }
         CameraNotifications.schedule(this)
-        mainHandler.removeCallbacks(notificationPoll)
-        mainHandler.post(notificationPoll)
+        notificationHandler.removeCallbacks(notificationPoll)
+        notificationHandler.post(notificationPoll)
         if (activeTab == Tab.Settings && settingsPage == "notifications") renderNotificationSettings()
     }
 
@@ -232,9 +257,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(notificationPoll)
+        notificationHandler.removeCallbacks(notificationPoll)
         releasePlayer()
         super.onDestroy()
+    }
+
+    private fun resumeAfterBackground() {
+        if (playbackResume.consume(currentPlayer)) currentPlayer?.playWhenReady = true
+        if (streamsSuspended) {
+            streamsSuspended = false
+            streamRestarts.values.toList().forEach { it() }
+            val key = currentPlaybackKey
+            val camera = cameras.firstOrNull { homePlaybackKey(it) == key }
+            if (soundEnabled && resumeHomeAudioKey == key && key != null && camera != null) {
+                startHomeLiveAudio(camera, key, ++homeAudioGeneration)
+            }
+            resumeHomeAudioKey = null
+        }
     }
 
     private fun renderLogin() {
@@ -305,6 +344,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadDashboard(message: String? = null) {
+        globalQueryGeneration++
+        globalResults = null
+        globalLoading = false
         releasePlayer()
         val activeSession = session
         val activeApi = api
@@ -740,18 +782,30 @@ class MainActivity : AppCompatActivity() {
         image: ImageView,
         badge: View
     ) {
+        streamRestarts[image] = { startMjpegStream(api, token, camera, image, badge) }
+        badge.visibility = View.GONE
+        if (streamsSuspended) return
         val generation = homeStreamGeneration
         fun connect(attempt: Int) {
-            if (generation != homeStreamGeneration) return
+            if (generation != homeStreamGeneration || streamsSuspended) return
             lateinit var stream: WebSocket
             var receivedFrame = false
-            val startupTimeout = Runnable {
-                if (generation != homeStreamGeneration || receivedFrame) return@Runnable
-                stream.close(1000, "startup timeout")
-                homeStreams.remove(stream)
+            var lastFrameAt = android.os.SystemClock.elapsedRealtime()
+            lateinit var watchdog: Runnable
+            fun recover() {
+                if (generation != homeStreamGeneration || !homeStreams.remove(stream)) return
+                mainHandler.removeCallbacks(watchdog)
+                stream.cancel()
                 badge.visibility = View.GONE
-                if (attempt < MAX_HOME_MJPEG_RECONNECTS) {
-                    mainHandler.postDelayed({ connect(attempt + 1) }, HOME_MJPEG_RECONNECT_DELAY_MS)
+                val next = if (receivedFrame) 0 else (attempt + 1).coerceAtMost(6)
+                mainHandler.postDelayed({ connect(next) }, streamRetryDelay(next))
+            }
+            watchdog = object : Runnable {
+                override fun run() {
+                    if (generation != homeStreamGeneration || !homeStreams.contains(stream)) return
+                    val limit = if (receivedFrame) 15_000L else HOME_MJPEG_STARTUP_TIMEOUT_MS
+                    if (android.os.SystemClock.elapsedRealtime() - lastFrameAt >= limit) recover()
+                    else mainHandler.postDelayed(this, 1000L)
                 }
             }
             stream = api.openMjpegStream(
@@ -761,26 +815,15 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         if (!homeStreams.contains(stream) || generation != homeStreamGeneration) return@runOnUiThread
                         receivedFrame = true
-                        mainHandler.removeCallbacks(startupTimeout)
+                        lastFrameAt = android.os.SystemClock.elapsedRealtime()
                         image.setImageBitmap(bitmap)
                         badge.visibility = View.VISIBLE
                     }
                 },
-                onError = {
-                    runOnUiThread {
-                        if (generation != homeStreamGeneration) return@runOnUiThread
-                        mainHandler.removeCallbacks(startupTimeout)
-                        homeStreams.remove(stream)
-                        stream.close(1000, "stream error")
-                        badge.visibility = View.GONE
-                        if (attempt < MAX_HOME_MJPEG_RECONNECTS) {
-                            mainHandler.postDelayed({ connect(attempt + 1) }, HOME_MJPEG_RECONNECT_DELAY_MS)
-                        }
-                    }
-                }
+                onError = { runOnUiThread { recover() } }
             )
             homeStreams.add(stream)
-            mainHandler.postDelayed(startupTimeout, HOME_MJPEG_STARTUP_TIMEOUT_MS)
+            mainHandler.postDelayed(watchdog, 1000L)
         }
         connect(0)
     }
@@ -858,6 +901,16 @@ class MainActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             webChromeClient = WebChromeClient()
+            addJavascriptInterface(object {
+                @android.webkit.JavascriptInterface
+                fun failed() {
+                    runOnUiThread {
+                        if (generation == homeAudioGeneration && currentPlaybackKey == playbackKey) {
+                            failHomeLiveAudio(playbackKey, getString(R.string.sound_unavailable))
+                        }
+                    }
+                }
+            }, "CamGateAudio")
         }
         homeAudioWebView = webView
         addContentView(webView, FrameLayout.LayoutParams(1, 1, Gravity.START or Gravity.TOP))
@@ -896,13 +949,22 @@ class MainActivity : AppCompatActivity() {
             const queue = [];
             let sourceBuffer;
             let socket;
+            const startup = setTimeout(() => CamGateAudio.failed(), 12000);
+            video.addEventListener('playing', () => clearTimeout(startup));
             function pump() {
               if (video.error) return;
               if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
-              sourceBuffer.appendBuffer(queue.shift());
+              try {
+                if (sourceBuffer.buffered.length && video.currentTime - sourceBuffer.buffered.start(0) > 30) {
+                  sourceBuffer.remove(0, video.currentTime - 15);
+                  return;
+                }
+                sourceBuffer.appendBuffer(queue.shift());
+              } catch (_) { CamGateAudio.failed(); }
             }
             video.addEventListener('error', () => {
               try { if (socket) socket.close(); } catch (_) {}
+              CamGateAudio.failed();
             });
             const mediaSource = new MediaSource();
             video.src = URL.createObjectURL(mediaSource);
@@ -912,6 +974,8 @@ class MainActivity : AppCompatActivity() {
               socket.onopen = () => {
                 socket.send(JSON.stringify({ type: 'mse', value: $codecsLiteral }));
               };
+              socket.onerror = () => CamGateAudio.failed();
+              socket.onclose = () => CamGateAudio.failed();
               socket.onmessage = (event) => {
                 if (typeof event.data === 'string') {
                   const message = JSON.parse(event.data);
@@ -923,6 +987,7 @@ class MainActivity : AppCompatActivity() {
                   }
                   return;
                 }
+                if (queue.length > 120) { CamGateAudio.failed(); return; }
                 queue.push(event.data);
                 pump();
               };
@@ -1214,15 +1279,99 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderGlobalEvents() {
         releasePlayer()
-        setShell(globalEventList(events), Tab.Grid)
+        setShell(globalEventList(globalResults.orEmpty()), Tab.Grid)
+        if (globalResults == null && !globalLoading) loadGlobalEventPage(reset = true)
+    }
+
+    private fun loadGlobalEventPage(reset: Boolean) {
+        val activeSession = session ?: return
+        val activeApi = api ?: return
+        if (globalLoading) return
+        globalLoading = true
+        globalError = false
+        if (reset) {
+            globalQueryAnchor = System.currentTimeMillis() / 1000.0
+            globalResults = emptyList()
+            globalHasMore = false
+        }
+        val before = if (reset) null else globalResults?.mapNotNull { it.startTime }?.minOrNull()
+        val generation = ++globalQueryGeneration
+        val search = eventSearch
+        refreshGlobalEventResults()
+        activeApi.searchEvents(activeSession.token, search, globalQueryAnchor, before) { result ->
+            runOnUiThread {
+                if (generation != globalQueryGeneration || session?.token != activeSession.token || search != eventSearch) return@runOnUiThread
+                globalLoading = false
+                result.onSuccess { page ->
+                    globalResults = (globalResults.orEmpty() + page).distinctBy { it.id }.sortedByDescending { it.startTime ?: 0.0 }
+                    globalHasMore = page.size >= 100
+                }.onFailure { globalError = true }
+                if (activeTab == Tab.Grid) refreshGlobalEventResults()
+            }
+        }
+    }
+
+    private fun changeEventSearch(next: EventSearch) {
+        eventSearch = next
+        globalQueryGeneration++
+        globalLoading = false
+        globalResults = null
+        renderGlobalEvents()
+    }
+
+    private fun eventFilterBar(): View = appHorizontalScrollView().apply {
+        val row = horizontal().apply { setPadding(0, 0, 0, dp(10)) }
+        addView(row)
+        fun menu(title: String, values: List<String>, checked: Int, select: (Int) -> Unit) {
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity).setTitle(title)
+                .setSingleChoiceItems(values.toTypedArray(), checked) { dialog, index -> dialog.dismiss(); select(index) }
+                .setNegativeButton(android.R.string.cancel, null).show()
+        }
+        fun filter(title: String, action: () -> Unit) {
+            row.addView(secondaryButton(title).apply {
+                isAllCaps = false
+                textSize = 12f * Appearance.textScale(appearancePrefs.getString("textSize", null))
+                setPadding(dp(12), 0, dp(12), 0)
+                setOnClickListener { action() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)).apply { rightMargin = dp(8) })
+        }
+        val options = visibleCameras()
+        filter(options.firstOrNull { it.name == eventSearch.camera }?.friendlyName ?: getString(R.string.all_cameras)) {
+            menu(getString(R.string.cameras), listOf(getString(R.string.all_cameras)) + options.map { it.friendlyName },
+                options.indexOfFirst { it.name == eventSearch.camera } + 1) { index ->
+                changeEventSearch(eventSearch.copy(camera = options.getOrNull(index - 1)?.name))
+            }
+        }
+        filter(getString(eventSearch.kind.titleRes)) {
+            val kinds = EventKind.values()
+            menu(getString(R.string.filter_type), kinds.map { getString(it.titleRes) }, kinds.indexOf(eventSearch.kind)) {
+                changeEventSearch(eventSearch.copy(kind = kinds[it]))
+            }
+        }
+        filter(eventSearch.name ?: getString(R.string.filter_name)) {
+            val input = editText(getString(R.string.filter_name), eventSearch.name.orEmpty())
+            input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            val body = vertical().apply {
+                setPadding(dp(20), dp(8), dp(20), dp(8))
+                addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
+            }
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity).setTitle(R.string.filter_name)
+                .setView(body).setPositiveButton(android.R.string.ok) { _, _ ->
+                    changeEventSearch(eventSearch.copy(name = input.text.toString().trim().takeIf { it.isNotEmpty() }))
+                }.setNeutralButton(R.string.clear) { _, _ -> changeEventSearch(eventSearch.copy(name = null)) }
+                .setNegativeButton(android.R.string.cancel, null).show().also { input.requestFocus() }
+        }
+        val periods = listOf(null, 24, 168, 720)
+        val titles = listOf(R.string.filter_any_time, R.string.filter_day, R.string.filter_week, R.string.filter_month)
+        filter(getString(titles[periods.indexOf(eventSearch.hours).coerceAtLeast(0)])) {
+            menu(getString(R.string.filter_period), titles.map { getString(it) }, periods.indexOf(eventSearch.hours)) {
+                changeEventSearch(eventSearch.copy(hours = periods[it]))
+            }
+        }
+        if (eventSearch != EventSearch()) filter(getString(R.string.filter_reset)) { changeEventSearch(EventSearch()) }
     }
 
     private fun globalEventList(sourceEvents: List<NativeEvent>): View {
-        val visibleNames = visibleCameras().map { it.name }.toSet()
-        val globalEvents = sourceEvents
-            .filter { it.camera in visibleNames }
-            .filter { it.startTime != null }
-            .sortedByDescending { it.startTime ?: 0.0 }
         val scroll = appScrollView().apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
@@ -1246,18 +1395,48 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(toolbarIcon(R.drawable.ic_refresh) { loadGlobalEventPage(reset = true) })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        if (globalEvents.isEmpty()) {
+        column.addView(eventFilterBar())
+        val results = vertical()
+        globalResultsContainer = results
+        column.addView(results)
+        populateGlobalEventResults(results, sourceEvents)
+        return scroll
+    }
+
+    private fun refreshGlobalEventResults() {
+        globalResultsContainer?.let { column ->
+            column.removeAllViews()
+            populateGlobalEventResults(column, globalResults.orEmpty())
+        }
+    }
+
+    private fun populateGlobalEventResults(column: LinearLayout, sourceEvents: List<NativeEvent>) {
+        val visibleNames = visibleCameras().map { it.name }.toSet()
+        val globalEvents = sourceEvents.filter { it.camera in visibleNames && it.startTime != null }
+            .sortedByDescending { it.startTime ?: 0.0 }
+        if (globalError) {
+            column.addView(secondaryButton(getString(R.string.filter_retry)).apply { setOnClickListener { loadGlobalEventPage(reset = globalResults.isNullOrEmpty()) } })
+        }
+        if (globalLoading && globalEvents.isEmpty()) {
+            column.addView(emptyMessage(getString(R.string.filter_loading)))
+            return
+        }
+        if (globalEvents.isEmpty() && !globalError) {
             column.addView(emptyMessage(getString(R.string.no_notifications)))
-            return scroll
+            if (!globalHasMore) return
         }
         globalEvents.forEach { event ->
             column.addView(globalEventRow(event).apply { minimumHeight = dp(100) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             })
         }
-        return scroll
+        if (globalHasMore || globalLoading) column.addView(secondaryButton(getString(if (globalLoading) R.string.filter_loading else R.string.filter_more)).apply {
+            isEnabled = !globalLoading
+            setOnClickListener { loadGlobalEventPage(reset = false) }
+        })
     }
 
     private fun globalEventRow(event: NativeEvent): View {
@@ -1728,7 +1907,7 @@ class MainActivity : AppCompatActivity() {
                     prefs.edit().putStringSet(key, (unread.map { it.id } + acknowledged).take(1000).toSet()).apply()
                     card.visibility = View.GONE
                 })
-                addView(action(R.string.activity_review) { renderGlobalEvents() })
+                addView(action(R.string.activity_review) { changeEventSearch(EventSearch()) })
             })
         }
     }
@@ -3221,6 +3400,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        globalResultsContainer = null
+        resumeHomeAudioKey = null
         dismissCameraPicker()
         homeStreamGeneration += 1
         homeAudioGeneration += 1
@@ -3232,6 +3413,7 @@ class MainActivity : AppCompatActivity() {
         releaseCurrentPlayer()
         homeStreams.forEach { it.close(1000, "released") }
         homeStreams.clear()
+        streamRestarts.clear()
         homeSoundIcons.clear()
     }
 
@@ -3260,6 +3442,7 @@ class MainActivity : AppCompatActivity() {
         homeStreamGeneration += 1
         homeStreams.forEach { it.close(1000, "timeline") }
         homeStreams.clear()
+        streamRestarts.clear()
     }
 
     private fun toast(message: String) {
@@ -3610,8 +3793,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val HOME_MJPEG_STARTUP_TIMEOUT_MS = 8000L
-        private const val HOME_MJPEG_RECONNECT_DELAY_MS = 1200L
-        private const val MAX_HOME_MJPEG_RECONNECTS = 4
     }
 }
 
@@ -3784,6 +3965,10 @@ private class FrigateNativeApi(
         }
     }
 
+    fun searchEvents(token: String, search: EventSearch, now: Double, before: Double?, callback: (Result<List<NativeEvent>>) -> Unit) {
+        getJsonArray(token, search.query(now, before)) { result -> callback(result.mapCatching { parseEvents(it) }) }
+    }
+
     fun loadNvrVersion(token: String, callback: (Result<String>) -> Unit) {
         val request = authRequest(token, "/api/version")
             .header("Accept", "text/plain,application/json")
@@ -3933,6 +4118,15 @@ private class FrigateNativeApi(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                onError()
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, reason)
+                onError()
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 onError()
             }
         })

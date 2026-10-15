@@ -1,0 +1,14 @@
+<resources>
+    <string name="filter_all">Tutti i tipi</string>
+    <string name="filter_type">Tipo di rilevamento</string>
+    <string name="filter_name">Nome riconosciuto</string>
+    <string name="filter_any_time">Tutte le date</string>
+    <string name="filter_day">24 ore</string>
+    <string name="filter_week">7 giorni</string>
+    <string name="filter_month">30 giorni</string>
+    <string name="filter_period">Periodo</string>
+    <string name="filter_reset">Reimposta</string>
+    <string name="filter_retry">Riprova</string>
+    <string name="filter_loading">Caricamento…</string>
+    <string name="filter_more">Carica eventi precedenti</string>
+</resources>
