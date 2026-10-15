@@ -111,6 +111,7 @@ class MainActivity : AppCompatActivity() {
     private var updateChecking = false
     private var updateCardView: View? = null
     private var soundEnabled = false
+    private var detailSoundRefresh: (() -> Unit)? = null
     private val homeStreams = mutableListOf<WebSocket>()
     private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
     private var streamsSuspended = false
@@ -496,6 +497,7 @@ class MainActivity : AppCompatActivity() {
                 showEventsList = showEventsList,
                 onRefresh = { renderCameraDetail(camera) },
                 onSnapshot = { saveCameraSnapshot(camera, currentFocusSec, currentFocusIsLive) },
+                onSound = { if (currentFocusIsLive) toggleHomeSound(camera) else toggleSound() },
                 onToggleEvents = { renderCameraDetail(camera, timelineDayMillis, timelineEvents, currentFocusSec, !showEventsList) },
                 onSettings = { anchor -> showCameraOptionsPopup(camera, anchor) }
             )
@@ -511,6 +513,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(detailContent, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Cameras, showHeader = false)
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
+        if (currentFocusIsLive) ensureLiveAudio(camera)
     }
 
     private fun renderEventDetail(event: NativeEvent, displayedCameraName: String = event.camera) {
@@ -673,6 +676,8 @@ class MainActivity : AppCompatActivity() {
         onPlaybackClock: (Double) -> Unit = {}
     ) {
         val safeFocus = focusSec.coerceAtLeast(0.0)
+        homeAudioGeneration++
+        releaseHomeAudioWebView()
         val window = timelineRecordingWindow(safeFocus)
         val windowStart = window.startSec
         val windowEnd = window.endSec
@@ -714,11 +719,14 @@ class MainActivity : AppCompatActivity() {
         var usingDefaultVod = false
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED && currentPlayer === player && currentPlaybackKey == key) {
+                if (playbackState == Player.STATE_ENDED && player.playWhenReady && currentPlayer === player && currentPlaybackKey == key) {
+                    val generation = timelinePlaybackGeneration
                     mainHandler.post {
-                        if (currentPlayer === player && currentPlaybackKey == key) {
-                            startTimelineRecordingPlayer(api, token, camera, playerView, fallback,
-                                windowEnd.toDouble(), onPlaybackClock)
+                        if (generation == timelinePlaybackGeneration && currentPlayer === player && currentPlaybackKey == key) {
+                            val now = System.currentTimeMillis() / 1000.0
+                            val next = nextRecordingFocus(windowEnd, now)
+                            if (next == null) onPlaybackClock(now)
+                            else startTimelineRecordingPlayer(api, token, camera, playerView, fallback, next, onPlaybackClock)
                         }
                     }
                 }
@@ -727,8 +735,6 @@ class MainActivity : AppCompatActivity() {
                         firstReadySeekDone = true
                         player.seekTo(seekMs)
                     }
-                    player.playWhenReady = true
-                    player.play()
                 }
             }
 
@@ -776,7 +782,7 @@ class MainActivity : AppCompatActivity() {
         val playbackGeneration = ++timelinePlaybackGeneration
         fun tick() {
             if (timelinePlaybackGeneration != playbackGeneration || currentPlaybackKey != playbackKey || currentPlayer !== player) return
-            if (playerView.visibility == View.VISIBLE && player.playbackState != Player.STATE_IDLE) {
+            if (playerView.visibility == View.VISIBLE && player.isPlaying) {
                 onPlaybackClock(windowStartSec + (player.currentPosition / 1000.0))
             }
             if (player.playbackState != Player.STATE_ENDED) {
@@ -869,6 +875,16 @@ class MainActivity : AppCompatActivity() {
             icon.setImageResource(if (active) R.drawable.ic_volume else R.drawable.ic_volume_off)
             icon.alpha = if (active) 1f else 0.72f
         }
+        detailSoundRefresh?.invoke()
+    }
+
+    private fun ensureLiveAudio(camera: NativeCamera) {
+        if (!soundEnabled) return
+        val key = homePlaybackKey(camera)
+        if (currentPlaybackKey == key && homeAudioWebView != null) return
+        releaseHomeAudioWebView()
+        currentPlaybackKey = key
+        startHomeLiveAudio(camera, key, ++homeAudioGeneration)
     }
 
     private fun toggleHomeSound(camera: NativeCamera): Boolean {
@@ -1193,6 +1209,7 @@ class MainActivity : AppCompatActivity() {
         })
         setContentView(root)
         startMjpegStream(activeApi, activeSession.token, camera, image, live)
+        ensureLiveAudio(camera)
     }
 
     private fun cameraToolbar(
@@ -1200,6 +1217,7 @@ class MainActivity : AppCompatActivity() {
         showEventsList: Boolean,
         onRefresh: () -> Unit,
         onSnapshot: () -> Unit,
+        onSound: () -> Boolean,
         onToggleEvents: () -> Unit,
         onSettings: (View) -> Unit
     ): View {
@@ -1221,7 +1239,7 @@ class MainActivity : AppCompatActivity() {
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
                 addView(toolbarIcon(R.drawable.ic_refresh, onClick = { onRefresh() }))
-                addView(soundToolbarIcon())
+                addView(soundToolbarIcon(onSound))
                 addView(toolbarIcon(R.drawable.ic_image, onClick = { onSnapshot() }))
                 addView(toolbarIcon(R.drawable.ic_grid, tint = if (showEventsList) Palette.accent else Palette.muted, onClick = { onToggleEvents() }))
                 addView(toolbarIcon(R.drawable.ic_settings, onClick = { anchor -> onSettings(anchor) }))
@@ -1760,6 +1778,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { bitmap?.let { preview.setImageBitmap(it) } }
             }
             startMjpegStream(activeApi, activeSession.token, camera, preview, liveBadge)
+            ensureLiveAudio(camera)
         }
         fun returnToLive() {
             if (!selectedToday) {
@@ -1784,6 +1803,13 @@ class MainActivity : AppCompatActivity() {
         var syncingPlaybackScroll = false
         fun updatePlaybackClock(playbackSec: Double) {
             if (!timelineMode || !interaction.followsPlayback || frame.height <= 0) return
+            if (selectedToday && playbackSec >= System.currentTimeMillis() / 1000.0 - 3.0) {
+                syncingPlaybackScroll = true
+                scroll.scrollTo(0, 0)
+                syncingPlaybackScroll = false
+                resumeLive()
+                return
+            }
             currentTime.text = formatTimelineClock(playbackSec)
             onFocusChanged(playbackSec, false)
             lastPlaybackSec = playbackSec
@@ -1813,6 +1839,7 @@ class MainActivity : AppCompatActivity() {
             lastPlaybackSec = centerSec
             interaction.beginScroll()
             timelinePlaybackGeneration += 1
+            currentPlayer?.pause()
             if (!timelineMode) {
                 timelineMode = true
                 stopMjpegStreams()
@@ -3628,6 +3655,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        detailSoundRefresh = null
         globalResultsContainer = null
         resumeHomeAudioKey = null
         dismissCameraPicker()
@@ -3810,7 +3838,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun soundToolbarIcon(): View {
+    private fun soundToolbarIcon(onToggle: () -> Boolean = { toggleSound() }): View {
         val icon = ImageView(this).apply {
             alpha = 0.9f
         }
@@ -3820,12 +3848,14 @@ class MainActivity : AppCompatActivity() {
         }
         return FrameLayout(this).apply {
             isClickable = true
+            contentDescription = getString(R.string.playback_sound)
             addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
             setOnClickListener {
-                toggleSound()
+                onToggle()
                 refresh()
             }
             refresh()
+            detailSoundRefresh = { refresh() }
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(dp(42), dp(52))
         }

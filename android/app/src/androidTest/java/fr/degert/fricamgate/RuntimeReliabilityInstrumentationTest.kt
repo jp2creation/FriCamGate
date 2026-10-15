@@ -86,6 +86,32 @@ class RuntimeReliabilityInstrumentationTest {
         }
     }
 
+    @Test fun cameraDetailLiveSoundStartsAndStopsTheAudioTransport() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val camera = NativeCamera("front", "Front", true, "front", null, null, null, null, true, null, null)
+                MainActivity::class.java.getDeclaredMethod("renderCameraDetail", NativeCamera::class.java,
+                    java.lang.Long.TYPE, List::class.java, java.lang.Double::class.java, java.lang.Boolean.TYPE)
+                    .apply { isAccessible = true }.invoke(activity, camera, System.currentTimeMillis(), null, null, false)
+                fun find(view: android.view.View): android.view.View? {
+                    if (view.contentDescription == activity.getString(R.string.playback_sound)) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                        find(view.getChildAt(index))?.let { return it }
+                    }
+                    return null
+                }
+                val button = find(activity.findViewById(android.R.id.content))!!
+                button.performClick()
+                assertEquals("home:front", field("currentPlaybackKey").get(activity))
+                assertNotNull(field("homeAudioWebView").get(activity))
+                button.performClick()
+                assertNull(field("homeAudioWebView").get(activity))
+                assertEquals(false, field("soundEnabled").get(activity))
+            }
+        }
+    }
+
     @Test fun recognizedNameFilterQueriesServerAndDisplaysMatchingEvents() {
         val requested = CountDownLatch(1)
         server.dispatcher = object : Dispatcher() {
