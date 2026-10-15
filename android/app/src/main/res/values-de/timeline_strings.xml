@@ -1,0 +1,5 @@
+<resources>
+    <string name="timeline_color">Zeitleistenfarbe</string>
+    <string name="timeline_color_accent">Akzentfarbe der App</string>
+    <string name="timeline_color_blue">Klassisches Blau</string>
+</resources>

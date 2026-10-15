@@ -1523,16 +1523,15 @@ class MainActivity : AppCompatActivity() {
         val spanMinutes = maxOf(18.0, (anchorSec - oldestEventSec) / 60.0 + 6.0)
         val timelineThumbWidth = dp(148)
         val timelineThumbHeight = dp(82)
-        val stackedThumbHeight = cameraEvents.size * (timelineThumbHeight + dp(12))
-        val timelineHeight = maxOf(
-            topSpacer + bottomSpacer + (spanMinutes * pxPerMinute).toInt(),
-            topSpacer + bottomSpacer + stackedThumbHeight
-        )
+        val playheadColor = timelineColor(appearancePrefs.getString("timelineColor", "accent"), Palette.accent)
+        val previewGroups = timelinePreviewGroups(cameraEvents.map { it.startTime!! },
+            (timelineThumbHeight + dp(12)) * 60.0 / pxPerMinute)
+        val previewCounts = previewGroups.associate { it.first() to it.size }
+        val timelineHeight = topSpacer + bottomSpacer + (spanMinutes * pxPerMinute).toInt()
         scroll.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, timelineHeight))
 
         fun yForTime(timeSec: Double): Int {
-            val minutes = ((anchorSec - timeSec) / 60.0).coerceAtLeast(0.0)
-            return topSpacer + (minutes * pxPerMinute).toInt()
+            return timelineY(anchorSec, timeSec, topSpacer, pxPerMinute)
         }
 
         val tickStepMinutes = when (zoomIndex) {
@@ -1542,11 +1541,10 @@ class MainActivity : AppCompatActivity() {
         }
         val tickCount = (spanMinutes / tickStepMinutes).toInt() + 1
         repeat(tickCount) { tick ->
-            val minutesFromAnchor = tick * tickStepMinutes
-            val y = topSpacer + minutesFromAnchor * pxPerMinute
-            val timeSec = anchorSec - minutesFromAnchor * 60.0
-            val isHour = minutesFromAnchor % 60 == 0
-            val isMajor = isHour || tickStepMinutes <= 2 || minutesFromAnchor % (tickStepMinutes * 3) == 0
+            val timeSec = timelineFirstTick(anchorSec, tickStepMinutes) - tick * tickStepMinutes * 60.0
+            val y = yForTime(timeSec)
+            val isHour = timeSec.toLong() % 3600L == 0L
+            val isMajor = isHour || tickStepMinutes <= 2 || timeSec.toLong() % (tickStepMinutes * 180L) == 0L
             column.addView(View(this).apply {
                 setBackgroundColor(if (isMajor) Palette.tick else Palette.tickMinor)
             }, FrameLayout.LayoutParams(dp(if (isMajor) 22 else 8), dp(1), Gravity.START or Gravity.TOP).apply {
@@ -1577,9 +1575,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         column.addView(View(this).apply {
-            background = rounded(0x36ff2d63, 4)
-        }, FrameLayout.LayoutParams(dp(5), timelineHeight - topSpacer, Gravity.TOP or Gravity.START).apply {
-            leftMargin = railX - dp(2)
+            background = rounded(androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 48), 2)
+        }, FrameLayout.LayoutParams(dp(2), timelineHeight - topSpacer, Gravity.TOP or Gravity.START).apply {
+            leftMargin = railX - dp(1)
             topMargin = topSpacer
         })
 
@@ -1592,30 +1590,30 @@ class MainActivity : AppCompatActivity() {
                 topMargin = topSpacer
             })
         } else {
-            var lastThumbBottom = topSpacer - dp(18)
-            cameraEvents.forEach { event ->
-                val start = event.startTime ?: return@forEach
+            cameraEvents.forEachIndexed { index, event ->
+                val start = event.startTime ?: return@forEachIndexed
                 val end = event.endTime ?: (start + 30.0)
                 val eventTop = yForTime(end).coerceIn(topSpacer, timelineHeight - bottomSpacer)
-                val eventBottom = yForTime(start).coerceAtLeast(eventTop + dp(26))
-                val eventHeight = (eventBottom - eventTop).coerceAtLeast(dp(36))
+                val eventBottom = yForTime(start)
+                val eventHeight = (eventBottom - eventTop).coerceAtLeast(dp(3))
                 column.addView(View(this).apply {
-                    background = rounded(Palette.accent, 8)
-                }, FrameLayout.LayoutParams(dp(7), eventHeight, Gravity.START or Gravity.TOP).apply {
-                    leftMargin = railX - dp(3)
+                    background = rounded(Palette.accent, 2)
+                }, FrameLayout.LayoutParams(dp(4), eventHeight, Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX - dp(2)
                     topMargin = eventTop
                 })
-                val eventCenter = eventTop + eventHeight / 2
+                val eventCenter = yForTime(start)
                 column.addView(View(this).apply {
-                    background = rounded(Palette.backgroundAlt, 9, Palette.border, 2)
-                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.START or Gravity.TOP).apply {
-                    leftMargin = railX - dp(9)
-                    topMargin = eventCenter - dp(9)
+                    background = rounded(Palette.accent, 1)
+                }, FrameLayout.LayoutParams(dp(10), dp(2), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX - dp(5)
+                    topMargin = eventCenter - dp(1)
                 })
+                val previewCount = previewCounts[index] ?: return@forEachIndexed
                 column.addView(View(this).apply {
-                    setBackgroundColor(Palette.tick)
+                    setBackgroundColor(Palette.tickMinor)
                 }, FrameLayout.LayoutParams(dp(84), dp(1), Gravity.START or Gravity.TOP).apply {
-                    leftMargin = railX + dp(10)
+                    leftMargin = railX + dp(6)
                     topMargin = eventCenter
                 })
                 val icon = eventObjectIcon(event)
@@ -1625,15 +1623,17 @@ class MainActivity : AppCompatActivity() {
                     addView(ImageView(context).apply {
                         setImageResource(icon)
                         setColorFilter(Palette.muted)
-                    }, LinearLayout.LayoutParams(dp(22), dp(22)))
-                    addView(label(eventText, 11, Palette.muted).apply {
+                    }, LinearLayout.LayoutParams(dp(16), dp(16)))
+                    addView(label(eventText, 9, Palette.muted).apply {
                         gravity = Gravity.CENTER
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
                         setPadding(0, dp(3), 0, 0)
-                    }, LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT))
+                    }, LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.WRAP_CONTENT))
                     setOnClickListener { renderEventDetail(event) }
-                }, FrameLayout.LayoutParams(dp(92), dp(54), Gravity.START or Gravity.TOP).apply {
-                    leftMargin = railX + dp(34)
-                    topMargin = eventCenter - dp(27)
+                }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = railX + dp(8)
+                    topMargin = eventCenter - dp(24)
                 })
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
@@ -1645,15 +1645,25 @@ class MainActivity : AppCompatActivity() {
                 }
                 loadEventPreviewAnimated(event, thumb)
                 thumbFrame.addView(thumb, frameMatch())
+                thumbFrame.addView(label(formatTimelineClock(start) + if (previewCount > 1) "  +${previewCount - 1}" else "", 10, Color.WHITE).apply {
+                    setShadowLayer(4f, 0f, 1f, Color.BLACK)
+                    background = rounded(0x99000000.toInt(), 3)
+                    setPadding(dp(5), dp(2), dp(5), dp(2))
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(4)
+                    rightMargin = dp(4)
+                })
                 thumbFrame.addView(label(eventText, 12, Palette.text).apply {
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     setShadowLayer(5f, 0f, 1f, Palette.black)
                     setPadding(dp(8), 0, dp(8), dp(6))
                     gravity = Gravity.BOTTOM or Gravity.START
                 }, frameMatch())
-                thumbFrame.setOnClickListener { renderEventDetail(event) }
-                val thumbTop = maxOf(eventCenter - timelineThumbHeight / 2, lastThumbBottom + dp(12))
-                lastThumbBottom = thumbTop + timelineThumbHeight
+                thumbFrame.setOnClickListener {
+                    if (previewCount > 1) renderCameraDetail(camera, timelineDayMillis, cameraEvents, start, true)
+                    else renderEventDetail(event)
+                }
+                val thumbTop = eventCenter - timelineThumbHeight / 2
                 column.addView(thumbFrame, FrameLayout.LayoutParams(timelineThumbWidth, timelineThumbHeight, Gravity.END or Gravity.TOP).apply {
                     rightMargin = dp(34)
                     topMargin = thumbTop
@@ -1661,13 +1671,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         frame.addView(scroll, frameMatch())
-        frame.addView(View(this).apply { setBackgroundColor(Palette.liveBlue) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2), Gravity.TOP).apply {
+        frame.addView(View(this).apply { setBackgroundColor(playheadColor) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1), Gravity.TOP).apply {
             topMargin = topSpacer
         })
-        val currentTime = label(if (selectedToday) getString(R.string.live) else formatTimelineClock(anchorSec), 14, Palette.text).apply {
+        val currentTime = label(if (selectedToday) getString(R.string.live) else formatTimelineClock(anchorSec), 14, Color.WHITE).apply {
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            background = rounded(Palette.liveBlue, 14)
+            background = rounded(playheadColor, 10)
             setPadding(dp(10), 0, dp(10), 0)
         }
         frame.addView(currentTime, FrameLayout.LayoutParams(dp(106), dp(34), Gravity.START or Gravity.TOP).apply {
@@ -2816,6 +2826,7 @@ class MainActivity : AppCompatActivity() {
         choices(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light))
         choices(R.string.background_style, "backgroundStyle", "automatic", BackgroundStyle.values().map { it.preference to it.titleRes })
         choices(R.string.accent_color, "accent", "red", listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet))
+        choices(R.string.timeline_color, "timelineColor", "accent", listOf("accent" to R.string.timeline_color_accent, "blue" to R.string.timeline_color_blue))
         choices(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))
         choices(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })
         column.addView(sectionHeading(getString(R.string.animations)))

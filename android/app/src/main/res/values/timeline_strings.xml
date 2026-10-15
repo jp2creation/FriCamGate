@@ -1,0 +1,5 @@
+<resources>
+    <string name="timeline_color">Timeline color</string>
+    <string name="timeline_color_accent">App accent color</string>
+    <string name="timeline_color_blue">Classic blue</string>
+</resources>

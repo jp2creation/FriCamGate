@@ -1,0 +1,5 @@
+<resources>
+    <string name="timeline_color">Color de la línea de tiempo</string>
+    <string name="timeline_color_accent">Color de acento de la aplicación</string>
+    <string name="timeline_color_blue">Azul clásico</string>
+</resources>

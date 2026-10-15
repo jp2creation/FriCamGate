@@ -1,0 +1,5 @@
+<resources>
+    <string name="timeline_color">Colore della timeline</string>
+    <string name="timeline_color_accent">Colore principale dell’app</string>
+    <string name="timeline_color_blue">Blu classico</string>
+</resources>
