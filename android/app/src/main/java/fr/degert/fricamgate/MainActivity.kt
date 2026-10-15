@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private var settingsPage = "main"
     private var restoredSettingsPage: String? = null
     private var appearanceScrollY = 0
+    private var notificationScrollY = 0
     private var eventSearch = EventSearch()
     private var globalResults: List<NativeEvent>? = null
     private var globalResultsContainer: LinearLayout? = null
@@ -2897,6 +2898,7 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader(getString(R.string.notifications)))
+        scroll.setOnScrollChangeListener { _, _, y, _, _ -> notificationScrollY = y }
         val switch = SwitchCompat(this).apply {
             isChecked = CameraNotifications.enabled(context) && CameraNotifications.permitted(context)
             contentDescription = getString(R.string.device_alerts)
@@ -2911,14 +2913,116 @@ class MainActivity : AppCompatActivity() {
         column.addView(label(getString(R.string.notifications_background), 13, Palette.muted).apply {
             setPadding(dp(2), dp(16), dp(2), dp(16))
         })
+        fun option(title: Int, key: String, default: Boolean, detail: String = "", changed: (() -> Unit)? = null) {
+            val toggle = SwitchCompat(this).apply {
+                isChecked = appearancePrefs.getBoolean(key, default)
+                contentDescription = getString(title)
+                setOnCheckedChangeListener { _, checked ->
+                    appearancePrefs.edit().putBoolean(key, checked).apply()
+                    changed?.invoke()
+                }
+            }
+            column.addView(preferenceToggleRow(getString(title), detail, toggle))
+        }
+        column.addView(sectionHeading(getString(R.string.alert_delivery)))
+        option(R.string.alert_sound, "alertSound", true, getString(R.string.alert_android_priority)) { CameraNotifications.createChannel(this) }
+        option(R.string.alert_vibration, "alertVibration", true, getString(R.string.alert_android_priority)) { CameraNotifications.createChannel(this) }
+        column.addView(sectionHeading(getString(R.string.alert_types)))
+        option(R.string.person, "alertType:person", true)
+        option(R.string.animal, "alertType:animal", true)
+        option(R.string.vehicle, "alertType:vehicle", true)
+        option(R.string.alert_other, "alertType:other", true)
+        column.addView(sectionHeading(getString(R.string.cameras)))
+        option(R.string.alert_all_cameras, "alertAllCameras", true) { renderNotificationSettings() }
+        if (!appearancePrefs.getBoolean("alertAllCameras", true)) {
+            val selected = appearancePrefs.getStringSet("alertCameras", emptySet()).orEmpty()
+            column.addView(settingsGroup(settingsNavRow(getString(R.string.alert_choose_cameras),
+                "${selected.size} / ${visibleCameras().size}", {
+                    val available = visibleCameras()
+                    val chosen = selected.toMutableSet()
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle(R.string.alert_choose_cameras)
+                        .setMultiChoiceItems(available.map { it.friendlyName }.toTypedArray(),
+                            available.map { it.name in chosen }.toBooleanArray()) { _, index, checked ->
+                            if (checked) chosen.add(available[index].name) else chosen.remove(available[index].name)
+                        }.setPositiveButton(android.R.string.ok) { _, _ ->
+                            appearancePrefs.edit().putStringSet("alertCameras", chosen).apply()
+                            renderNotificationSettings()
+                        }.setNegativeButton(android.R.string.cancel, null).show()
+                })))
+        }
+        fun clockRow(title: Int, key: String, fallback: Int): View {
+            val value = appearancePrefs.getInt(key, fallback)
+            return settingsNavRow(getString(title), String.format(Locale.getDefault(), "%02d:%02d", value / 60, value % 60), {
+                android.app.TimePickerDialog(this, { _, hour, minute ->
+                    appearancePrefs.edit().putInt(key, hour * 60 + minute).apply()
+                    renderNotificationSettings()
+                }, value / 60, value % 60, true).show()
+            })
+        }
+        column.addView(sectionHeading(getString(R.string.alert_schedule)))
+        option(R.string.alert_active_hours, "alertActiveHours", false, getString(R.string.alert_active_detail))
+        column.addView(settingsGroup(clockRow(R.string.alert_from, "alertActiveStart", 0), clockRow(R.string.alert_until, "alertActiveEnd", 0)))
+        option(R.string.alert_quiet_hours, "alertQuietHours", false, getString(R.string.alert_quiet_detail))
+        column.addView(settingsGroup(clockRow(R.string.alert_from, "alertQuietStart", 1320), clockRow(R.string.alert_until, "alertQuietEnd", 420)))
+        val cooldowns = longArrayOf(0, 30, 60, 300, 900)
+        fun cooldownLabel(seconds: Long) = if (seconds == 0L) getString(R.string.alert_no_delay) else getString(R.string.alert_seconds, seconds)
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.alert_cooldown),
+            cooldownLabel(appearancePrefs.getLong("alertCooldown", 0)), {
+                androidx.appcompat.app.AlertDialog.Builder(this).setTitle(R.string.alert_cooldown)
+                    .setSingleChoiceItems(cooldowns.map { cooldownLabel(it) }.toTypedArray(),
+                        cooldowns.indexOf(appearancePrefs.getLong("alertCooldown", 0))) { dialog, index ->
+                        appearancePrefs.edit().putLong("alertCooldown", cooldowns[index]).apply()
+                        dialog.dismiss()
+                        renderNotificationSettings()
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            })))
+        column.addView(sectionHeading(getString(R.string.alert_background)))
+        val monitoring = SwitchCompat(this).apply {
+            isChecked = CameraAlertMonitorService.running
+            contentDescription = getString(R.string.alert_monitor)
+            setOnCheckedChangeListener { button, checked ->
+                if (checked) {
+                    if (!CameraNotifications.enabled(this@MainActivity) || !CameraNotifications.permitted(this@MainActivity)) {
+                        button.isChecked = false
+                        enableDeviceNotifications()
+                    } else if (!CameraAlertMonitorService.start(this@MainActivity)) {
+                        button.isChecked = false
+                        toast(getString(R.string.alert_monitor_failed))
+                    }
+                } else stopService(Intent(this@MainActivity, CameraAlertMonitorService::class.java))
+            }
+        }
+        column.addView(preferenceToggleRow(getString(R.string.alert_monitor), getString(R.string.alert_monitor_detail), monitoring))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.alert_battery), getString(R.string.alert_battery_detail), {
+            runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                .onFailure { toast(getString(R.string.alert_monitor_failed)) }
+        })))
+        column.addView(sectionHeading(getString(R.string.alert_diagnostics)))
+        val lastCheck = appearancePrefs.getLong("alertLastCheck", 0)
+        val lastDelivery = appearancePrefs.getLong("alertLastDelivery", 0)
+        fun timestamp(value: Long) = if (value == 0L) "—" else java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.MEDIUM).format(java.util.Date(value))
+        column.addView(settingsDetailLabel(getString(R.string.alert_last_check, timestamp(lastCheck), appearancePrefs.getString("alertLastCheckStatus", "—"))))
+        column.addView(settingsDetailLabel(getString(R.string.alert_last_delivery, timestamp(lastDelivery))))
         column.addView(settingsGroup(
             settingsNavRow(getString(R.string.android_settings), getString(R.string.device_alerts), { openAndroidNotificationSettings() }),
+            settingsNavRow(getString(R.string.alert_channel_settings), getString(R.string.alert_android_priority), {
+                CameraNotifications.createChannel(this)
+                startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, CameraNotifications.selectedChannel(this)))
+            }),
             settingsNavRow(getString(R.string.test_notification), getString(R.string.event_channel), {
-                if (CameraNotifications.enabled(this) && CameraNotifications.permitted(this)) CameraNotifications.test(this)
+                if (CameraNotifications.enabled(this) && CameraNotifications.permitted(this)) {
+                    toast(getString(if (CameraNotifications.test(this)) R.string.alert_test_sent else R.string.notifications_blocked))
+                    renderNotificationSettings()
+                }
                 else enableDeviceNotifications()
             }, showChevron = false)
         ))
         setShell(scroll, Tab.Settings)
+        val restoreY = notificationScrollY
+        scroll.post { scroll.scrollTo(0, restoreY) }
     }
 
     private fun enableDeviceNotifications() {

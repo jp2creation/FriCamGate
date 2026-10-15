@@ -1,0 +1,35 @@
+<resources>
+    <string name="alert_delivery">Style d’alerte</string>
+    <string name="alert_sound">Son</string>
+    <string name="alert_vibration">Vibration</string>
+    <string name="alert_silent">Silencieux</string>
+    <string name="alert_sound_vibration">Son et vibration</string>
+    <string name="alert_android_priority">Les réglages du canal Android et le mode Ne pas déranger restent prioritaires.</string>
+    <string name="alert_types">Types d’événements</string>
+    <string name="alert_other">Autres détections</string>
+    <string name="alert_all_cameras">Toutes les caméras visibles</string>
+    <string name="alert_choose_cameras">Choisir les caméras</string>
+    <string name="alert_schedule">Horaires et fréquence</string>
+    <string name="alert_active_hours">Limiter les heures d’alerte</string>
+    <string name="alert_active_detail">Aucune alerte hors de cette plage. Des heures identiques couvrent toute la journée.</string>
+    <string name="alert_from">Début</string>
+    <string name="alert_until">Fin</string>
+    <string name="alert_quiet_hours">Heures calmes</string>
+    <string name="alert_quiet_detail">Les alertes restent visibles, sans son ni vibration pendant cette plage.</string>
+    <string name="alert_cooldown">Délai par caméra et type d’événement</string>
+    <string name="alert_no_delay">Sans délai</string>
+    <string name="alert_seconds">%1$d secondes</string>
+    <string name="alert_background">Surveillance en arrière-plan</string>
+    <string name="alert_monitor">Surveillance renforcée</string>
+    <string name="alert_monitor_running">Vérification des événements toutes les 20 secondes.</string>
+    <string name="alert_monitor_stop">Arrêter</string>
+    <string name="alert_monitor_detail">Vérifications toutes les 20 s avec une notification permanente. Consomme davantage de batterie. Session limitée à 5 h 45, Android peut l’arrêter avant. La vérification périodique reste active.</string>
+    <string name="alert_monitor_failed">Impossible de démarrer la surveillance. Vérifiez les réglages Android.</string>
+    <string name="alert_battery">Restrictions de batterie</string>
+    <string name="alert_battery_detail">Android peut retarder les vérifications. Un arrêt forcé bloque les alertes jusqu’à la réouverture de l’app.</string>
+    <string name="alert_diagnostics">Diagnostic des alertes</string>
+    <string name="alert_last_check">Dernière vérification : %1$s · %2$s</string>
+    <string name="alert_last_delivery">Dernière alerte transmise à Android : %1$s</string>
+    <string name="alert_channel_settings">Son et réglages du canal</string>
+    <string name="alert_test_sent">Alerte test transmise à Android. Vérifiez le volet des notifications.</string>
+</resources>

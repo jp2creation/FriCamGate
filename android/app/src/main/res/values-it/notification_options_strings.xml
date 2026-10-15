@@ -1,0 +1,35 @@
+<resources>
+    <string name="alert_delivery">Stile avviso</string>
+    <string name="alert_sound">Suono</string>
+    <string name="alert_vibration">Vibrazione</string>
+    <string name="alert_silent">Silenzioso</string>
+    <string name="alert_sound_vibration">Suono e vibrazione</string>
+    <string name="alert_android_priority">Le impostazioni Android e Non disturbare hanno priorità.</string>
+    <string name="alert_types">Tipi di eventi</string>
+    <string name="alert_other">Altri rilevamenti</string>
+    <string name="alert_all_cameras">Tutte le telecamere visibili</string>
+    <string name="alert_choose_cameras">Scegli telecamere</string>
+    <string name="alert_schedule">Orari e frequenza</string>
+    <string name="alert_active_hours">Limita orari degli avvisi</string>
+    <string name="alert_active_detail">Nessun avviso fuori orario. Ore uguali: tutto il giorno.</string>
+    <string name="alert_from">Dalle</string>
+    <string name="alert_until">Alle</string>
+    <string name="alert_quiet_hours">Ore silenziose</string>
+    <string name="alert_quiet_detail">Gli avvisi restano visibili, senza suono o vibrazione.</string>
+    <string name="alert_cooldown">Intervallo per telecamera e tipo</string>
+    <string name="alert_no_delay">Nessun intervallo</string>
+    <string name="alert_seconds">%1$d secondi</string>
+    <string name="alert_background">Monitoraggio in background</string>
+    <string name="alert_monitor">Monitoraggio avanzato</string>
+    <string name="alert_monitor_running">Controllo eventi ogni 20 secondi.</string>
+    <string name="alert_monitor_stop">Interrompi</string>
+    <string name="alert_monitor_detail">Controlli ogni 20 s con notifica permanente. Consumo maggiore. Massimo 5 h 45; Android può interrompere prima. Restano i controlli periodici.</string>
+    <string name="alert_monitor_failed">Impossibile avviare. Controlla le impostazioni Android.</string>
+    <string name="alert_battery">Restrizioni batteria</string>
+    <string name="alert_battery_detail">Android può ritardare i controlli. Dopo un arresto forzato riaprire l’app.</string>
+    <string name="alert_diagnostics">Diagnostica avvisi</string>
+    <string name="alert_last_check">Ultimo controllo: %1$s · %2$s</string>
+    <string name="alert_last_delivery">Ultimo avviso inviato ad Android: %1$s</string>
+    <string name="alert_channel_settings">Suono e impostazioni canale</string>
+    <string name="alert_test_sent">Avviso di prova inviato ad Android. Controlla le notifiche.</string>
+</resources>

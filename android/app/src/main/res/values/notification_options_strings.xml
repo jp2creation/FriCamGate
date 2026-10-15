@@ -1,0 +1,35 @@
+<resources>
+    <string name="alert_delivery">Alert style</string>
+    <string name="alert_sound">Sound</string>
+    <string name="alert_vibration">Vibration</string>
+    <string name="alert_silent">Silent</string>
+    <string name="alert_sound_vibration">Sound and vibration</string>
+    <string name="alert_android_priority">Android channel settings and Do Not Disturb take priority.</string>
+    <string name="alert_types">Event types</string>
+    <string name="alert_other">Other detections</string>
+    <string name="alert_all_cameras">All visible cameras</string>
+    <string name="alert_choose_cameras">Choose cameras</string>
+    <string name="alert_schedule">Schedule and frequency</string>
+    <string name="alert_active_hours">Restrict alert hours</string>
+    <string name="alert_active_detail">No alerts outside this range. Equal times mean all day.</string>
+    <string name="alert_from">From</string>
+    <string name="alert_until">Until</string>
+    <string name="alert_quiet_hours">Quiet hours</string>
+    <string name="alert_quiet_detail">Alerts remain visible, without sound or vibration during this range.</string>
+    <string name="alert_cooldown">Delay per camera and event type</string>
+    <string name="alert_no_delay">No delay</string>
+    <string name="alert_seconds">%1$d seconds</string>
+    <string name="alert_background">Background monitoring</string>
+    <string name="alert_monitor">Enhanced monitoring</string>
+    <string name="alert_monitor_running">Checking camera events every 20 seconds.</string>
+    <string name="alert_monitor_stop">Stop</string>
+    <string name="alert_monitor_detail">20-second checks with a permanent notification. More battery use. Session ends after 5 h 45; Android may stop it earlier. Periodic checks remain active.</string>
+    <string name="alert_monitor_failed">Unable to start monitoring. Check Android settings.</string>
+    <string name="alert_battery">Battery restrictions</string>
+    <string name="alert_battery_detail">Android may delay background checks. Force-stop prevents alerts until the app is reopened.</string>
+    <string name="alert_diagnostics">Delivery diagnostics</string>
+    <string name="alert_last_check">Last check: %1$s · %2$s</string>
+    <string name="alert_last_delivery">Last alert handed to Android: %1$s</string>
+    <string name="alert_channel_settings">Sound and channel settings</string>
+    <string name="alert_test_sent">Test alert handed to Android. Check the notification panel.</string>
+</resources>

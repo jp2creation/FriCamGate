@@ -1,0 +1,35 @@
+<resources>
+    <string name="alert_delivery">Estilo de alerta</string>
+    <string name="alert_sound">Sonido</string>
+    <string name="alert_vibration">Vibración</string>
+    <string name="alert_silent">Silencio</string>
+    <string name="alert_sound_vibration">Sonido y vibración</string>
+    <string name="alert_android_priority">Los ajustes de Android y No molestar tienen prioridad.</string>
+    <string name="alert_types">Tipos de eventos</string>
+    <string name="alert_other">Otras detecciones</string>
+    <string name="alert_all_cameras">Todas las cámaras visibles</string>
+    <string name="alert_choose_cameras">Elegir cámaras</string>
+    <string name="alert_schedule">Horario y frecuencia</string>
+    <string name="alert_active_hours">Limitar horas de alerta</string>
+    <string name="alert_active_detail">Sin alertas fuera de este horario. Horas iguales: todo el día.</string>
+    <string name="alert_from">Desde</string>
+    <string name="alert_until">Hasta</string>
+    <string name="alert_quiet_hours">Horas de silencio</string>
+    <string name="alert_quiet_detail">Las alertas siguen visibles, sin sonido ni vibración.</string>
+    <string name="alert_cooldown">Intervalo por cámara y tipo</string>
+    <string name="alert_no_delay">Sin intervalo</string>
+    <string name="alert_seconds">%1$d segundos</string>
+    <string name="alert_background">Supervisión en segundo plano</string>
+    <string name="alert_monitor">Supervisión reforzada</string>
+    <string name="alert_monitor_running">Comprobando eventos cada 20 segundos.</string>
+    <string name="alert_monitor_stop">Detener</string>
+    <string name="alert_monitor_detail">Comprobaciones cada 20 s con notificación permanente. Mayor consumo. Máximo 5 h 45; Android puede detenerlo antes. Se mantiene la comprobación periódica.</string>
+    <string name="alert_monitor_failed">No se puede iniciar. Comprueba los ajustes Android.</string>
+    <string name="alert_battery">Restricciones de batería</string>
+    <string name="alert_battery_detail">Android puede retrasar comprobaciones. Tras forzar el cierre hay que abrir la app.</string>
+    <string name="alert_diagnostics">Diagnóstico de entrega</string>
+    <string name="alert_last_check">Última comprobación: %1$s · %2$s</string>
+    <string name="alert_last_delivery">Última alerta enviada a Android: %1$s</string>
+    <string name="alert_channel_settings">Sonido y ajustes del canal</string>
+    <string name="alert_test_sent">Alerta de prueba enviada a Android. Revisa las notificaciones.</string>
+</resources>

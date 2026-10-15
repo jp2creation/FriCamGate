@@ -1,0 +1,35 @@
+<resources>
+    <string name="alert_delivery">Alarmstil</string>
+    <string name="alert_sound">Ton</string>
+    <string name="alert_vibration">Vibration</string>
+    <string name="alert_silent">Lautlos</string>
+    <string name="alert_sound_vibration">Ton und Vibration</string>
+    <string name="alert_android_priority">Android-Kanaleinstellungen und Nicht stören haben Vorrang.</string>
+    <string name="alert_types">Ereignistypen</string>
+    <string name="alert_other">Andere Erkennungen</string>
+    <string name="alert_all_cameras">Alle sichtbaren Kameras</string>
+    <string name="alert_choose_cameras">Kameras auswählen</string>
+    <string name="alert_schedule">Zeitplan und Häufigkeit</string>
+    <string name="alert_active_hours">Alarmzeiten begrenzen</string>
+    <string name="alert_active_detail">Keine Alarme außerhalb dieser Zeiten. Gleiche Zeiten bedeuten ganztägig.</string>
+    <string name="alert_from">Von</string>
+    <string name="alert_until">Bis</string>
+    <string name="alert_quiet_hours">Ruhezeiten</string>
+    <string name="alert_quiet_detail">Alarme bleiben sichtbar, ohne Ton oder Vibration.</string>
+    <string name="alert_cooldown">Abstand pro Kamera und Ereignistyp</string>
+    <string name="alert_no_delay">Kein Abstand</string>
+    <string name="alert_seconds">%1$d Sekunden</string>
+    <string name="alert_background">Hintergrundüberwachung</string>
+    <string name="alert_monitor">Erweiterte Überwachung</string>
+    <string name="alert_monitor_running">Kameraereignisse alle 20 Sekunden prüfen.</string>
+    <string name="alert_monitor_stop">Stoppen</string>
+    <string name="alert_monitor_detail">Prüfung alle 20 s mit dauerhafter Benachrichtigung. Höherer Akkuverbrauch. Maximal 5 Std. 45 Min.; Android kann früher stoppen. Periodische Prüfung bleibt aktiv.</string>
+    <string name="alert_monitor_failed">Überwachung nicht verfügbar. Android-Einstellungen prüfen.</string>
+    <string name="alert_battery">Akkueinschränkungen</string>
+    <string name="alert_battery_detail">Android kann Prüfungen verzögern. Nach erzwungenem Stopp die App erneut öffnen.</string>
+    <string name="alert_diagnostics">Zustellungsdiagnose</string>
+    <string name="alert_last_check">Letzte Prüfung: %1$s · %2$s</string>
+    <string name="alert_last_delivery">Letzter an Android übergebener Alarm: %1$s</string>
+    <string name="alert_channel_settings">Ton- und Kanaleinstellungen</string>
+    <string name="alert_test_sent">Testalarm an Android übergeben. Benachrichtigungen prüfen.</string>
+</resources>
