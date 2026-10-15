@@ -15,6 +15,27 @@ complete connection/live/playback path is tested on a real server.
 
 ## Following slices
 
+### Second slice: media boundaries
+
+The recording players consume NvrRecordedMedia, and live image playback consumes
+NvrLiveFrames. Image loading and event history have separate contracts as well.
+Frigate implements these contracts without changing routes or authentication.
+Live audio, camera controls, chat and notification polling are not yet migrated.
+The live frame contract is optional for future providers: it is not a requirement
+that every NVR use Frigate's go2rtc transport. No provider selector, profile
+migration or unsupported-server compatibility claim is introduced by this slice.
+
+Acceptance: Frigate URL/authentication contract tests, Android playback regression
+tests, compilation and lint. A real second server is still required to certify a
+second connector. Rollback is a code revert; sessions and preferences are unchanged.
+
+Second-slice checks: 52 unit tests, debug/test APK builds and lint passed. The
+Android regression suite could not start its app setup after the emulator's cold
+boot: credential-encrypted preferences remained locked. Runtime acceptance for
+this slice is pending an emulator unlock; do not treat the unit checks as device
+playback proof. Player HTTP authentication still uses Frigate's bearer scheme
+and must become provider-specific before connecting a different NVR.
+
 - Split media playback, camera controls, chat, and alert polling into capability-
   aware provider contracts. They are still Frigate-specific after the first slice.
 - Implement Blue Iris authentication and camera discovery from its official JSON

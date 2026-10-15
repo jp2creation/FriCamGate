@@ -9,6 +9,30 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class FrigateConnectorContractTest {
+    @Test fun recordedMediaContractPreservesTheDefaultRecordingRoute() {
+        val media: NvrRecordedMedia = FrigateNativeApi("https://example.test/nvr", OkHttpClient())
+        assertEquals("https://example.test/nvr/vod/front/start/100/end/145/master.m3u8",
+            media.recordingVodUrl("front", 100, 145))
+        assertEquals("https://example.test/nvr/vod/front/sub/start/100/end/145/master.m3u8",
+            media.recordingVodUrl("front", 100, 145, "sub"))
+    }
+
+    @Test fun eventHistoryContractPreservesFiltersAndAuthentication() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""[{"id":"event-2","camera":"front","label":"car","start_time":1000}]"""))
+            val history: NvrEventHistory = FrigateNativeApi(server.url("/nvr").toString(), OkHttpClient())
+            val events = await<List<NativeEvent>> {
+                history.searchEvents("test-token", EventSearch(camera = "front", kind = EventKind.Vehicle), 2000.0, 1500.0, it)
+            }.getOrThrow()
+            assertEquals("car", events.single().objectLabel)
+            val request = server.takeRequest()
+            assertEquals("Bearer test-token", request.getHeader("Authorization"))
+            assertEquals("front", request.requestUrl!!.queryParameter("cameras"))
+            assertEquals("1500.0", request.requestUrl!!.queryParameter("before"))
+            assertEquals("car,vehicle,truck,bus,motorcycle,bicycle", request.requestUrl!!.queryParameter("labels"))
+        }
+    }
+
     @Test fun loginFallbackPreservesExistingHttpContract() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(404))

@@ -588,7 +588,7 @@ class MainActivity : AppCompatActivity() {
         playerView.showController()
     }
 
-    private fun startClipPlayer(api: FrigateNativeApi, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
+    private fun startClipPlayer(api: NvrRecordedMedia, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
         releaseCurrentPlayer()
         val player = buildExoPlayer(token)
         currentPlayer = player
@@ -613,7 +613,7 @@ class MainActivity : AppCompatActivity() {
             .build()
 
     private fun startTimelineEventPlayer(
-        api: FrigateNativeApi,
+        api: NvrRecordedMedia,
         token: String,
         event: NativeEvent,
         playerView: PlayerView,
@@ -672,7 +672,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTimelineRecordingPlayer(
-        api: FrigateNativeApi,
+        api: NvrPlaybackMedia,
         token: String,
         camera: NativeCamera,
         playerView: PlayerView,
@@ -798,7 +798,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMjpegStream(
-        api: FrigateNativeApi,
+        api: NvrLiveFrames,
         token: String,
         camera: NativeCamera,
         image: ImageView,

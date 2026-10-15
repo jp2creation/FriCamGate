@@ -26,7 +26,7 @@ import java.util.Locale
 internal class FrigateNativeApi(
     private val baseUrl: String,
     private val client: OkHttpClient
-) : NvrConnector {
+) : NvrConnector, NvrPlaybackMedia, NvrLiveFrames, NvrEventHistory {
     override fun login(username: String, password: String, callback: (Result<NativeLogin>) -> Unit) {
         postLogin(username, password, listOf("/api/login", "/login"), callback)
     }
@@ -101,7 +101,7 @@ internal class FrigateNativeApi(
         }
     }
 
-    fun loadEvents(
+    override fun loadEvents(
         token: String,
         cameraName: String,
         afterSec: Double,
@@ -117,7 +117,7 @@ internal class FrigateNativeApi(
         }
     }
 
-    fun searchEvents(token: String, search: EventSearch, now: Double, before: Double?, callback: (Result<List<NativeEvent>>) -> Unit) {
+    override fun searchEvents(token: String, search: EventSearch, now: Double, before: Double?, callback: (Result<List<NativeEvent>>) -> Unit) {
         getJsonArray(token, search.query(now, before)) { result -> callback(result.mapCatching { parseEvents(it) }) }
     }
 
@@ -153,7 +153,7 @@ internal class FrigateNativeApi(
         }
     }
 
-    fun loadBitmap(token: String, url: String, callback: (Bitmap?) -> Unit) {
+    override fun loadBitmap(token: String, url: String, callback: (Bitmap?) -> Unit) {
         if (url.isBlank()) {
             callback(null)
             return
@@ -177,7 +177,7 @@ internal class FrigateNativeApi(
         })
     }
 
-    fun loadGif(token: String, url: String, callback: (Drawable?) -> Unit) {
+    override fun loadGif(token: String, url: String, callback: (Drawable?) -> Unit) {
         if (url.isBlank()) {
             callback(null)
             return
@@ -235,7 +235,7 @@ internal class FrigateNativeApi(
         })
     }
 
-    fun openMjpegStream(
+    override fun openMjpegStream(
         token: String,
         streamName: String,
         onFrame: (Bitmap) -> Unit,
@@ -314,16 +314,16 @@ internal class FrigateNativeApi(
         })
     }
 
-    fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
-    fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
-    fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
+    override fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
+    override fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
+    override fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
     fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
-    fun eventVodUrl(eventId: String): String = endpoint("/vod/event/${Uri.encode(eventId)}/master.m3u8")
-    fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String =
+    override fun eventVodUrl(eventId: String): String = endpoint("/vod/event/${Uri.encode(eventId)}/master.m3u8")
+    override fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String =
         endpoint("/api/${Uri.encode(cameraName)}/start/$startSec/end/$endSec/clip.mp4")
-    fun recordingVodUrl(cameraName: String, startSec: Long, endSec: Long, stream: String? = null): String =
+    override fun recordingVodUrl(cameraName: String, startSec: Long, endSec: Long, stream: String?): String =
         endpoint(recordingVodPath(cameraName, startSec, endSec, stream))
-    fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
+    override fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
         endpoint("/api/${Uri.encode(cameraName)}/recordings/${frameTime.toLong()}/snapshot.webp")
     fun liveMseWebSocketUrl(streamName: String): String = liveWebSocketUrl(streamName)
 
