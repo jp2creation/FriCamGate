@@ -311,6 +311,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         root.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
+        root.addView(secondaryButton(getString(R.string.onvif_cameras)).apply {
+            setOnClickListener { startActivity(Intent(this@MainActivity, OnvifActivity::class.java)) }
+        })
         root.addView(label(getString(R.string.login_hint), 14, Palette.muted).apply {
             setPadding(0, dp(20), 0, 0)
         })
@@ -2754,6 +2757,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(settingsGroup(
             settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { renderServerSettings() }),
             settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, visibleCameras().size, cameras.size), { renderCameraSettings() }),
+            settingsNavRow(getString(R.string.onvif_cameras), "", { startActivity(Intent(this, OnvifActivity::class.java)) }),
             settingsNavRow(getString(R.string.about), "Camnory ${appVersionName()}", { renderAboutSettings() }),
             settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() }),
             settingsNavRow(getString(R.string.appearance), getString(R.string.appearance_detail), { renderAppearanceSettings() })

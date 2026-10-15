@@ -1,0 +1,15 @@
+<resources>
+    <string name="onvif_cameras">Telecamere ONVIF</string>
+    <string name="onvif_add">Aggiungi telecamera</string>
+    <string name="onvif_name">Nome della telecamera</string>
+    <string name="onvif_address">http://indirizzo-telecamera:8000/onvif/device_service</string>
+    <string name="onvif_connect">Connetti</string>
+    <string name="onvif_profile">Flusso video</string>
+    <string name="onvif_back">Indietro</string>
+    <string name="onvif_delete">Rimuovi telecamera</string>
+    <string name="onvif_delete_question">Rimuovere %1$s dall’applicazione?</string>
+    <string name="onvif_invalid_address">Inserisci un nome e un indirizzo HTTP o HTTPS valido.</string>
+    <string name="onvif_connection_failed">Connessione non riuscita. Verifica indirizzo, credenziali e servizio ONVIF.</string>
+    <string name="onvif_playback_failed">Riproduzione non riuscita. Prova un altro profilo video.</string>
+    <string name="onvif_storage_error">Impossibile accedere ai dati cifrati delle telecamere.</string>
+</resources>

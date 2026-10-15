@@ -1,0 +1,15 @@
+<resources>
+    <string name="onvif_cameras">Caméras ONVIF</string>
+    <string name="onvif_add">Ajouter une caméra</string>
+    <string name="onvif_name">Nom de la caméra</string>
+    <string name="onvif_address">http://adresse-camera:8000/onvif/device_service</string>
+    <string name="onvif_connect">Connecter</string>
+    <string name="onvif_profile">Flux vidéo</string>
+    <string name="onvif_back">Retour</string>
+    <string name="onvif_delete">Supprimer la caméra</string>
+    <string name="onvif_delete_question">Supprimer %1$s de l’application ?</string>
+    <string name="onvif_invalid_address">Saisis un nom et une adresse HTTP ou HTTPS valide.</string>
+    <string name="onvif_connection_failed">Connexion impossible. Vérifie l’adresse, les identifiants et le service ONVIF.</string>
+    <string name="onvif_playback_failed">Lecture impossible. Essaie un autre profil vidéo.</string>
+    <string name="onvif_storage_error">Impossible d’accéder au stockage chiffré des caméras.</string>
+</resources>

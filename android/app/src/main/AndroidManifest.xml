@@ -11,6 +11,9 @@
         android:localeConfig="@xml/locales_config"
         android:theme="@style/AppTheme">
 
+        <activity android:name=".OnvifActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"

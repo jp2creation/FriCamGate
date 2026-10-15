@@ -1,0 +1,15 @@
+<resources>
+    <string name="onvif_cameras">Câmaras ONVIF</string>
+    <string name="onvif_add">Adicionar câmara</string>
+    <string name="onvif_name">Nome da câmara</string>
+    <string name="onvif_address">http://endereco-camara:8000/onvif/device_service</string>
+    <string name="onvif_connect">Ligar</string>
+    <string name="onvif_profile">Fluxo de vídeo</string>
+    <string name="onvif_back">Voltar</string>
+    <string name="onvif_delete">Remover câmara</string>
+    <string name="onvif_delete_question">Remover %1$s da aplicação?</string>
+    <string name="onvif_invalid_address">Introduz um nome e um endereço HTTP ou HTTPS válido.</string>
+    <string name="onvif_connection_failed">Não foi possível ligar. Verifica o endereço, as credenciais e o serviço ONVIF.</string>
+    <string name="onvif_playback_failed">Não foi possível reproduzir. Tenta outro perfil de vídeo.</string>
+    <string name="onvif_storage_error">Não foi possível aceder aos dados cifrados das câmaras.</string>
+</resources>
