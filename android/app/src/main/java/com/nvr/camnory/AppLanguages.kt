@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal val appLanguages = listOf(
     "" to "",

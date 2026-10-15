@@ -1,4 +1,4 @@
-package fr.degert.fricamgate;
+package com.nvr.camnory;
 
 import static org.junit.Assert.*;
 
@@ -21,6 +21,6 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("fr.degert.fricamgate", appContext.getPackageName());
+        assertEquals("com.nvr.camnory", appContext.getPackageName());
     }
 }

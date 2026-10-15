@@ -107,7 +107,7 @@
     <string name="biometric_lock">Blocco biometrico</string>
     <string name="biometric_detail">Richiedi volto o impronta all’apertura dell’app.</string>
     <string name="biometric_unavailable">Configura prima volto o impronta nelle impostazioni del telefono.</string>
-    <string name="locked">CamGate è bloccato</string>
+    <string name="locked">Camnory è bloccato</string>
     <string name="unlock">Sblocca</string>
     <string name="unlock_subtitle">Autenticati per accedere alle telecamere.</string>
     <string name="confirm_lock">Conferma il blocco biometrico</string>
@@ -120,7 +120,7 @@
     <string name="notifications_background">Nuovi eventi Frigate. Controllo ogni 15 minuti secondo le impostazioni batteria Android.</string>
     <string name="android_settings">Impostazioni Android</string>
     <string name="test_notification">Prova notifica</string>
-    <string name="test_title">Test notifica CamGate</string>
+    <string name="test_title">Test notifica Camnory</string>
     <string name="test_body">Le notifiche funzionano su questo dispositivo.</string>
     <string name="event_channel">Avvisi telecamere</string>
     <string name="new_event">Nuovo evento telecamera</string>

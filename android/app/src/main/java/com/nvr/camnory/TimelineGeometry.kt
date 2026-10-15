@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal fun timelineY(anchorSec: Double, timeSec: Double, topPx: Int, pixelsPerMinute: Int): Int =
     topPx + (((anchorSec - timeSec).coerceAtLeast(0.0) / 60.0) * pixelsPerMinute).toInt()

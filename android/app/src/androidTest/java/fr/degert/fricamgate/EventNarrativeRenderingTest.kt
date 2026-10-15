@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import android.content.res.Configuration
 import android.os.LocaleList

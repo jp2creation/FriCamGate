@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal enum class HomeCameraLayout(val preference: String, val columns: Int, val titleRes: Int, val iconRes: Int) {
     Column("column", 1, R.string.camera_layout_column, R.drawable.ic_layout_rows),

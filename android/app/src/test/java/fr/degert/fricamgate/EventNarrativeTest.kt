@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import org.json.JSONObject
 import org.junit.Assert.*

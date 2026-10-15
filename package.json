@@ -1,7 +1,7 @@
 {
-  "name": "fricamgate",
+  "name": "camnory",
   "version": "0.2.3",
-  "description": "FriCamGate is an Android phone and tablet client for Frigate.",
+  "description": "Camnory is an Android phone and tablet client for Frigate.",
   "private": true,
   "type": "module",
   "directories": {

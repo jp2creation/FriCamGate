@@ -1,12 +1,19 @@
-# FriCamGate
+# Camnory
 
-FriCamGate is an Android phone and tablet client for Frigate.
+Camnory is an Android phone and tablet client for Frigate.
 
-Each user connects the app to their own Frigate server URL and signs in with their own account. The V1 design is a direct Frigate client with no central FriCamGate backend.
+Each user connects the app to their own Frigate server URL and signs in with their own account. The V1 design is a direct Frigate client with no central Camnory backend.
 
 ## Current Status
 
-This repository now contains the Android-native Kotlin direction for FriCamGate.
+This repository now contains the Android-native Kotlin direction for Camnory.
+
+Android application ID: `com.nvr.camnory`. From 0.2.52, this installs alongside
+the former `fr.degert.fricamgate` app. Android does not automatically transfer
+private preferences, chat history, or notification permissions between these IDs.
+Reconnect to the Frigate server and grant notifications in Camnory; keep the old
+app until the new connection is verified. The GitHub repository URL is unchanged
+so existing download links remain valid.
 
 The current Kotlin build replaces the Capacitor WebView shell with a native Android activity, OkHttp API calls, and Media3/ExoPlayer playback. The earlier React/Capacitor prototype remains in the tree as reference material while the native app reaches feature parity.
 

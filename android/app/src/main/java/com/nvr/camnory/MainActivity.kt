@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
@@ -840,7 +840,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun authDataSource(token: String): DefaultHttpDataSource.Factory =
         DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token", "User-Agent" to "FriCamGate"))
+            .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token", "User-Agent" to "Camnory"))
 
     private fun applyPlayerVolume(player: ExoPlayer) {
         player.volume = if (soundEnabled) 1f else 0f
@@ -920,7 +920,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-            }, "CamGateAudio")
+            }, "CamnoryAudio")
         }
         homeAudioWebView = webView
         addContentView(webView, FrameLayout.LayoutParams(1, 1, Gravity.START or Gravity.TOP))
@@ -959,7 +959,7 @@ class MainActivity : AppCompatActivity() {
             const queue = [];
             let sourceBuffer;
             let socket;
-            const startup = setTimeout(() => CamGateAudio.failed(), 12000);
+            const startup = setTimeout(() => CamnoryAudio.failed(), 12000);
             video.addEventListener('playing', () => clearTimeout(startup));
             function pump() {
               if (video.error) return;
@@ -970,11 +970,11 @@ class MainActivity : AppCompatActivity() {
                   return;
                 }
                 sourceBuffer.appendBuffer(queue.shift());
-              } catch (_) { CamGateAudio.failed(); }
+              } catch (_) { CamnoryAudio.failed(); }
             }
             video.addEventListener('error', () => {
               try { if (socket) socket.close(); } catch (_) {}
-              CamGateAudio.failed();
+              CamnoryAudio.failed();
             });
             const mediaSource = new MediaSource();
             video.src = URL.createObjectURL(mediaSource);
@@ -984,8 +984,8 @@ class MainActivity : AppCompatActivity() {
               socket.onopen = () => {
                 socket.send(JSON.stringify({ type: 'mse', value: $codecsLiteral }));
               };
-              socket.onerror = () => CamGateAudio.failed();
-              socket.onclose = () => CamGateAudio.failed();
+              socket.onerror = () => CamnoryAudio.failed();
+              socket.onclose = () => CamnoryAudio.failed();
               socket.onmessage = (event) => {
                 if (typeof event.data === 'string') {
                   const message = JSON.parse(event.data);
@@ -997,7 +997,7 @@ class MainActivity : AppCompatActivity() {
                   }
                   return;
                 }
-                if (queue.length > 120) { CamGateAudio.failed(); return; }
+                if (queue.length > 120) { CamnoryAudio.failed(); return; }
                 queue.push(event.data);
                 pump();
               };
@@ -2070,24 +2070,15 @@ class MainActivity : AppCompatActivity() {
             addView(horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(ImageView(context).apply {
-                    setImageResource(R.drawable.fricamgate_logo)
+                    setImageResource(R.drawable.camnory_logo)
                     scaleType = ImageView.ScaleType.FIT_CENTER
                 }, LinearLayout.LayoutParams(dp(50), dp(50)))
-                addView(vertical().apply {
-                    setPadding(dp(10), 0, 0, 0)
-                    addView(label("CamGate", 24, Palette.text).apply {
-                        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-                    }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
-                    addView(label("Frigate Client", 12, Palette.muted).apply {
-                        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-                        gravity = Gravity.START
-                        textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-                        letterSpacing = 0.01f
-                        textScaleX = 1.1f
-                    }, LinearLayout.LayoutParams(dp(118), ViewGroup.LayoutParams.WRAP_CONTENT))
+                addView(brandWordmark(128), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    leftMargin = dp(10)
                 })
-            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(58), Gravity.START or Gravity.TOP).apply {
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(18)
+                rightMargin = dp(128)
                 topMargin = dp(42)
             })
             addView(alertsButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
@@ -2099,6 +2090,37 @@ class MainActivity : AppCompatActivity() {
                 topMargin = dp(52)
             })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
+    }
+
+    private fun brandWordmark(widthDp: Int): View = vertical().apply {
+        val width = dp(widthDp)
+        fun fit(view: TextView) {
+            view.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+                if (right > left) {
+                    val natural = Paint(view.paint).apply { textScaleX = 1f }.measureText(view.text.toString())
+                    view.textScaleX = minOf(width, right - left).toFloat() / natural
+                }
+            }
+        }
+        addView(label("Camnory", 24, Palette.text).apply {
+            textSize = 24f
+            typeface = android.graphics.Typeface.create("sans-serif-rounded", android.graphics.Typeface.BOLD)
+            text = android.text.SpannableString("Camnory").apply {
+                setSpan(android.text.style.ForegroundColorSpan(0xffff2d63.toInt()), 3, 7, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            textScaleX = width.toFloat() / paint.measureText("Camnory")
+            includeFontPadding = false
+            maxLines = 1
+            fit(this)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30)))
+        addView(label("CLIENT FOR FRIGATE", 8, Palette.muted).apply {
+            textSize = 8f
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
+            textScaleX = width.toFloat() / paint.measureText(text.toString())
+            includeFontPadding = false
+            maxLines = 1
+            fit(this)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)))
     }
 
     private fun alertsButton(): View {
@@ -2241,7 +2263,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun logoHeader(): View = ImageView(this).apply {
-        setImageResource(R.drawable.fricamgate_logo)
+        setImageResource(R.drawable.camnory_logo)
         adjustViewBounds = true
         scaleType = ImageView.ScaleType.FIT_CENTER
     }.also { it.layoutParams = LinearLayout.LayoutParams(dp(104), dp(104)) }
@@ -2676,12 +2698,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveBitmapToGallery(bitmap: Bitmap, camera: NativeCamera) {
-        val fileName = "FriCamGate_${camera.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())}.jpg"
+        val fileName = "Camnory_${camera.name}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())}.jpg"
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/FriCamGate")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Camnory")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -2721,7 +2743,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(settingsGroup(
             settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { renderServerSettings() }),
             settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, visibleCameras().size, cameras.size), { renderCameraSettings() }),
-            settingsNavRow(getString(R.string.about), "FriCamGate ${appVersionName()}", { renderAboutSettings() }),
+            settingsNavRow(getString(R.string.about), "Camnory ${appVersionName()}", { renderAboutSettings() }),
             settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() }),
             settingsNavRow(getString(R.string.appearance), getString(R.string.appearance_detail), { renderAppearanceSettings() })
         ))
@@ -3128,7 +3150,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(settingsPageHeader(getString(R.string.about)))
         column.addView(sectionHeading(getString(R.string.application)))
         column.addView(settingsGroup(
-            settingsRow(getString(R.string.name), "FriCamGate"),
+            settingsRow(getString(R.string.name), "Camnory"),
             settingsRow(getString(R.string.app_version), appVersionName())
         ))
         column.addView(sectionHeading("NVR"))
@@ -3384,20 +3406,13 @@ class MainActivity : AppCompatActivity() {
         val ring = LoadingRingView(this)
         logoFrame.addView(ring, FrameLayout.LayoutParams(dp(128), dp(128), Gravity.CENTER))
         logoFrame.addView(ImageView(this).apply {
-            setImageResource(R.drawable.fricamgate_logo)
+            setImageResource(R.drawable.camnory_logo)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }, FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER))
         content.addView(logoFrame, LinearLayout.LayoutParams(dp(136), dp(136)))
-        content.addView(label("CamGate", 24, Palette.text).apply {
-            gravity = Gravity.CENTER
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            setPadding(0, dp(18), 0, 0)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        content.addView(label("Frigate Client", 12, Palette.muted).apply {
-            gravity = Gravity.CENTER
-            textScaleX = 1.1f
-            setPadding(0, dp(5), 0, 0)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        content.addView(brandWordmark(156), LinearLayout.LayoutParams(dp(156), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(18)
+        })
         val status = label(text.ifBlank { localizedLoadingStage(0) }, 14, Palette.muted).apply {
             gravity = Gravity.CENTER
             alpha = 0.86f
@@ -3601,14 +3616,14 @@ class MainActivity : AppCompatActivity() {
             }
             manager.remove(previousId)
         }
-        val fileName = "camgate-update-${System.currentTimeMillis()}.apk"
+        val fileName = "camnory-update-${System.currentTimeMillis()}.apk"
         val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("FriCamGate ${update.latestVersion ?: ""}".trim())
+            .setTitle("Camnory ${update.latestVersion ?: ""}".trim())
             .setDescription(getString(R.string.download_description))
             .setMimeType("application/vnd.android.package-archive")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName)
-            .addRequestHeader("User-Agent", "FriCamGate")
+            .addRequestHeader("User-Agent", "Camnory")
         runCatching { manager.enqueue(request) }.onSuccess { id ->
             prefs.edit().putLong("updateDownloadId", id).putString("updateDownloadUrl", url)
                 .putString("updateDownloadVersion", update.latestVersion).apply()
@@ -4662,7 +4677,7 @@ private class AppUpdateService(private val client: OkHttpClient) {
         val request = Request.Builder()
             .url(RELEASES_API_URL)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "FriCamGate")
+            .header("User-Agent", "Camnory")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .build()
         client.newCall(request).enqueue(object : Callback {

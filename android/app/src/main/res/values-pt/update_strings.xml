@@ -4,7 +4,7 @@
     <string name="update_install">Instalar atualização</string>
     <string name="update_retry">Tentar novamente</string>
     <string name="update_download_failed">Falha na transferência. Verifique a ligação e o espaço disponível.</string>
-    <string name="update_install_permission">Permita que o CamGate instale atualizações, volte e toque em Instalar.</string>
+    <string name="update_install_permission">Permita que o Camnory instale atualizações, volte e toque em Instalar.</string>
     <string name="update_install_failed">Não foi possível abrir a instalação. Transfira novamente.</string>
     <string name="update_progress">%1$d%% transferido</string>
 </resources>

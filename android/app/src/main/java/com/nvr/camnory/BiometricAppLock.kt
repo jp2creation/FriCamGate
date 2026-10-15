@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import android.content.Context
 import android.graphics.Color
@@ -101,7 +101,7 @@ internal class BiometricAppLock(
             setBackgroundColor(Color.rgb(9, 9, 10))
             isClickable = true
             isFocusable = true
-            addView(ImageView(activity).apply { setImageResource(R.drawable.fricamgate_logo) }, LinearLayout.LayoutParams(dp(72), dp(72)))
+            addView(ImageView(activity).apply { setImageResource(R.drawable.camnory_logo) }, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(TextView(activity).apply {
                 setText(R.string.locked)
                 setTextColor(Color.WHITE)

@@ -4,7 +4,7 @@
     <string name="update_install">Update installieren</string>
     <string name="update_retry">Download erneut versuchen</string>
     <string name="update_download_failed">Download fehlgeschlagen. Verbindung und Speicherplatz prüfen.</string>
-    <string name="update_install_permission">CamGate die Installation erlauben, dann zurückkehren und auf Installieren tippen.</string>
+    <string name="update_install_permission">Camnory die Installation erlauben, dann zurückkehren und auf Installieren tippen.</string>
     <string name="update_install_failed">Installation konnte nicht geöffnet werden. Update erneut herunterladen.</string>
     <string name="update_progress">%1$d%% heruntergeladen</string>
 </resources>

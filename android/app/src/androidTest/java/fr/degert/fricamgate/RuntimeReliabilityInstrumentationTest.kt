@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import android.content.Context
 import android.content.SharedPreferences

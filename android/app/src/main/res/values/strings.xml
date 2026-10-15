@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name" translatable="false">FriCamGate</string>
-    <string name="title_activity_main" translatable="false">FriCamGate</string>
-    <string name="package_name" translatable="false">fr.degert.fricamgate</string>
-    <string name="custom_url_scheme" translatable="false">fr.degert.fricamgate</string>
+    <string name="app_name" translatable="false">Camnory</string>
+    <string name="title_activity_main" translatable="false">Camnory</string>
+    <string name="package_name" translatable="false">com.nvr.camnory</string>
+    <string name="custom_url_scheme" translatable="false">com.nvr.camnory</string>
 </resources>

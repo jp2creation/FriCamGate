@@ -107,7 +107,7 @@
     <string name="biometric_lock">Verrouillage biométrique</string>
     <string name="biometric_detail">Exiger le visage ou l’empreinte à l’ouverture de l’application.</string>
     <string name="biometric_unavailable">Configurez d’abord le visage ou l’empreinte dans les réglages du téléphone.</string>
-    <string name="locked">CamGate est verrouillé</string>
+    <string name="locked">Camnory est verrouillé</string>
     <string name="unlock">Déverrouiller</string>
     <string name="unlock_subtitle">Authentifiez-vous pour accéder à vos caméras.</string>
     <string name="confirm_lock">Confirmer le verrouillage biométrique</string>
@@ -120,7 +120,7 @@
     <string name="notifications_background">Nouveaux événements Frigate. Vérification en arrière-plan toutes les 15 minutes, selon les réglages de batterie Android.</string>
     <string name="android_settings">Réglages Android</string>
     <string name="test_notification">Tester une notification</string>
-    <string name="test_title">Test de notification CamGate</string>
+    <string name="test_title">Test de notification Camnory</string>
     <string name="test_body">Les notifications fonctionnent sur cet appareil.</string>
     <string name="event_channel">Alertes des caméras</string>
     <string name="new_event">Nouvel événement caméra</string>

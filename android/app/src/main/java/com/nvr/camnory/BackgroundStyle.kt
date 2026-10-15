@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal enum class BackgroundStyle(val preference: String, val titleRes: Int, val background: Int, val card: Int, val surface: Int) {
     Automatic("automatic", R.string.background_auto, 0xff09090a.toInt(), 0xff17171c.toInt(), 0xff22222a.toInt()),

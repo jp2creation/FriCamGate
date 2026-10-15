@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -63,7 +63,7 @@ class CameraAlertMonitorService : Service() {
 
     companion object {
         private const val CHANNEL = "camera-monitor"
-        private const val STOP = "fr.degert.fricamgate.STOP_MONITOR"
+        private const val STOP = "com.nvr.camnory.STOP_MONITOR"
         @Volatile var running = false
             private set
 

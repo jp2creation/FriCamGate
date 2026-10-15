@@ -4,7 +4,7 @@
     <string name="update_install">Install update</string>
     <string name="update_retry">Retry download</string>
     <string name="update_download_failed">Download failed. Check your connection and available storage.</string>
-    <string name="update_install_permission">Allow CamGate to install updates, then return here and tap Install.</string>
+    <string name="update_install_permission">Allow Camnory to install updates, then return here and tap Install.</string>
     <string name="update_install_failed">Unable to open the installer. Please download the update again.</string>
     <string name="update_progress">%1$d%% downloaded</string>
 </resources>

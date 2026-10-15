@@ -107,7 +107,7 @@
     <string name="biometric_lock">Biometric app lock</string>
     <string name="biometric_detail">Require face or fingerprint authentication when opening the app.</string>
     <string name="biometric_unavailable">Set up face or fingerprint recognition in your phone settings first.</string>
-    <string name="locked">CamGate is locked</string>
+    <string name="locked">Camnory is locked</string>
     <string name="unlock">Unlock</string>
     <string name="unlock_subtitle">Authenticate to access your cameras.</string>
     <string name="confirm_lock">Confirm biometric app lock</string>
@@ -120,7 +120,7 @@
     <string name="notifications_background">New Frigate events. Background checks every 15 minutes, subject to Android battery settings.</string>
     <string name="android_settings">Android settings</string>
     <string name="test_notification">Test notification</string>
-    <string name="test_title">CamGate notification test</string>
+    <string name="test_title">Camnory notification test</string>
     <string name="test_body">Notifications are working on this device.</string>
     <string name="event_channel">Camera alerts</string>
     <string name="new_event">New camera event</string>

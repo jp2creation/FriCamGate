@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal fun notificationCategory(label: String): String = when (label.lowercase()) {
     "person" -> "person"

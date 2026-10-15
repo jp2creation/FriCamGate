@@ -107,7 +107,7 @@
     <string name="biometric_lock">Biometrische App-Sperre</string>
     <string name="biometric_detail">Beim Öffnen mit Gesicht oder Fingerabdruck entsperren.</string>
     <string name="biometric_unavailable">Zuerst Gesicht oder Fingerabdruck in den Geräteeinstellungen einrichten.</string>
-    <string name="locked">CamGate ist gesperrt</string>
+    <string name="locked">Camnory ist gesperrt</string>
     <string name="unlock">Entsperren</string>
     <string name="unlock_subtitle">Authentifizieren, um auf Kameras zuzugreifen.</string>
     <string name="confirm_lock">App-Sperre bestätigen</string>
@@ -120,7 +120,7 @@
     <string name="notifications_background">Neue Frigate-Ereignisse. Hintergrundprüfung alle 15 Minuten, abhängig von den Android-Akkueinstellungen.</string>
     <string name="android_settings">Android-Einstellungen</string>
     <string name="test_notification">Testbenachrichtigung</string>
-    <string name="test_title">CamGate-Testbenachrichtigung</string>
+    <string name="test_title">Camnory-Testbenachrichtigung</string>
     <string name="test_body">Benachrichtigungen funktionieren auf diesem Gerät.</string>
     <string name="event_channel">Kamerameldungen</string>
     <string name="new_event">Neues Kameraereignis</string>

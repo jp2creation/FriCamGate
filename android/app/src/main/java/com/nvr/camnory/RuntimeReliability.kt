@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal fun streamRetryDelay(attempt: Int): Long = (1200L * (1L shl attempt.coerceIn(0, 5))).coerceAtMost(30000L)
 

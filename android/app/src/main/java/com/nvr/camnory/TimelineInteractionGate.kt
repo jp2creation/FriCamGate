@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal class TimelineInteractionGate {
     var followsPlayback = true

@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 internal object Appearance {
     fun isDark(theme: String?, systemDark: Boolean): Boolean = when (theme) {

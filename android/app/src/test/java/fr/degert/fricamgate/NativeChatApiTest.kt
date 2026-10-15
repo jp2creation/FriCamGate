@@ -1,4 +1,4 @@
-package fr.degert.fricamgate
+package com.nvr.camnory
 
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
