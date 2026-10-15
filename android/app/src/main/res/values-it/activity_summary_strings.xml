@@ -1,0 +1,5 @@
+<resources>
+    <string name="activity_understood">Capito</string>
+    <string name="activity_review">Esamina</string>
+    <string name="activity_compact_item">%1$s su %2$s (%3$d)</string>
+</resources>

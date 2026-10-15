@@ -1,0 +1,5 @@
+<resources>
+    <string name="activity_understood">Entendido</string>
+    <string name="activity_review">Examinar</string>
+    <string name="activity_compact_item">%1$s em %2$s (%3$d)</string>
+</resources>

@@ -38,6 +38,9 @@ internal data class EventFacts(val label: String, val name: String?, val descrip
 internal data class ActivityItem(val id: String, val camera: String, val startTime: Double, val facts: EventFacts)
 internal data class ActivityGroup(val latest: ActivityItem, val count: Int)
 
+internal fun unreadActivities(items: List<ActivityItem>, acknowledged: Set<String>): List<ActivityItem> =
+    items.filter { it.id !in acknowledged }
+
 internal fun groupActivities(items: List<ActivityItem>): List<ActivityGroup> = items
     .filter { it.startTime.isFinite() && it.startTime > 0 }
     .distinctBy { it.id }

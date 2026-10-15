@@ -5,6 +5,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EventNarrativeTest {
+    @Test fun acknowledgmentHidesOnlyReadEventsAndAllowsNewOnes() {
+        val facts = EventFacts("person", "Bob", null)
+        val items = listOf(ActivityItem("read", "front", 10.0, facts), ActivityItem("new", "front", 20.0, facts))
+        assertEquals(listOf("new"), unreadActivities(items, setOf("read")).map { it.id })
+        assertTrue(unreadActivities(items, setOf("read", "new")).isEmpty())
+        assertEquals(2, items.size)
+    }
     @Test fun extractsNameWithoutScoreAndKeepsDescription() {
         val facts = EventFacts.fromJson(JSONObject("""{"label":"person","sub_label":["Céline",0.99],"data":{"description":"Une personne entre."}}"""))
         assertEquals("Céline", facts.name)

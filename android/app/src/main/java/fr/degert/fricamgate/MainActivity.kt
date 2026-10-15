@@ -1683,36 +1683,53 @@ class MainActivity : AppCompatActivity() {
         cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' '), event.startTime)
 
     private fun recentActivitySummary(): View? {
+        val activeSession = session ?: return null
         val allowed = visibleCameras().map { it.name }.toSet()
         val now = System.currentTimeMillis() / 1000.0
         val recent = events.filter { it.camera in allowed && it.startTime?.let { time -> time in (now - 86400)..now } == true }
-        val groups = groupActivities(recent.map { ActivityItem(it.id, it.camera, it.startTime!!,
-            EventFacts(it.objectLabel, it.subLabel, it.description)) }).take(3)
+        val key = "activityAcknowledged:${activeSession.baseUrl}:${activeSession.username}"
+        val acknowledged = prefs.getStringSet(key, emptySet()).orEmpty()
+        val unread = unreadActivities(recent.map { ActivityItem(it.id, it.camera, it.startTime!!,
+            EventFacts(it.objectLabel, it.subLabel, it.description)) }, acknowledged)
+        val groups = groupActivities(unread).take(3)
         if (groups.isEmpty()) return null
+        val summary = groups.joinToString(" · ") { group ->
+            val event = recent.first { it.id == group.latest.id }
+            val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' ')
+            getString(R.string.activity_compact_item, eventDisplayText(event), camera, group.count)
+        }
         return vertical().apply {
-            setPadding(dp(4), dp(16), dp(4), dp(8))
-            addView(label(getString(R.string.recent_activity), 17, Palette.text).apply {
-                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-                setPadding(0, 0, 0, dp(6))
-            })
-            groups.forEach { group ->
-                val event = recent.first { it.id == group.latest.id }
-                addView(horizontal().apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(9), 0, dp(9))
-                    isFocusable = true
-                    setOnClickListener { renderEventDetail(event) }
-                    addView(ImageView(context).apply {
-                        setImageResource(eventObjectIcon(event))
-                        setColorFilter(Palette.accent)
-                    }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { rightMargin = dp(12) })
-                    addView(vertical().apply {
-                        addView(label(eventSentence(event), 13, Palette.text))
-                        if (group.count > 1) addView(label(resources.getQuantityString(R.plurals.activity_detections,
-                            group.count, group.count), 11, Palette.muted).apply { setPadding(0, dp(4), 0, 0) })
-                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                })
+            val card = this
+            setPadding(dp(14), dp(12), dp(14), dp(4))
+            background = rounded(Palette.card, 8, Palette.border, 1)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(12)
+                bottomMargin = dp(4)
             }
+            addView(label(getString(R.string.recent_activity), 14, Palette.text).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            })
+            addView(label(summary, 12, Palette.muted).apply {
+                maxLines = 3
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, dp(6), 0, dp(4))
+            })
+            addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 11, Palette.muted))
+            addView(horizontal().apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                fun action(titleRes: Int, run: () -> Unit): View = label(getString(titleRes), 13, Palette.accent).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minimumHeight = dp(48)
+                    isFocusable = true
+                    setOnClickListener { run() }
+                }
+                addView(action(R.string.activity_understood) {
+                    prefs.edit().putStringSet(key, (unread.map { it.id } + acknowledged).take(1000).toSet()).apply()
+                    card.visibility = View.GONE
+                })
+                addView(action(R.string.activity_review) { renderGlobalEvents() })
+            })
         }
     }
 
