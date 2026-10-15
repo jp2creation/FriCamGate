@@ -27,7 +27,7 @@ internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int) 
         val drawnWidth = minOf(width.toFloat(), maxWidthDp * resources.displayMetrics.density)
         val drawnHeight = drawnWidth * 265 / 1090
         // The source JPG is preserved unchanged. Its black backdrop is masked when drawn.
-        fun part(left: Int, right: Int, top: Int, bottom: Int, lightLetters: Boolean) {
+        fun part(left: Int, right: Int, top: Int, bottom: Int, lightLetters: Boolean, destination: RectF? = null) {
             val matrix = if (lightLetters) floatArrayOf(
                 -1f,0f,0f,0f,255f, 0f,-1f,0f,0f,255f, 0f,0f,-1f,0f,255f, 1f,0f,0f,0f,0f
             ) else floatArrayOf(
@@ -36,10 +36,12 @@ internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int) 
             paint.colorFilter = ColorMatrixColorFilter(ColorMatrix(matrix))
             val src = Rect(left * source.width / 1280, top * source.height / 1280,
                 right * source.width / 1280, bottom * source.height / 1280)
-            canvas.drawBitmap(source, src, RectF((left - 100) * drawnWidth / 1090, (top - 800) * drawnHeight / 265,
+            canvas.drawBitmap(source, src, destination ?: RectF((left - 100) * drawnWidth / 1090, (top - 800) * drawnHeight / 265,
                 (right - 100) * drawnWidth / 1090, (bottom - 800) * drawnHeight / 265), paint)
         }
         canvas.save()
+        canvas.translate(drawnWidth * 0.05f, 0f)
+        canvas.scale(0.9f, 0.9f)
         val nameClip = android.graphics.Path().apply {
             fillType = android.graphics.Path.FillType.EVEN_ODD
             addRect(0f, 0f, drawnWidth, drawnHeight, android.graphics.Path.Direction.CW)
@@ -49,9 +51,11 @@ internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int) 
         part(100, 675, 800, 1016, !Palette.dark)
         part(675, 1190, 800, 1016, false)
         canvas.restore()
-        part(100, 300, 1016, 1065, false)
-        part(300, 980, 1016, 1065, !Palette.dark)
-        part(980, 1190, 1016, 1065, false)
+        fun subtitleRect(left: Float, right: Float) = RectF(left * drawnWidth / 1090,
+            205 * drawnHeight / 265, right * drawnWidth / 1090, 263 * drawnHeight / 265)
+        part(100, 300, 1016, 1065, false, subtitleRect(60f, 125f))
+        part(300, 980, 1016, 1065, !Palette.dark, subtitleRect(145f, 945f))
+        part(980, 1190, 1016, 1065, false, subtitleRect(965f, 1030f))
     }
 
     companion object { private var artwork: Bitmap? = null }
