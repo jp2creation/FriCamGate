@@ -1243,7 +1243,7 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER_VERTICAL
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-                addView(toolbarIcon(R.drawable.ic_timeline, onClick = { onRefresh() }))
+                addView(toolbarIcon(R.drawable.ic_timeline, tint = if (!showEventsList) Palette.accent else Palette.muted, onClick = { onRefresh() }))
                 addView(soundToolbarIcon(onSound))
                 addView(toolbarIcon(R.drawable.ic_image, onClick = { onSnapshot() }))
                 addView(toolbarIcon(R.drawable.ic_grid, tint = if (showEventsList) Palette.accent else Palette.muted, onClick = { onToggleEvents() }))

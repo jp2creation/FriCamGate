@@ -11,6 +11,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CamnoryBrandingTest {
+    @Test fun launcherLogoFitsInsideTheMaskOnPureBlack() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val icon = context.getDrawable(R.mipmap.ic_launcher)!!
+        val bitmap = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888)
+        icon.setBounds(0, 0, 432, 432)
+        icon.draw(Canvas(bitmap))
+        assertEquals(android.graphics.Color.BLACK, bitmap.getPixel(216, 24))
+        var logoPixels = 0
+        for (y in 0 until 432) for (x in 0 until 432) {
+            val pixel = bitmap.getPixel(x, y)
+            if (android.graphics.Color.red(pixel) > 100 && android.graphics.Color.red(pixel) > android.graphics.Color.green(pixel) * 2) {
+                logoPixels++
+                val distance = kotlin.math.hypot((x - 216).toDouble(), (y - 216).toDouble())
+                assertTrue("Logo touches launcher mask", distance < 200)
+            }
+        }
+        assertTrue("Logo is missing", logoPixels > 1000)
+        context.openFileOutput("camnory-launcher.png", Context.MODE_PRIVATE).use {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        bitmap.recycle()
+    }
+
     @Test fun newIdentityAndCompactHeaderFitSmallPhones() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("com.nvr.camnory", context.packageName)
