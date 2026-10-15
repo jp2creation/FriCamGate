@@ -32,4 +32,3 @@ internal data class NativeEvent(
     val thumbnail: Bitmap?,
     val description: String? = null
 )
-
