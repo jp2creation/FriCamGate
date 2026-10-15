@@ -2103,13 +2103,7 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Palette.background)
             addView(horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
-                addView(ImageView(context).apply {
-                    setImageResource(R.drawable.camnory_logo)
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                }, LinearLayout.LayoutParams(dp(70), dp(70)))
-                addView(brandWordmark(150), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    leftMargin = dp(4)
-                })
+                addView(brandWordmark(230), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70)))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(10)
                 rightMargin = dp(118)
@@ -3405,17 +3399,8 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(28), 0, dp(28), 0)
         }
-        val logoFrame = FrameLayout(this)
-        val ring = LoadingRingView(this)
-        logoFrame.addView(ring, FrameLayout.LayoutParams(dp(128), dp(128), Gravity.CENTER))
-        logoFrame.addView(ImageView(this).apply {
-            setImageResource(R.drawable.camnory_logo)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }, FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER))
-        content.addView(logoFrame, LinearLayout.LayoutParams(dp(136), dp(136)))
-        content.addView(brandWordmark(156), LinearLayout.LayoutParams(dp(156), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(18)
-        })
+        content.addView(BrandWordmarkView(this, 260, portrait = true),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf(dp(332), (resources.displayMetrics.heightPixels * 0.42f).toInt())))
         val status = label(text.ifBlank { localizedLoadingStage(0) }, 14, Palette.muted).apply {
             gravity = Gravity.CENTER
             alpha = 0.86f
@@ -3476,13 +3461,6 @@ class MainActivity : AppCompatActivity() {
             }, LOADING_SLOW_ACTIONS_DELAY_MS)
             return
         }
-        val ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1500L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            addUpdateListener { animation -> ring.progress = animation.animatedValue as Float }
-            start()
-        }
         val barAnimator = ValueAnimator.ofFloat(0.18f, 1f).apply {
             duration = 1900L
             repeatCount = ValueAnimator.INFINITE
@@ -3498,7 +3476,7 @@ class MainActivity : AppCompatActivity() {
             addUpdateListener { animation -> status.text = localizedLoadingStage(animation.animatedValue as Int) }
             start()
         }
-        loadingAnimators.addAll(listOf(ringAnimator, barAnimator, stageAnimator))
+        loadingAnimators.addAll(listOf(barAnimator, stageAnimator))
         mainHandler.postDelayed({
             if (root.isAttachedToWindow && loadingAnimators.isNotEmpty()) {
                 slowPanel.visibility = View.VISIBLE

@@ -53,7 +53,7 @@ class CamnoryBrandingTest {
                 }
                 collect(header)
                 assertEquals(1, artworkViews.size)
-                assertEquals("Camnory · CLIENT FOR FRIGATE", artworkViews.first().contentDescription)
+                assertEquals("Camnory · EVERY CAMERA. ONE PLACE.", artworkViews.first().contentDescription)
                 assertNull(header.getChildAt(1).background)
                 assertNull(header.getChildAt(2).background)
                 // Branding and the two right-hand actions must not collide at 320 dp.

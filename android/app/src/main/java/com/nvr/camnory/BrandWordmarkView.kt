@@ -1,62 +1,37 @@
 package com.nvr.camnory
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.View
 
-/** Displays the supplied brand artwork, not a substitute system font. */
-internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int) : View(context) {
-    private val source = artwork ?: BitmapFactory.decodeResource(resources, R.drawable.camnory_brand_source).also { artwork = it }
+/** Keeps the supplied logo and lettering together at their original proportions. */
+internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int, portrait: Boolean = false) : View(context) {
+    private val source = BitmapFactory.decodeResource(resources,
+        if (portrait) R.drawable.camnory_brand_portrait else R.drawable.camnory_brand_horizontal)
+    private val crop = if (portrait) Rect(60, 230, 670, 1010) else Rect(110, 190, 1180, 520)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-    init { contentDescription = "Camnory · CLIENT FOR FRIGATE" }
+    init { contentDescription = "Camnory · EVERY CAMERA. ONE PLACE." }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val width = resolveSize((maxWidthDp * resources.displayMetrics.density).toInt(), widthMeasureSpec)
-        setMeasuredDimension(width, resolveSize((minOf(width.toFloat(), maxWidthDp * resources.displayMetrics.density) * 265 / 1090).toInt(), heightMeasureSpec))
+        val desiredWidth = (maxWidthDp * resources.displayMetrics.density).toInt()
+        val width = resolveSize(desiredWidth, widthMeasureSpec)
+        setMeasuredDimension(width, resolveSize(minOf(width, desiredWidth) * crop.height() / crop.width(), heightMeasureSpec))
     }
 
     override fun onDraw(canvas: Canvas) {
-        val drawnWidth = minOf(width.toFloat(), maxWidthDp * resources.displayMetrics.density)
-        val drawnHeight = drawnWidth * 265 / 1090
-        // The source JPG is preserved unchanged. Its black backdrop is masked when drawn.
-        fun part(left: Int, right: Int, top: Int, bottom: Int, lightLetters: Boolean, destination: RectF? = null) {
-            val matrix = if (lightLetters) floatArrayOf(
-                -1f,0f,0f,0f,255f, 0f,-1f,0f,0f,255f, 0f,0f,-1f,0f,255f, 1f,0f,0f,0f,0f
-            ) else floatArrayOf(
-                1f,0f,0f,0f,0f, 0f,1f,0f,0f,0f, 0f,0f,1f,0f,0f, 1f,0f,0f,0f,0f
-            )
-            paint.colorFilter = ColorMatrixColorFilter(ColorMatrix(matrix))
-            val src = Rect(left * source.width / 1280, top * source.height / 1280,
-                right * source.width / 1280, bottom * source.height / 1280)
-            canvas.drawBitmap(source, src, destination ?: RectF((left - 100) * drawnWidth / 1090, (top - 800) * drawnHeight / 265,
-                (right - 100) * drawnWidth / 1090, (bottom - 800) * drawnHeight / 265), paint)
-        }
-        canvas.save()
-        canvas.translate(drawnWidth * 0.05f, 0f)
-        canvas.scale(0.9f, 0.9f)
-        val nameClip = android.graphics.Path().apply {
-            fillType = android.graphics.Path.FillType.EVEN_ODD
-            addRect(0f, 0f, drawnWidth, drawnHeight, android.graphics.Path.Direction.CW)
-            addRect(230 * drawnWidth / 1090, 0f, drawnWidth, 40 * drawnHeight / 265, android.graphics.Path.Direction.CW)
-        }
-        canvas.clipPath(nameClip)
-        part(100, 675, 800, 1016, !Palette.dark)
-        part(675, 1190, 800, 1016, false)
-        canvas.restore()
-        fun subtitleRect(left: Float, right: Float) = RectF(left * drawnWidth / 1090,
-            205 * drawnHeight / 265, right * drawnWidth / 1090, 263 * drawnHeight / 265)
-        part(100, 300, 1016, 1065, false, subtitleRect(60f, 125f))
-        part(300, 980, 1016, 1065, !Palette.dark, subtitleRect(145f, 945f))
-        part(980, 1190, 1016, 1065, false, subtitleRect(965f, 1030f))
+        paint.colorFilter = if (Palette.dark) ColorMatrixColorFilter(floatArrayOf(
+            1f,0f,0f,0f,0f, 0f,1f,0f,0f,0f, 0f,0f,1f,0f,0f, 1f,0f,0f,0f,0f
+        )) else null
+        val scale = minOf(width.toFloat() / crop.width(), height.toFloat() / crop.height())
+        val drawnWidth = crop.width() * scale
+        val drawnHeight = crop.height() * scale
+        canvas.drawBitmap(source, crop, RectF((width - drawnWidth) / 2f, (height - drawnHeight) / 2f,
+            (width + drawnWidth) / 2f, (height + drawnHeight) / 2f), paint)
     }
-
-    companion object { private var artwork: Bitmap? = null }
 }
