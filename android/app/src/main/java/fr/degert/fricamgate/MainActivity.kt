@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity() {
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
     private var updateChecking = false
+    private var updateCardView: View? = null
     private var soundEnabled = false
     private val homeStreams = mutableListOf<WebSocket>()
     private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
@@ -711,12 +712,19 @@ class MainActivity : AppCompatActivity() {
         var usingDefaultVod = false
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED && currentPlayer === player && currentPlaybackKey == key) {
+                    mainHandler.post {
+                        if (currentPlayer === player && currentPlaybackKey == key) {
+                            startTimelineRecordingPlayer(api, token, camera, playerView, fallback,
+                                windowEnd.toDouble(), onPlaybackClock)
+                        }
+                    }
+                }
                 if (playbackState == Player.STATE_READY && currentPlaybackKey == key) {
                     if (!firstReadySeekDone) {
                         firstReadySeekDone = true
                         player.seekTo(seekMs)
                     }
-                    fallback.visibility = View.GONE
                     player.playWhenReady = true
                     player.play()
                 }
@@ -734,7 +742,7 @@ class MainActivity : AppCompatActivity() {
                     if (!usingDefaultVod) {
                         usingDefaultVod = true
                         firstReadySeekDone = false
-                        player.setMediaItem(MediaItem.fromUri(api.recordingVodUrl(camera.name, windowStart, windowEnd)))
+                        player.setMediaItem(MediaItem.fromUri(api.recordingClipUrl(camera.name, windowStart, windowEnd)))
                         player.prepare()
                         player.playWhenReady = true
                         player.play()
@@ -743,10 +751,11 @@ class MainActivity : AppCompatActivity() {
                     currentPlaybackKey = null
                     playerView.visibility = View.GONE
                     fallback.visibility = View.VISIBLE
+                    Toast.makeText(this@MainActivity, R.string.no_recent_video, Toast.LENGTH_LONG).show()
                 }
             }
         })
-        player.setMediaItem(MediaItem.fromUri(api.recordingVodUrl(camera.name, windowStart, windowEnd, stream = "sub")))
+        player.setMediaItem(MediaItem.fromUri(api.recordingVodUrl(camera.name, windowStart, windowEnd)))
         applyPlayerVolume(player)
         player.prepare()
         player.seekTo(seekMs)
@@ -1719,10 +1728,12 @@ class MainActivity : AppCompatActivity() {
         })
         var lastPlaybackSec: Double? = null
         var pendingScrollPlayback: Runnable? = null
+        val interaction = TimelineInteractionGate()
         var timelineMode = false
         fun resumeLive() {
             if (activeSession == null || activeApi == null) return
             timelineMode = false
+            interaction.commitScroll()
             lastPlaybackSec = null
             pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
             pendingScrollPlayback = null
@@ -1760,7 +1771,7 @@ class MainActivity : AppCompatActivity() {
         returnLive.setOnClickListener { returnToLive() }
         var syncingPlaybackScroll = false
         fun updatePlaybackClock(playbackSec: Double) {
-            if (!timelineMode || frame.height <= 0) return
+            if (!timelineMode || !interaction.followsPlayback || frame.height <= 0) return
             currentTime.text = formatTimelineClock(playbackSec)
             onFocusChanged(playbackSec, false)
             lastPlaybackSec = playbackSec
@@ -1788,6 +1799,8 @@ class MainActivity : AppCompatActivity() {
             val previousPlaybackSec = lastPlaybackSec
             if (previousPlaybackSec != null && kotlin.math.abs(previousPlaybackSec - centerSec) < 1.0) return
             lastPlaybackSec = centerSec
+            interaction.beginScroll()
+            timelinePlaybackGeneration += 1
             if (!timelineMode) {
                 timelineMode = true
                 stopMjpegStreams()
@@ -1798,6 +1811,8 @@ class MainActivity : AppCompatActivity() {
             pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
             val runnable = Runnable {
                 if (!timelineMode) return@Runnable
+                pendingScrollPlayback = null
+                interaction.commitScroll()
                 startTimelineRecordingPlayer(activeApi, activeSession.token, camera, playerView, preview, centerSec, ::updatePlaybackClock)
             }
             pendingScrollPlayback = runnable
@@ -3068,6 +3083,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun settingsUpdateCard(): View {
         val result = updateResult
+        val downloadedVersion = prefs.getString("updateDownloadVersion", null)
+        val downloadId = if (downloadedVersion != null && compareVersions(downloadedVersion, appVersionName()) > 0)
+            prefs.getLong("updateDownloadId", -1L) else -1L
         val statusText = when {
             updateChecking -> getString(R.string.searching)
             result == null -> getString(R.string.search_available)
@@ -3078,19 +3096,86 @@ class MainActivity : AppCompatActivity() {
         return vertical().apply {
             setPadding(dp(18), dp(16), dp(18), dp(16))
             background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
-            addView(settingsTitleLabel(getString(R.string.updates)))
-            addView(settingsDetailLabel(statusText))
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(settingsTitleLabel(getString(R.string.updates)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(toolbarIcon(R.drawable.ic_refresh, tint = Palette.muted) {
+                    checkForUpdates(renderSettingsWhenDone = true)
+                }.apply {
+                    isEnabled = !updateChecking
+                    alpha = if (updateChecking) 0.4f else 1f
+                    contentDescription = getString(R.string.check)
+                    androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+                })
+            })
+            addView(settingsDetailLabel(statusText).apply {
+                if (result?.available == true) setTextColor(Palette.accent)
+            })
             addView(settingsDetailLabel(getString(R.string.installed_latest, appVersionName(), result?.latestVersion ?: "-")))
-            if (result?.available == true && !result.downloadUrl.isNullOrBlank()) {
+            if (result?.available == true && !result.downloadUrl.isNullOrBlank() && downloadId == -1L) {
                 addView(primaryButton(getString(R.string.update_available)).apply {
                     setOnClickListener { downloadUpdate(result) }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(16) })
             }
-            addView(secondaryButton(if (updateChecking) getString(R.string.checking) else getString(R.string.check)).apply {
-                isEnabled = !updateChecking
-                setOnClickListener { checkForUpdates(renderSettingsWhenDone = true) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(10) })
+            if (downloadId != -1L) {
+                val downloadStatus = settingsDetailLabel("")
+                val progress = android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    progressTintList = android.content.res.ColorStateList.valueOf(Palette.accent)
+                    max = 100
+                }
+                val install = primaryButton(getString(R.string.update_install)).apply {
+                    visibility = View.GONE
+                    setOnClickListener { installDownloadedUpdate(downloadId) }
+                }
+                addView(downloadStatus)
+                addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(10); bottomMargin = dp(12) })
+                addView(install, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                val card = this
+                fun poll() {
+                    if (!card.isAttachedToWindow) return
+                    val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                    val state = runCatching {
+                        manager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
+                            if (!cursor.moveToFirst()) return@use null
+                            Triple(cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
+                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
+                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)))
+                        }
+                    }.getOrNull()
+                    when (state?.first) {
+                        DownloadManager.STATUS_SUCCESSFUL -> {
+                            downloadStatus.text = getString(R.string.update_ready)
+                            progress.visibility = View.GONE
+                            install.visibility = View.VISIBLE
+                        }
+                        DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PAUSED -> {
+                            val percent = updateDownloadPercent(state.second, state.third)
+                            downloadStatus.text = if (percent == null) getString(R.string.update_downloading) else getString(R.string.update_progress, percent)
+                            progress.isIndeterminate = percent == null
+                            progress.progress = percent ?: 0
+                            card.postDelayed({ poll() }, 700)
+                        }
+                        else -> {
+                            downloadStatus.text = getString(R.string.update_download_failed)
+                            progress.visibility = View.GONE
+                            install.visibility = View.VISIBLE
+                            install.text = getString(R.string.update_retry)
+                            install.setOnClickListener {
+                                manager.remove(downloadId)
+                                prefs.edit().remove("updateDownloadId").apply()
+                                if (result?.available == true) downloadUpdate(result) else refreshUpdateCard()
+                            }
+                        }
+                    }
+                }
+                post { poll() }
+            }
+            if (updateChecking) addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                isIndeterminate = true
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(Palette.accent)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply { topMargin = dp(12) })
         }.also {
+            updateCardView = it
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
             }
@@ -3363,6 +3448,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkForUpdates(renderSettingsWhenDone: Boolean) {
         if (updateChecking) return
         updateChecking = true
+        if (renderSettingsWhenDone) refreshUpdateCard()
         AppUpdateService(httpClient).check(appVersionName()) { result ->
             runOnUiThread {
                 updateChecking = false
@@ -3375,18 +3461,32 @@ class MainActivity : AppCompatActivity() {
                         downloadUrl = null
                     )
                 }
-                if (renderSettingsWhenDone && activeTab == Tab.Settings && settingsPage == "main") renderSettings()
+                if (renderSettingsWhenDone && activeTab == Tab.Settings && settingsPage == "main") refreshUpdateCard()
             }
         }
     }
 
     private fun downloadUpdate(update: NativeUpdateResult) {
         val url = update.downloadUrl
-        if (url.isNullOrBlank()) {
+        if (url.isNullOrBlank() || !trustedUpdateUrl(url)) {
             toast(getString(R.string.download_unavailable))
             return
         }
-        val fileName = update.assetName ?: "FriCamGate-v${update.latestVersion ?: "latest"}-debug.apk"
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val previousId = prefs.getLong("updateDownloadId", -1L)
+        if (previousId != -1L) {
+            val active = runCatching {
+                manager.query(DownloadManager.Query().setFilterById(previousId)).use { cursor ->
+                    cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) != DownloadManager.STATUS_FAILED
+                }
+            }.getOrDefault(false)
+            if (active && prefs.getString("updateDownloadUrl", null) == url) {
+                refreshUpdateCard()
+                return
+            }
+            manager.remove(previousId)
+        }
+        val fileName = "camgate-update-${System.currentTimeMillis()}.apk"
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("FriCamGate ${update.latestVersion ?: ""}".trim())
             .setDescription(getString(R.string.download_description))
@@ -3394,9 +3494,36 @@ class MainActivity : AppCompatActivity() {
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName)
             .addRequestHeader("User-Agent", "FriCamGate")
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.enqueue(request)
-        toast(getString(R.string.download_started))
+        runCatching { manager.enqueue(request) }.onSuccess { id ->
+            prefs.edit().putLong("updateDownloadId", id).putString("updateDownloadUrl", url)
+                .putString("updateDownloadVersion", update.latestVersion).apply()
+            refreshUpdateCard()
+        }.onFailure { toast(getString(R.string.update_download_failed)) }
+    }
+
+    private fun refreshUpdateCard() {
+        val old = updateCardView ?: return
+        val parent = old.parent as? ViewGroup ?: return
+        val index = parent.indexOfChild(old)
+        val replacement = settingsUpdateCard()
+        parent.removeViewAt(index)
+        parent.addView(replacement, index)
+    }
+
+    private fun installDownloadedUpdate(id: Long) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                toast(getString(R.string.update_install_permission))
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                return
+            }
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val uri = manager.getUriForDownloadedFile(id) ?: error("Missing update")
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }.onFailure { toast(getString(R.string.update_install_failed)) }
     }
 
     private fun releasePlayer() {

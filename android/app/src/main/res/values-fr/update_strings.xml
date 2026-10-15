@@ -1,0 +1,10 @@
+<resources>
+    <string name="update_downloading">Téléchargement de la mise à jour</string>
+    <string name="update_ready">Mise à jour prête à installer</string>
+    <string name="update_install">Installer la mise à jour</string>
+    <string name="update_retry">Réessayer le téléchargement</string>
+    <string name="update_download_failed">Échec du téléchargement. Vérifiez votre connexion et l’espace disponible.</string>
+    <string name="update_install_permission">Autorisez CamGate à installer les mises à jour, puis revenez ici et appuyez sur Installer.</string>
+    <string name="update_install_failed">Impossible d’ouvrir l’installation. Téléchargez à nouveau la mise à jour.</string>
+    <string name="update_progress">%1$d%% téléchargés</string>
+</resources>

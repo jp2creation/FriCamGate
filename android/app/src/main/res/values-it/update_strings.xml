@@ -1,0 +1,10 @@
+<resources>
+    <string name="update_downloading">Download aggiornamento</string>
+    <string name="update_ready">Aggiornamento pronto da installare</string>
+    <string name="update_install">Installa aggiornamento</string>
+    <string name="update_retry">Riprova download</string>
+    <string name="update_download_failed">Download non riuscito. Controlla connessione e spazio disponibile.</string>
+    <string name="update_install_permission">Consenti a CamGate di installare aggiornamenti, poi torna e tocca Installa.</string>
+    <string name="update_install_failed">Impossibile aprire il programma di installazione. Scarica di nuovo.</string>
+    <string name="update_progress">%1$d%% scaricato</string>
+</resources>
