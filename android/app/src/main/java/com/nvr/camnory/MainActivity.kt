@@ -112,6 +112,7 @@ class MainActivity : AppCompatActivity() {
     private var updateCardView: View? = null
     private var soundEnabled = false
     private var detailSoundRefresh: (() -> Unit)? = null
+    private var eventPlaybackControls: androidx.media3.ui.PlayerControlView? = null
     private val homeStreams = mutableListOf<WebSocket>()
     private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
     private var streamsSuspended = false
@@ -549,11 +550,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val playerView = PlayerView(this).apply {
-            useController = true
-            controllerShowTimeoutMs = 4000
-            controllerHideOnTouch = true
-            setShowNextButton(false)
-            setShowPreviousButton(false)
+            useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             setBackgroundColor(Color.TRANSPARENT)
             setShutterBackgroundColor(Color.TRANSPARENT)
@@ -564,6 +561,21 @@ class MainActivity : AppCompatActivity() {
             topMargin = dp(14)
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
+        val controls = layoutInflater.inflate(R.layout.event_playback_controls, body, false) as androidx.media3.ui.PlayerControlView
+        controls.setBackgroundColor(Palette.background)
+        for (id in listOf(androidx.media3.ui.R.id.exo_rew, androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_ffwd)) {
+            controls.findViewById<ImageView>(id).setColorFilter(Palette.text)
+        }
+        for (id in listOf(androidx.media3.ui.R.id.exo_position, androidx.media3.ui.R.id.exo_duration)) {
+            controls.findViewById<TextView>(id).setTextColor(Palette.muted)
+        }
+        controls.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress).apply {
+            setPlayedColor(Palette.accent)
+            setScrubberColor(Palette.accent)
+            setBufferedColor(Palette.tick)
+            setUnplayedColor(Palette.tickMinor)
+        }
+        body.addView(controls)
 
         val scroll = appScrollView()
         val column = vertical().apply { setPadding(dp(16), dp(20), dp(16), dp(120)) }
@@ -580,12 +592,13 @@ class MainActivity : AppCompatActivity() {
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Events)
+        eventPlaybackControls = controls
         if (showingEventCamera || displayedCamera == null) {
             startClipPlayer(activeApi, activeSession.token, event, playerView, fallback)
         } else {
             startTimelineRecordingPlayer(activeApi, activeSession.token, displayedCamera, playerView, fallback, event.startTime ?: 0.0)
         }
-        playerView.showController()
+        controls.show()
     }
 
     private fun startClipPlayer(api: NvrRecordedMedia, token: String, event: NativeEvent, playerView: PlayerView, fallback: ImageView) {
@@ -595,6 +608,7 @@ class MainActivity : AppCompatActivity() {
         val key = "event:${event.id}"
         currentPlaybackKey = key
         playerView.player = player
+        eventPlaybackControls?.player = player
         playerView.visibility = View.VISIBLE
         attachFallbackHider(player, key, fallback, playerView)
         player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)))
@@ -635,6 +649,7 @@ class MainActivity : AppCompatActivity() {
         currentPlayer = player
         currentPlaybackKey = key
         playerView.player = player
+        eventPlaybackControls?.player = player
         playerView.visibility = View.VISIBLE
         fallback.visibility = View.VISIBLE
         attachFallbackHider(player, key, fallback, playerView)
@@ -719,6 +734,7 @@ class MainActivity : AppCompatActivity() {
         currentPlayer = player
         currentPlaybackKey = key
         playerView.player = player
+        eventPlaybackControls?.player = player
         playerView.visibility = View.VISIBLE
         var firstReadySeekDone = false
         var usingDefaultVod = false
@@ -1532,8 +1548,9 @@ class MainActivity : AppCompatActivity() {
         val selectedToday = isSameLocalDay(timelineDayMillis, System.currentTimeMillis())
         val selectedDayStart = startOfLocalDayMillis(timelineDayMillis)
         val selectedDayEnd = selectedDayStart + TimeUnit.DAYS.toMillis(1) - 1000L
-        val zoomLevels = intArrayOf(18, 34, 62, 100)
-        var zoomIndex = prefs.getInt("timelineZoomIndex", 1).coerceIn(0, zoomLevels.lastIndex)
+        val zoomLevels = timelineZoomDensities
+        val savedDensity = if (prefs.contains("timelineZoomDensity")) prefs.getInt("timelineZoomDensity", 34) else null
+        val zoomIndex = timelineZoomIndex(savedDensity, prefs.getInt("timelineZoomIndex", 1))
         val frame = FrameLayout(this).apply { setBackgroundColor(Palette.backgroundAlt) }
         val scroll = appScrollView().apply {
             clipToPadding = false
@@ -1546,7 +1563,8 @@ class MainActivity : AppCompatActivity() {
         val pxPerMinute = dp(zoomLevels[zoomIndex])
         val anchorSec = timelineAnchorSeconds(cameraEvents, selectedToday, selectedDayEnd)
         val oldestEventSec = cameraEvents.mapNotNull { it.startTime }.minOrNull() ?: (anchorSec - 1800.0)
-        val spanMinutes = maxOf(18.0, (anchorSec - oldestEventSec) / 60.0 + 6.0)
+        val spanMinutes = maxOf(18.0, (anchorSec - selectedDayStart / 1000.0) / 60.0,
+            (anchorSec - oldestEventSec) / 60.0 + 6.0)
         val timelineThumbWidth = dp(148)
         val timelineThumbHeight = dp(82)
         val playheadColor = timelineColor(appearancePrefs.getString("timelineColor", "accent"), Palette.accent)
@@ -1560,46 +1578,8 @@ class MainActivity : AppCompatActivity() {
             return timelineY(anchorSec, timeSec, topSpacer, pxPerMinute)
         }
 
-        val tickStepMinutes = when (zoomIndex) {
-            0 -> 5
-            1 -> 2
-            else -> 1
-        }
-        val tickCount = (spanMinutes / tickStepMinutes).toInt() + 1
-        repeat(tickCount) { tick ->
-            val timeSec = timelineFirstTick(anchorSec, tickStepMinutes) - tick * tickStepMinutes * 60.0
-            val y = yForTime(timeSec)
-            val isHour = timeSec.toLong() % 3600L == 0L
-            val isMajor = isHour || tickStepMinutes <= 2 || timeSec.toLong() % (tickStepMinutes * 180L) == 0L
-            column.addView(View(this).apply {
-                setBackgroundColor(if (isMajor) Palette.tick else Palette.tickMinor)
-            }, FrameLayout.LayoutParams(dp(if (isMajor) 22 else 8), dp(1), Gravity.START or Gravity.TOP).apply {
-                leftMargin = dp(4)
-                topMargin = y
-            })
-            if (isMajor) {
-                column.addView(label(formatTimelineTime(timeSec), 12, Palette.muted), FrameLayout.LayoutParams(dp(76), dp(24), Gravity.START or Gravity.TOP).apply {
-                    leftMargin = dp(28)
-                    topMargin = y - dp(11)
-                })
-            }
-            if (zoomIndex >= 1) {
-                val minorStep = if (zoomIndex >= 2) 30 else 60
-                var offsetSeconds = minorStep
-                while (offsetSeconds < tickStepMinutes * 60) {
-                    val minorY = y + (offsetSeconds / 60.0 * pxPerMinute).toInt()
-                    if (minorY < timelineHeight - bottomSpacer) {
-                        column.addView(View(this).apply {
-                            setBackgroundColor(Palette.tickMinor)
-                        }, FrameLayout.LayoutParams(dp(8), dp(1), Gravity.START or Gravity.TOP).apply {
-                            leftMargin = dp(4)
-                            topMargin = minorY
-                        })
-                    }
-                    offsetSeconds += minorStep
-                }
-            }
-        }
+        column.addView(TimelineRulerView(this, anchorSec, topSpacer, pxPerMinute, zoomLevels[zoomIndex], ::formatTimelineTime),
+            FrameLayout.LayoutParams(dp(110), timelineHeight - bottomSpacer))
         column.addView(View(this).apply {
             background = rounded(androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 48), 2)
         }, FrameLayout.LayoutParams(dp(2), timelineHeight - topSpacer, Gravity.TOP or Gravity.START).apply {
@@ -1740,7 +1720,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     if (zoomIndex > 0) {
                         val focusSec = centerSecondForScroll(scroll.scrollY)
-                        prefs.edit().putInt("timelineZoomIndex", zoomIndex - 1).apply()
+                        prefs.edit().putInt("timelineZoomDensity", zoomLevels[zoomIndex - 1]).apply()
                         renderCameraDetail(camera, timelineDayMillis, cameraEvents, focusSec)
                     }
                 }
@@ -1749,7 +1729,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     if (zoomIndex < zoomLevels.lastIndex) {
                         val focusSec = centerSecondForScroll(scroll.scrollY)
-                        prefs.edit().putInt("timelineZoomIndex", zoomIndex + 1).apply()
+                        prefs.edit().putInt("timelineZoomDensity", zoomLevels[zoomIndex + 1]).apply()
                         renderCameraDetail(camera, timelineDayMillis, cameraEvents, focusSec)
                     }
                 }
@@ -3672,6 +3652,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        eventPlaybackControls?.player = null
+        eventPlaybackControls = null
         detailSoundRefresh = null
         globalResultsContainer = null
         resumeHomeAudioKey = null
@@ -3696,6 +3678,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releaseCurrentPlayer() {
+        eventPlaybackControls?.player = null
         currentPlayer?.release()
         currentPlayer = null
         currentPlaybackKey = null

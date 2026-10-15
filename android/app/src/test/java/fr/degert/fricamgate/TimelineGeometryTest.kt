@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TimelineGeometryTest {
+    @Test fun additionalZoomOutLevelsPreserveExistingPreferences() {
+        assertEquals(34, timelineZoomDensities[timelineZoomIndex(null, 1)])
+        assertEquals(18, timelineZoomDensities[timelineZoomIndex(null, 0)])
+        assertEquals(4, timelineZoomDensities[timelineZoomIndex(4, 1)])
+        assertTrue(timelineZoomDensities.count { it < 18 } >= 3)
+    }
+    @Test fun everyZoomLevelHasDenseTicksAndReadableLabels() {
+        timelineZoomDensities.forEach { density ->
+            val spacing = timelineMinorStep(density) / 60.0 * density
+            assertTrue("Tick spacing at $density", spacing in 6.0..12.0)
+            assertTrue(timelineLabelStep(density) * density >= 32)
+            assertEquals(0, (timelineLabelStep(density) * 60) % timelineMinorStep(density))
+        }
+    }
     @Test fun ticksAreAlignedToRealMinutesNotTheOpeningTime() {
         assertEquals(960.0, timelineFirstTick(1007.0, 2), 0.0)
         assertEquals(100, timelineY(1007.0, 947.0, 40, 60))

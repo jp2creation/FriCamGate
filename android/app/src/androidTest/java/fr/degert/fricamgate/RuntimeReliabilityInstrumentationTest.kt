@@ -180,9 +180,51 @@ class RuntimeReliabilityInstrumentationTest {
                     return null
                 }
                 val player = find(activity.findViewById(android.R.id.content))!!
-                assertTrue(player.useController)
-                assertNotNull(player.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress))
-                assertNotNull(player.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause))
+                assertFalse(player.useController)
+                val controls = activity.findViewById<androidx.media3.ui.PlayerControlView>(R.id.event_playback_controls)
+                assertNotNull(controls)
+                assertSame(player.player, controls.player)
+                assertNotNull(controls.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress))
+                val playPause = controls.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
+                assertTrue(controls.player!!.playWhenReady)
+                playPause.performClick()
+                assertFalse(controls.player!!.playWhenReady)
+                playPause.performClick()
+                assertTrue(controls.player!!.playWhenReady)
+            }
+            Thread.sleep(300)
+            scenario.onActivity { activity ->
+                val controls = activity.findViewById<androidx.media3.ui.PlayerControlView>(R.id.event_playback_controls)
+                assertTrue(controls.height <= (56 * activity.resources.displayMetrics.density).toInt())
+                assertTrue(controls.width > 0)
+            }
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { bitmap ->
+                context.openFileOutput("compact-event-player.png", Context.MODE_PRIVATE).use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
+            }
+        }
+    }
+
+    @Test fun minimumZoomRulerHasContinuousMinorMarks() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val width = (110 * activity.resources.displayMetrics.density).toInt()
+                val height = (400 * activity.resources.displayMetrics.density).toInt()
+                val ruler = TimelineRulerView(activity, 10007.0, 0,
+                    (4 * activity.resources.displayMetrics.density).toInt(), 4) { "12:30" }
+                ruler.layout(0, 0, width, height)
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                ruler.draw(android.graphics.Canvas(bitmap))
+                val x = (6 * activity.resources.displayMetrics.density).toInt()
+                val markedRows = (0 until height).count { android.graphics.Color.alpha(bitmap.getPixel(x, it)) > 0 }
+                assertTrue("Not enough ruler marks", markedRows > 25)
+                context.openFileOutput("minimum-zoom-ruler.png", Context.MODE_PRIVATE).use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
             }
         }
     }

@@ -1,0 +1,10 @@
+<androidx.media3.ui.PlayerControlView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/event_playback_controls"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    app:controller_layout_id="@layout/compact_playback_controls"
+    app:show_timeout="0"
+    app:play_icon="@android:drawable/ic_media_play"
+    app:pause_icon="@android:drawable/ic_media_pause"
+    app:animation_enabled="false" />

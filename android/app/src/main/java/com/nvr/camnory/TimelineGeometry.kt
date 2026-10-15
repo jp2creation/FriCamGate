@@ -1,5 +1,29 @@
 package com.nvr.camnory
 
+internal val timelineZoomDensities = intArrayOf(4, 8, 12, 18, 34, 62, 100)
+
+internal fun timelineZoomIndex(density: Int?, legacyIndex: Int): Int {
+    val saved = density ?: intArrayOf(18, 34, 62, 100)[legacyIndex.coerceIn(0, 3)]
+    return timelineZoomDensities.indices.minBy { kotlin.math.abs(timelineZoomDensities[it] - saved) }
+}
+
+internal fun timelineLabelStep(density: Int): Int = when {
+    density <= 4 -> 15
+    density <= 8 -> 10
+    density <= 12 -> 5
+    density <= 34 -> 2
+    else -> 1
+}
+
+internal fun timelineMinorStep(density: Int): Int = when {
+    density <= 4 -> 180
+    density <= 8 -> 60
+    density <= 18 -> 30
+    density <= 34 -> 15
+    density <= 62 -> 10
+    else -> 5
+}
+
 internal fun timelineY(anchorSec: Double, timeSec: Double, topPx: Int, pixelsPerMinute: Int): Int =
     topPx + (((anchorSec - timeSec).coerceAtLeast(0.0) / 60.0) * pixelsPerMinute).toInt()
 
