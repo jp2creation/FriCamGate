@@ -29,7 +29,8 @@ import okhttp3.Request
 import org.json.JSONArray
 import java.util.concurrent.TimeUnit
 
-internal data class CameraAlert(val id: String, val camera: String, val label: String, val startTime: Double)
+internal data class CameraAlert(val id: String, val camera: String, val label: String, val startTime: Double,
+    val facts: EventFacts = EventFacts(label, null, null))
 
 internal fun newCameraAlerts(
     candidates: List<CameraAlert>, after: Double, hidden: Set<String>, posted: Set<String>
@@ -115,9 +116,8 @@ internal object CameraNotifications {
                 val camera = event.optString("camera")
                 val time = event.optDouble("start_time", Double.NaN)
                 if (id.isBlank() || camera.isBlank() || !time.isFinite()) return@mapNotNull null
-                val subLabel = event.optJSONArray("sub_label")?.optString(0)
-                    ?: event.optString("sub_label").takeUnless { it == "null" }
-                CameraAlert(id, camera, subLabel?.takeIf { it.isNotBlank() } ?: event.optString("label"), time)
+                val facts = EventFacts.fromJson(event)
+                CameraAlert(id, camera, facts.name ?: facts.label, time, facts)
             }
             // A late response must not publish for an account that has since signed out.
             if (stopped() || !enabled(context) || prefs.getString("token", null) != token || prefs.getString("baseUrl", null) != baseUrl) return@synchronized true
@@ -128,7 +128,10 @@ internal object CameraNotifications {
             newCameraAlerts(candidates, afterMillis / 1000.0, hidden, posted).takeLast(20).forEach { alert ->
                 if (stopped() || !enabled(context)) return@synchronized true
                 val title = alert.camera.replace('_', ' ')
-                val text = localizedAlertLabel(localized, alert.label)
+                val narrative = eventNarrative(localized, alert.facts, title, alert.startTime)
+                val text = alert.facts.description?.let {
+                    "$narrative\n${localized.getString(R.string.frigate_description_inline, it)}"
+                } ?: narrative
                 publish(localized, alert.id, title, text, alert.id)
                 posted.add(alert.id)
             }

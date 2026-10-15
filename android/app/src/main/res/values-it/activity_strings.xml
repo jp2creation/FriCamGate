@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recent_activity">Attività recenti</string>
+    <string name="activity_person">Una persona</string>
+    <string name="activity_vehicle">Un veicolo</string>
+    <string name="activity_cat">Un gatto</string>
+    <string name="activity_dog">Un cane</string>
+    <string name="activity_animal">Un animale</string>
+    <string name="activity_motion">Attività</string>
+    <string name="activity_named_category">%1$s (%2$s)</string>
+    <string name="activity_sentence_time">%1$s su «%2$s» il %3$s.</string>
+    <string name="activity_sentence">%1$s su «%2$s».</string>
+    <string name="frigate_description">Descrizione Frigate</string>
+    <string name="frigate_description_inline">Frigate: %1$s</string>
+    <plurals name="activity_detections">
+        <item quantity="one">%d rilevamento</item>
+        <item quantity="other">%d rilevamenti</item>
+    </plurals>
+</resources>

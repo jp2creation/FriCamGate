@@ -364,6 +364,7 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(12), dp(10), dp(12), dp(24)) }
         content.addView(column, responsiveScrollParams(720))
         column.addView(eventStrip())
+        recentActivitySummary()?.let { column.addView(it) }
         column.addView(homeTitleRow(message))
 
         val homeCameras = visibleCameras()
@@ -518,6 +519,11 @@ class MainActivity : AppCompatActivity() {
         column.addView(label(getString(R.string.event_playback), 12, Palette.muted))
         column.addView(label(eventDisplayText(event), 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(label("$activeCameraLabel - ${event.time}", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
+        column.addView(label(eventSentence(event), 14, Palette.text).apply { setPadding(0, 0, 0, dp(12)) })
+        event.description?.let { description ->
+            column.addView(sectionHeading(getString(R.string.frigate_description)))
+            column.addView(label(description, 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
+        }
         column.addView(label(getString(R.string.same_moment), 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -1189,7 +1195,7 @@ class MainActivity : AppCompatActivity() {
                 addView(label(eventDisplayText(event), 17, Palette.text).apply {
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 })
-                addView(label(event.time, 14, Palette.muted).apply {
+                addView(label(eventSentence(event), 13, Palette.muted).apply {
                     setPadding(0, dp(6), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -1198,7 +1204,8 @@ class MainActivity : AppCompatActivity() {
                 setColorFilter(Palette.accent)
                 alpha = 0.9f
             }, LinearLayout.LayoutParams(dp(24), dp(24)))
-            column.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)).apply {
+            row.minimumHeight = dp(100)
+            column.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             })
         }
@@ -1246,7 +1253,7 @@ class MainActivity : AppCompatActivity() {
             return scroll
         }
         globalEvents.forEach { event ->
-            column.addView(globalEventRow(event), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(100)).apply {
+            column.addView(globalEventRow(event).apply { minimumHeight = dp(100) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             })
         }
@@ -1273,9 +1280,16 @@ class MainActivity : AppCompatActivity() {
                 addView(label(eventDisplayText(event), 17, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
-                addView(label("${event.camera} - ${event.time}", 14, Palette.muted).apply {
+                addView(label(eventSentence(event), 13, Palette.muted).apply {
                     setPadding(0, dp(6), 0, 0)
                 })
+                event.description?.let { description ->
+                    addView(label(getString(R.string.frigate_description_inline, description), 12, Palette.muted).apply {
+                        maxLines = 3
+                        ellipsize = TextUtils.TruncateAt.END
+                        setPadding(0, dp(6), 0, 0)
+                    })
+                }
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(ImageView(context).apply {
                 setImageResource(eventObjectIcon(event))
@@ -1663,6 +1677,44 @@ class MainActivity : AppCompatActivity() {
 
     private fun eventDisplayText(event: NativeEvent): String =
         event.subLabel?.takeIf { it.isNotBlank() } ?: localizedAlertLabel(this, event.objectLabel.ifBlank { event.label })
+
+    private fun eventSentence(event: NativeEvent): String = eventNarrative(this,
+        EventFacts(event.objectLabel, event.subLabel, event.description),
+        cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' '), event.startTime)
+
+    private fun recentActivitySummary(): View? {
+        val allowed = visibleCameras().map { it.name }.toSet()
+        val now = System.currentTimeMillis() / 1000.0
+        val recent = events.filter { it.camera in allowed && it.startTime?.let { time -> time in (now - 86400)..now } == true }
+        val groups = groupActivities(recent.map { ActivityItem(it.id, it.camera, it.startTime!!,
+            EventFacts(it.objectLabel, it.subLabel, it.description)) }).take(3)
+        if (groups.isEmpty()) return null
+        return vertical().apply {
+            setPadding(dp(4), dp(16), dp(4), dp(8))
+            addView(label(getString(R.string.recent_activity), 17, Palette.text).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                setPadding(0, 0, 0, dp(6))
+            })
+            groups.forEach { group ->
+                val event = recent.first { it.id == group.latest.id }
+                addView(horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(9), 0, dp(9))
+                    isFocusable = true
+                    setOnClickListener { renderEventDetail(event) }
+                    addView(ImageView(context).apply {
+                        setImageResource(eventObjectIcon(event))
+                        setColorFilter(Palette.accent)
+                    }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { rightMargin = dp(12) })
+                    addView(vertical().apply {
+                        addView(label(eventSentence(event), 13, Palette.text))
+                        if (group.count > 1) addView(label(resources.getQuantityString(R.plurals.activity_detections,
+                            group.count, group.count), 11, Palette.muted).apply { setPadding(0, dp(4), 0, 0) })
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                })
+            }
+        }
+    }
 
     private fun showTimelineDatePicker(camera: NativeCamera, timelineDayMillis: Long) {
         val calendar = Calendar.getInstance().apply { timeInMillis = timelineDayMillis }
@@ -2173,7 +2225,7 @@ class MainActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         } else {
             alerts.take(12).forEach { event ->
-                card.addView(alertRow(event), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)).apply {
+                card.addView(alertRow(event).apply { minimumHeight = dp(72) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(4)
                 })
             }
@@ -2221,7 +2273,7 @@ class MainActivity : AppCompatActivity() {
                 addView(label(eventDisplayText(event), 15, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
-                addView(label("${event.camera} - ${event.time}", 12, Palette.muted).apply {
+                addView(label(eventSentence(event), 12, Palette.muted).apply {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -3999,7 +4051,8 @@ private class FrigateNativeApi(
             val thumbnail = event.optString("thumbnail").takeIf { it.isNotBlank() }?.let { decodeThumbnail(it) }
             val startTime = if (event.has("start_time")) event.optDouble("start_time") else null
             val objectLabel = cleanEventText(event, "label").ifBlank { "motion" }
-            val subLabel = cleanEventText(event, "sub_label").takeIf { it.isNotBlank() }
+            val facts = EventFacts.fromJson(event)
+            val subLabel = facts.name
             NativeEvent(
                 id = id,
                 camera = cleanEventText(event, "camera"),
@@ -4009,7 +4062,8 @@ private class FrigateNativeApi(
                 time = formatTime(startTime),
                 startTime = startTime,
                 endTime = if (event.has("end_time") && !event.isNull("end_time")) event.optDouble("end_time") else null,
-                thumbnail = thumbnail
+                thumbnail = thumbnail,
+                description = facts.description
             )
         }
     }
@@ -4265,7 +4319,8 @@ private data class NativeEvent(
     val time: String,
     val startTime: Double?,
     val endTime: Double?,
-    val thumbnail: Bitmap?
+    val thumbnail: Bitmap?,
+    val description: String? = null
 )
 
 private enum class Tab(val label: String, val iconRes: Int) {
