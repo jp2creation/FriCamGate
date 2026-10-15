@@ -755,10 +755,11 @@ class MainActivity : AppCompatActivity() {
                     if (!usingDefaultVod) {
                         usingDefaultVod = true
                         firstReadySeekDone = false
+                        val resumePlayback = player.playWhenReady
                         player.setMediaItem(MediaItem.fromUri(api.recordingClipUrl(camera.name, windowStart, windowEnd)))
                         player.prepare()
-                        player.playWhenReady = true
-                        player.play()
+                        player.playWhenReady = resumePlayback
+                        if (resumePlayback) player.play()
                         return
                     }
                     currentPlaybackKey = null
@@ -1765,8 +1766,10 @@ class MainActivity : AppCompatActivity() {
         var pendingScrollPlayback: Runnable? = null
         val interaction = TimelineInteractionGate()
         var timelineMode = false
+        var syncingPlaybackScroll = false
+        var returnLiveAnimator: ValueAnimator? = null
         fun resumeLive() {
-            if (activeSession == null || activeApi == null) return
+            if (activeSession == null || activeApi == null || !frame.isAttachedToWindow) return
             timelineMode = false
             interaction.commitScroll()
             lastPlaybackSec = null
@@ -1786,26 +1789,55 @@ class MainActivity : AppCompatActivity() {
             ensureLiveAudio(camera)
         }
         fun returnToLive() {
+            returnLiveAnimator?.cancel()
+            pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
+            pendingScrollPlayback = null
+            currentPlayer?.pause()
+            timelinePlaybackGeneration++
             if (!selectedToday) {
                 renderCameraDetail(camera)
                 return
             }
             if (reducedMotion) {
+                syncingPlaybackScroll = true
                 scroll.scrollTo(0, 0)
+                syncingPlaybackScroll = false
                 resumeLive()
                 return
             }
-            val current = scroll.scrollY
-            if (current > frame.height * 2) {
-                scroll.smoothScrollTo(0, current / 2)
-                mainHandler.postDelayed({ scroll.smoothScrollTo(0, 0) }, 180L)
-            } else {
-                scroll.smoothScrollTo(0, 0)
+            returnLiveAnimator = ValueAnimator.ofInt(scroll.scrollY, 0).apply {
+                duration = 460L
+                interpolator = android.view.animation.DecelerateInterpolator()
+                addUpdateListener {
+                    if (!frame.isAttachedToWindow) return@addUpdateListener
+                    syncingPlaybackScroll = true
+                    scroll.scrollTo(0, it.animatedValue as Int)
+                    syncingPlaybackScroll = false
+                }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    private var cancelled = false
+                    override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        returnLiveAnimator = null
+                        if (!cancelled) resumeLive()
+                    }
+                })
+                start()
             }
-            mainHandler.postDelayed({ resumeLive() }, 460L)
         }
         returnLive.setOnClickListener { returnToLive() }
-        var syncingPlaybackScroll = false
+        scroll.setOnTouchListener { _, event ->
+            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) returnLiveAnimator?.cancel()
+            false
+        }
+        frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+            override fun onViewDetachedFromWindow(view: View) {
+                returnLiveAnimator?.cancel()
+                pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
+                pendingScrollPlayback = null
+            }
+        })
         fun updatePlaybackClock(playbackSec: Double) {
             if (!timelineMode || !interaction.followsPlayback || frame.height <= 0) return
             if (selectedToday && playbackSec >= System.currentTimeMillis() / 1000.0 - 3.0) {
@@ -1826,7 +1858,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         fun updatePreviewForScroll(scrollY: Int) {
-            if (activeSession == null || activeApi == null || frame.height <= 0) return
+            if (activeSession == null || activeApi == null || frame.height <= 0 || !frame.isAttachedToWindow) return
             val centerSec = centerSecondForScroll(scrollY)
             if (selectedToday && centerSec >= anchorSec - 3.0) {
                 pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
@@ -1848,13 +1880,15 @@ class MainActivity : AppCompatActivity() {
             if (!timelineMode) {
                 timelineMode = true
                 stopMjpegStreams()
+                homeAudioGeneration++
+                releaseHomeAudioWebView()
                 liveBadge.visibility = View.GONE
                 playerView.visibility = View.VISIBLE
                 returnLive.visibility = View.VISIBLE
             }
             pendingScrollPlayback?.let { mainHandler.removeCallbacks(it) }
             val runnable = Runnable {
-                if (!timelineMode) return@Runnable
+                if (!timelineMode || !frame.isAttachedToWindow) return@Runnable
                 pendingScrollPlayback = null
                 interaction.commitScroll()
                 startTimelineRecordingPlayer(activeApi, activeSession.token, camera, playerView, preview, centerSec, ::updatePlaybackClock)
@@ -3859,6 +3893,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun timelineReturnLiveButton(): View {
         return FrameLayout(this).apply {
+            contentDescription = getString(R.string.live)
             background = rounded(Palette.accent, 22)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_arrow_up)

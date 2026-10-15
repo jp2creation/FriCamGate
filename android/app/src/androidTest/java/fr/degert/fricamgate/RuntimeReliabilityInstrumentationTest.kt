@@ -75,6 +75,53 @@ class RuntimeReliabilityInstrumentationTest {
         }
     }
 
+    @Test fun realRecordingRendersAdvancesAndHonorsPause() {
+        val args = InstrumentationRegistry.getArguments()
+        val url = args.getString("recordingServer")
+        org.junit.Assume.assumeTrue("Opt-in real-server check", url != null)
+        val cameraName = args.getString("recordingCamera")!!
+        val focus = args.getString("recordingFocus")!!.toDouble()
+        val firstFrame = CountDownLatch(1)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val frame = android.widget.FrameLayout(activity)
+                val fallback = android.widget.ImageView(activity)
+                val view = androidx.media3.ui.PlayerView(activity)
+                frame.addView(fallback)
+                frame.addView(view)
+                activity.setContentView(frame)
+                val camera = NativeCamera(cameraName, cameraName, true, cameraName, null, null, true, null, null, null, null)
+                val clock: (Double) -> Unit = {}
+                MainActivity::class.java.getDeclaredMethod("startTimelineRecordingPlayer", NvrPlaybackMedia::class.java,
+                    String::class.java, NativeCamera::class.java, androidx.media3.ui.PlayerView::class.java,
+                    android.widget.ImageView::class.java, java.lang.Double.TYPE, kotlin.jvm.functions.Function1::class.java)
+                    .apply { isAccessible = true }.invoke(activity,
+                        FrigateNativeApi(url!!, okhttp3.OkHttpClient()), "smoke-test", camera, view, fallback, focus, clock)
+                (field("currentPlayer").get(activity) as ExoPlayer).addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onRenderedFirstFrame() { firstFrame.countDown() }
+                })
+            }
+            assertTrue("No real video frame rendered", firstFrame.await(25, TimeUnit.SECONDS))
+            var start = 0L
+            scenario.onActivity { start = (field("currentPlayer").get(it) as ExoPlayer).currentPosition }
+            Thread.sleep(1500)
+            var paused = 0L
+            scenario.onActivity {
+                val player = field("currentPlayer").get(it) as ExoPlayer
+                assertTrue("Recording clock did not advance", player.currentPosition > start + 500)
+                player.pause()
+                paused = player.currentPosition
+            }
+            Thread.sleep(700)
+            scenario.onActivity {
+                val player = field("currentPlayer").get(it) as ExoPlayer
+                assertFalse(player.playWhenReady)
+                assertTrue("Pause did not hold position", kotlin.math.abs(player.currentPosition - paused) < 100)
+            }
+        }
+    }
+
     @Test fun notificationTimerSurvivesSettingsNavigation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
@@ -82,6 +129,38 @@ class RuntimeReliabilityInstrumentationTest {
                 MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
                 val handler = field("notificationHandler").get(activity) as Handler
                 assertTrue(handler.hasCallbacks(field("notificationPoll").get(activity) as Runnable))
+            }
+        }
+    }
+
+    @Test fun returnLiveAnimationDoesNotStartIntermediateRecordings() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val camera = NativeCamera("front", "Front", true, "front", null, null, true, null, null, null, null)
+                MainActivity::class.java.getDeclaredMethod("renderCameraDetail", NativeCamera::class.java,
+                    java.lang.Long.TYPE, List::class.java, java.lang.Double::class.java, java.lang.Boolean.TYPE)
+                    .apply { isAccessible = true }.invoke(activity, camera, System.currentTimeMillis(), emptyList<NativeEvent>(),
+                        System.currentTimeMillis() / 1000.0 - 600, false)
+            }
+            Thread.sleep(700)
+            var generation = 0
+            scenario.onActivity { activity ->
+                fun find(view: android.view.View): android.view.View? {
+                    if (view.contentDescription == activity.getString(R.string.live) && view.visibility == android.view.View.VISIBLE) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                        find(view.getChildAt(index))?.let { return it }
+                    }
+                    return null
+                }
+                generation = field("timelinePlaybackGeneration").getInt(activity)
+                assertTrue(find(activity.findViewById(android.R.id.content))!!.performClick())
+            }
+            Thread.sleep(800)
+            scenario.onActivity { activity ->
+                assertEquals("Animation started intermediate recordings", generation + 1,
+                    field("timelinePlaybackGeneration").getInt(activity))
+                assertNull(field("currentPlayer").get(activity))
             }
         }
     }

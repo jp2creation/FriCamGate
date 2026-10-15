@@ -87,6 +87,21 @@ class NotificationDeliveryInstrumentationTest {
         assertTrue(manager.activeNotifications.isEmpty())
     }
 
+    @Test fun ignoredVehicleBurstDoesNotHideAPersonAlert() {
+        val now = System.currentTimeMillis() / 1000.0
+        val serverUrl = native.getString("baseUrl", "")!!
+        native.edit().putLong("notificationCursor:$serverUrl:notification-test", ((now - 10) * 1000).toLong()).commit()
+        settings.edit().putBoolean("alertType:vehicle", false).commit()
+        val events = org.json.JSONArray().put(org.json.JSONObject()
+            .put("id", "wanted-person").put("camera", "front").put("label", "person").put("start_time", now - 2))
+        repeat(25) { index -> events.put(org.json.JSONObject()
+            .put("id", "ignored-car-$index").put("camera", "front").put("label", "car").put("start_time", now)) }
+        eventBody = events.toString()
+        assertTrue(CameraNotifications.check(context) { false })
+        assertTrue(waitFor { manager.activeNotifications.any { it.tag == "wanted-person" } })
+        assertEquals(setOf("wanted-person"), manager.activeNotifications.mapNotNull { it.tag }.toSet())
+    }
+
     @Test fun notificationSettingsSwitchesPersistAndAffectThePolicy() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(R.string.no_cameras))

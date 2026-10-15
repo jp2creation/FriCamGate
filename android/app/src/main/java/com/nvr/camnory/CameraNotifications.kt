@@ -154,7 +154,8 @@ internal object CameraNotifications {
             val policy = policy(context)
             val now = Calendar.getInstance()
             val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-            newCameraAlerts(candidates, afterMillis / 1000.0 - 30.0, hidden, posted).takeLast(20).forEach { alert ->
+            newCameraAlerts(candidates, afterMillis / 1000.0 - 30.0, hidden, posted)
+                .filter { policy.accepts(it.camera, it.facts.label, minute) }.takeLast(20).forEach { alert ->
                 if (stopped() || !enabled(context)) return@synchronized true
                 val cooldownKey = "alertLast:$baseUrl:$username:${alert.camera}:${notificationCategory(alert.facts.label)}"
                 val last = prefs.getLong(cooldownKey, 0)
