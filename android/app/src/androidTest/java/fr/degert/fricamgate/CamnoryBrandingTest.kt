@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
@@ -24,24 +23,35 @@ class CamnoryBrandingTest {
                 header.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                 header.layout(0, 0, width, header.measuredHeight)
-                val texts = mutableListOf<TextView>()
+                val artworkViews = mutableListOf<BrandWordmarkView>()
                 fun collect(view: View) {
-                    if (view is TextView) texts.add(view)
+                    if (view is BrandWordmarkView) artworkViews.add(view)
                     if (view is ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
                 }
                 collect(header)
-                assertTrue(texts.any { it.text.toString() == "Camnory" })
-                assertTrue(texts.any { it.text.toString() == "CLIENT FOR FRIGATE" })
+                assertEquals(1, artworkViews.size)
+                assertEquals("Camnory · CLIENT FOR FRIGATE", artworkViews.first().contentDescription)
+                assertNull(header.getChildAt(1).background)
+                assertNull(header.getChildAt(2).background)
                 // Branding and the two right-hand actions must not collide at 320 dp.
                 val brand = header.getChildAt(0)
                 val chat = header.getChildAt(2)
                 assertTrue("Compact header overlaps chat", brand.right <= chat.left)
-                val bitmap = Bitmap.createBitmap(width, header.measuredHeight, Bitmap.Config.ARGB_8888)
-                header.draw(Canvas(bitmap))
-                activity.openFileOutput("camnory-header-test.png", Context.MODE_PRIVATE).use {
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                val wasDark = Palette.dark
+                for (dark in listOf(false, true)) {
+                    Palette.dark = dark
+                    val rendered = method.invoke(activity) as ViewGroup
+                    rendered.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    rendered.layout(0, 0, width, rendered.measuredHeight)
+                    val bitmap = Bitmap.createBitmap(width, rendered.measuredHeight, Bitmap.Config.ARGB_8888)
+                    rendered.draw(Canvas(bitmap))
+                    activity.openFileOutput("camnory-header-${if (dark) "dark" else "light"}.png", Context.MODE_PRIVATE).use {
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    bitmap.recycle()
                 }
-                bitmap.recycle()
+                Palette.dark = wasDark
             }
         }
     }

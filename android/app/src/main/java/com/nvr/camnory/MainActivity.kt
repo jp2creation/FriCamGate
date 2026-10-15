@@ -1905,21 +1905,22 @@ class MainActivity : AppCompatActivity() {
         }
         return vertical().apply {
             val card = this
-            setPadding(dp(14), dp(12), dp(14), dp(4))
+            setPadding(dp(12), dp(8), dp(12), 0)
             background = rounded(Palette.card, 8, Palette.border, 1)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(12)
                 bottomMargin = dp(4)
             }
-            addView(label(getString(R.string.recent_activity), 14, Palette.text).apply {
-                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(label(getString(R.string.recent_activity), 13, Palette.text), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 10, Palette.muted))
             })
             addView(label(summary, 12, Palette.muted).apply {
-                maxLines = 3
+                maxLines = 2
                 ellipsize = TextUtils.TruncateAt.END
-                setPadding(0, dp(6), 0, dp(4))
+                setPadding(0, dp(4), 0, 0)
             })
-            addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 11, Palette.muted))
             addView(horizontal().apply {
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 fun action(titleRes: Int, run: () -> Unit): View = label(getString(titleRes), 13, Palette.accent).apply {
@@ -2072,65 +2073,35 @@ class MainActivity : AppCompatActivity() {
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.camnory_logo)
                     scaleType = ImageView.ScaleType.FIT_CENTER
-                }, LinearLayout.LayoutParams(dp(50), dp(50)))
-                addView(brandWordmark(128), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    leftMargin = dp(10)
+                }, LinearLayout.LayoutParams(dp(70), dp(70)))
+                addView(brandWordmark(150), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    leftMargin = dp(4)
                 })
-            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58), Gravity.START or Gravity.TOP).apply {
-                leftMargin = dp(18)
-                rightMargin = dp(128)
-                topMargin = dp(42)
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.START or Gravity.TOP).apply {
+                leftMargin = dp(10)
+                rightMargin = dp(118)
+                topMargin = dp(34)
             })
             addView(alertsButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
-                rightMargin = dp(18)
-                topMargin = dp(52)
+                rightMargin = dp(14)
+                topMargin = dp(46)
             })
             addView(chatButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
-                rightMargin = dp(74)
-                topMargin = dp(52)
+                rightMargin = dp(64)
+                topMargin = dp(46)
             })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
     }
 
-    private fun brandWordmark(widthDp: Int): View = vertical().apply {
-        val width = dp(widthDp)
-        fun fit(view: TextView) {
-            view.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
-                if (right > left) {
-                    val natural = Paint(view.paint).apply { textScaleX = 1f }.measureText(view.text.toString())
-                    view.textScaleX = minOf(width, right - left).toFloat() / natural
-                }
-            }
-        }
-        addView(label("Camnory", 24, Palette.text).apply {
-            textSize = 24f
-            typeface = android.graphics.Typeface.create("sans-serif-rounded", android.graphics.Typeface.BOLD)
-            text = android.text.SpannableString("Camnory").apply {
-                setSpan(android.text.style.ForegroundColorSpan(0xffff2d63.toInt()), 3, 7, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            textScaleX = width.toFloat() / paint.measureText("Camnory")
-            includeFontPadding = false
-            maxLines = 1
-            fit(this)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30)))
-        addView(label("CLIENT FOR FRIGATE", 8, Palette.muted).apply {
-            textSize = 8f
-            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
-            textScaleX = width.toFloat() / paint.measureText(text.toString())
-            includeFontPadding = false
-            maxLines = 1
-            fit(this)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)))
-    }
+    private fun brandWordmark(widthDp: Int): View = BrandWordmarkView(this, widthDp)
 
     private fun alertsButton(): View {
         val alertCount = alertEvents().size
         return FrameLayout(this).apply {
             isClickable = true
             contentDescription = getString(R.string.alerts)
-            background = rounded(Palette.card, 23, 0x1eff2d63, 1)
             addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_bell)
+                setImageResource(R.drawable.ic_bell_header)
                 setColorFilter(Palette.text)
                 alpha = 0.94f
             }, FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER))
@@ -2241,9 +2212,8 @@ class MainActivity : AppCompatActivity() {
         return FrameLayout(this).apply {
             isClickable = true
             contentDescription = getString(R.string.ai_chat)
-            background = rounded(Palette.card, 22, Palette.divider, 1)
             addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_chat)
+                setImageResource(R.drawable.ic_chat_header)
                 setColorFilter(Palette.text)
                 alpha = 0.96f
             }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
