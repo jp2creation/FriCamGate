@@ -14,6 +14,11 @@ class HomeAssistantActivity : AppCompatActivity() {
     private var setup: HomeAssistantSetupView? = null
 
     override fun onCreate(state: Bundle?) {
+        delegate.localNightMode = when (getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("theme", "system")) {
+            "dark" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+            "light" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
         super.onCreate(state)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {

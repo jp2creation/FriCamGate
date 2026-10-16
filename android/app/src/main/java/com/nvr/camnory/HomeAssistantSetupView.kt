@@ -106,26 +106,125 @@ internal class HomeAssistantSetupView(
 
     private fun showSelection(connection: HomeAssistantConnection) {
         cancel(); choosing = true; removeAllViews()
-        addView(ui.action(context.getString(R.string.onvif_back), false) { showForm() }.apply { gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL })
-        addView(ui.text(context.getString(R.string.ha_select_cameras), 18, Palette.text))
+        isFocusableInTouchMode = true; requestFocus()
+        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+            .hideSoftInputFromWindow(windowToken, 0)
+        addView(LinearLayout(context).apply {
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            if (!allowDisconnect) addView(ImageButton(context).apply {
+                setImageResource(R.drawable.ic_arrow_back); setColorFilter(Palette.text)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                contentDescription = context.getString(R.string.onvif_back); tag = "ha-selection-back"
+                setOnClickListener { showForm() }
+            }, LayoutParams(ui.dp(44), ui.dp(48)))
+            addView(ui.text(context.getString(R.string.ha_select_cameras), 18, Palette.text), LayoutParams(0, -2, 1f))
+        }, LayoutParams(-1, -2).apply { topMargin = ui.dp(12) })
+        val search = EditText(context).apply {
+            tag = "ha-camera-search"; hint = context.getString(R.string.ha_search_cameras)
+            contentDescription = hint; isSingleLine = true; textSize = 14f * ui.textScale
+            setTextColor(Palette.text); setHintTextColor(Palette.muted); background = null
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+            setPadding(ui.dp(44), 0, ui.dp(12), 0)
+        }
+        addView(FrameLayout(context).apply {
+            background = ui.outline()
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_search); setColorFilter(Palette.muted)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(ui.dp(20), ui.dp(20), android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL).apply { marginStart = ui.dp(14) })
+            addView(search, FrameLayout.LayoutParams(-1, -1))
+        }, LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(16); bottomMargin = ui.dp(12) })
         val availableIds = connection.cameras.map { it.entityId }.toSet()
         val selected = if (this.connection?.baseUrl == connection.baseUrl)
             this.connection!!.cameras.map { it.entityId }.filter { it in availableIds }.toMutableSet() else mutableSetOf()
         var saveButton: Button? = null
-        val count = ui.text("").apply { setPadding(0, ui.dp(12), 0, 0) }
+        val count = ui.text("", 12).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        addView(LinearLayout(context).apply {
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(ui.text(context.getString(R.string.ha_camera_count, connection.cameras.size), 12), LayoutParams(0, -2, 1f))
+            addView(count, LayoutParams(0, -2, 1f).apply { count.gravity = android.view.Gravity.END })
+        }, LayoutParams(-1, -2).apply { bottomMargin = ui.dp(8) })
         fun refresh() {
             count.text = context.getString(R.string.ha_selected_count, selected.size)
+            count.setTextColor(if (selected.isEmpty()) Palette.muted else Palette.accent)
             saveButton?.isEnabled = selected.isNotEmpty()
+            saveButton?.alpha = if (selected.isEmpty()) 0.45f else 1f
         }
-        if (connection.cameras.isEmpty()) addView(ui.text(context.getString(R.string.ha_no_cameras)))
-        connection.cameras.forEach { camera ->
-            addView(CheckBox(context).apply {
-                text = if (camera.available) camera.name else "${camera.name} · ${context.getString(R.string.ha_unavailable)}"
-                setTextColor(Palette.text); textSize = 15f; minHeight = ui.dp(52); isChecked = camera.entityId in selected
-                setOnCheckedChangeListener { _, checked -> if (checked) selected.add(camera.entityId) else selected.remove(camera.entityId); refresh() }
-            }, LayoutParams(-1, -2))
+        val rows = LinearLayout(context).apply { orientation = VERTICAL }
+        val empty = ui.text(context.getString(R.string.ha_no_cameras)).apply {
+            setPadding(ui.dp(8), ui.dp(24), ui.dp(8), ui.dp(24))
+            visibility = if (connection.cameras.isEmpty()) View.VISIBLE else View.GONE
         }
-        refresh(); addView(count)
+        rows.addView(empty)
+        val cameraRows = connection.cameras.map { camera ->
+            val checkbox = androidx.appcompat.widget.AppCompatCheckBox(context).apply {
+                text = camera.name; textSize = 14f * ui.textScale; setTextColor(Palette.text)
+                buttonDrawable = null; background = null; minHeight = 0; minWidth = 0
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, 0, ui.dp(4), 0)
+                setCompoundDrawablesRelative(null, null, selectionGlyph(), null)
+                compoundDrawablePadding = ui.dp(10); isChecked = camera.entityId in selected
+                contentDescription = "${camera.name}, ${context.getString(if (camera.available) R.string.ha_camera_available else R.string.ha_unavailable)}"
+            }
+            val row = LinearLayout(context).apply {
+                gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(10))
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_videocam); setColorFilter(Palette.muted)
+                    setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9))
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(Palette.surface); cornerRadius = ui.dp(6).toFloat() }
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LayoutParams(ui.dp(38), ui.dp(38)).apply { marginEnd = ui.dp(12) })
+                addView(LinearLayout(context).apply {
+                    orientation = VERTICAL
+                    addView(checkbox, LayoutParams(-1, -2))
+                    addView(ui.text(context.getString(if (camera.available) R.string.ha_camera_available else R.string.ha_unavailable), 11))
+                }, LayoutParams(0, -2, 1f))
+                setOnClickListener { checkbox.toggle() }
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            fun highlight(checked: Boolean) {
+                row.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(if (checked) androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 16) else android.graphics.Color.TRANSPARENT)
+                    cornerRadius = ui.dp(6).toFloat()
+                }
+            }
+            highlight(checkbox.isChecked)
+            checkbox.setOnCheckedChangeListener { _, checked ->
+                if (checked) selected.add(camera.entityId) else selected.remove(camera.entityId)
+                highlight(checked); refresh()
+            }
+            val item = LinearLayout(context).apply {
+                orientation = VERTICAL; addView(row, LayoutParams(-1, -2))
+                addView(View(context).apply { setBackgroundColor(Palette.divider) }, LayoutParams(-1, ui.dp(1)))
+            }
+            rows.addView(item, LayoutParams(-1, -2))
+            camera to item
+        }
+        addView(object : ScrollView(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val fraction = if (allowDisconnect) 0.5f else 0.35f
+                val limit = (resources.displayMetrics.heightPixels * fraction).toInt()
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
+            }
+        }.apply {
+            isVerticalScrollBarEnabled = false; isNestedScrollingEnabled = true
+            minimumHeight = ui.dp(140); addView(rows)
+        }, LayoutParams(-1, -2))
+        search.doAfterTextChanged { query ->
+            fun key(value: String) = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{M}+"), "").lowercase(java.util.Locale.ROOT)
+            val term = key(query.toString().trim())
+            var matches = 0
+            cameraRows.forEach { (camera, row) ->
+                val match = term.isEmpty() || key(camera.name).contains(term) || camera.entityId.contains(term, ignoreCase = true)
+                row.visibility = if (match) View.VISIBLE else View.GONE
+                if (match) matches++
+            }
+            empty.text = context.getString(if (connection.cameras.isEmpty()) R.string.ha_no_cameras else R.string.ha_search_empty)
+            empty.visibility = if (matches == 0) View.VISIBLE else View.GONE
+        }
+        ui.spacer(this)
         saveButton = ui.action(context.getString(R.string.ha_save_selection)) {
             if (canInteract() && selected.isNotEmpty()) runCatching {
                 HomeAssistantStore(context).save(HomeAssistantConnection(connection.baseUrl, connection.token,
@@ -134,6 +233,23 @@ internal class HomeAssistantSetupView(
         }
         addView(saveButton)
         refresh()
+    }
+
+    private fun selectionGlyph(): android.graphics.drawable.Drawable {
+        fun box(color: Int, outline: Boolean) = android.graphics.drawable.GradientDrawable().apply {
+            setSize(ui.dp(20), ui.dp(20)); cornerRadius = ui.dp(5).toFloat(); setColor(color)
+            if (outline) setStroke(ui.dp(1), Palette.muted)
+        }
+        val selected = android.graphics.drawable.LayerDrawable(arrayOf(
+            box(Palette.accent, false), context.getDrawable(R.drawable.ic_selection_check)!!.mutate()
+        )).apply {
+            setLayerSize(1, ui.dp(14), ui.dp(14)); setLayerGravity(1, android.view.Gravity.CENTER)
+        }
+        return android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_checked), selected)
+            addState(intArrayOf(), box(android.graphics.Color.TRANSPARENT, true))
+            setBounds(0, 0, ui.dp(20), ui.dp(20))
+        }
     }
 
     fun cancel() {

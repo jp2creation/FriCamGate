@@ -1,0 +1,9 @@
+<resources>
+    <string name="ha_status_image">Image</string>
+    <string name="ha_status_live">Live</string>
+    <string name="ha_camera_details">Camera information</string>
+    <string name="ha_search_cameras">Search cameras</string>
+    <string name="ha_camera_count">%1$d cameras</string>
+    <string name="ha_camera_available">Available</string>
+    <string name="ha_search_empty">No matching cameras.</string>
+</resources>

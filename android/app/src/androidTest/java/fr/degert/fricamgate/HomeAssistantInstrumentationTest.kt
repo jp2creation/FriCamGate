@@ -203,7 +203,7 @@ class HomeAssistantInstrumentationTest {
             scenario.onActivity { activity ->
                 val all = views(activity.findViewById(android.R.id.content))
                 assertFalse(all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_selection) }.isEnabled)
-                all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.onvif_back) }.performClick()
+                activity.onBackPressedDispatcher.onBackPressed()
                 val fields = views(activity.findViewById(android.R.id.content)).filterIsInstance<EditText>()
                 assertEquals(address, fields[0].text.toString())
                 assertEquals("fixture-secret-token", fields[1].text.toString())
@@ -211,6 +211,122 @@ class HomeAssistantInstrumentationTest {
             assertEquals("fixture-secret-token", store.load()!!.token)
             assertTrue(store.load()!!.cameras.isEmpty())
         }
+    }
+
+    @Test fun captureRefinedHomeAssistantScreens() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("captureHaVisuals") == "true")
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val theme = InstrumentationRegistry.getArguments().getString("previewTheme", "dark")
+        val localeManager = if (android.os.Build.VERSION.SDK_INT >= 33) context.getSystemService(android.app.LocaleManager::class.java) else null
+        val oldLocales = if (android.os.Build.VERSION.SDK_INT >= 33) localeManager?.applicationLocales else null
+        context.getSharedPreferences("camgate-settings", 0).edit().putString("theme", theme).putString("homeCameraLayout", "two_columns").commit()
+        if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.runOnMainSync {
+            localeManager?.applicationLocales = android.os.LocaleList.forLanguageTags("fr")
+        }
+        val images = listOf("workshop", "driveway", "entrance", "terrace").associateWith { name ->
+            instrumentation.context.assets.open("ha-previews/$name.jpg").use { it.readBytes() }
+        }
+        val names = listOf("Caméra salon", "Caméra Porte d’entrée", "Devant", "Allée", "Terrasse", "Jardin", "Garage", "Atelier", "Portail", "Cour", "Entrée suivi")
+        val states = JSONArray().apply {
+            names.forEachIndexed { index, name -> put(JSONObject().put("entity_id", "camera.preview_$index")
+                .put("state", if (index == 7) "unavailable" else "idle").put("attributes", JSONObject().put("friendly_name", name))) }
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty().substringBefore('?')
+                val photo = when {
+                    path.contains("preview_0") || path.contains("devant") -> "workshop"
+                    path.contains("allee") -> "driveway"
+                    path.contains("preview_1") || path.contains("entree") -> "entrance"
+                    else -> "terrace"
+                }
+                return when (path) {
+                    "/api/config" -> MockResponse().setBody("""{"cameras":{"devant":{"enabled":true,"friendly_name":"Devant"},"allee":{"enabled":true,"friendly_name":"Allée"},"entree":{"enabled":true,"friendly_name":"Entrée"},"suivi":{"enabled":true,"friendly_name":"Entrée suivi"}}}""")
+                    "/api/events" -> MockResponse().setBody("[]")
+                    "/api/version" -> MockResponse().setBody("0.16.0")
+                    "/api/states" -> MockResponse().setBody(states.toString())
+                    else -> MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(images.getValue(photo)))
+                }
+            }
+        }
+        val address = server.url("/").toString().trimEnd('/')
+        store.save(HomeAssistantConnection(address, "fixture-token", names.take(2).mapIndexed { index, name -> HomeAssistantCamera("camera.preview_$index", name, true) }))
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address).putString("username", "fixture").putString("token", "fixture-token").commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitFor {
+                    var ready = false
+                    scenario.onActivity { activity -> ready = cards(activity).size == 2 && cards(activity).all {
+                        (HomeAssistantCameraView::class.java.getDeclaredField("image").apply { isAccessible = true }.get(it) as android.widget.ImageView).drawable != null
+                    } }
+                    ready
+                }
+                screenshot("ha-refined-$theme-home.png")
+                scenario.onActivity { activity -> (cards(activity).first() as HomeAssistantCameraView).findViewWithTag<View>("ha-camera-overflow").performClick() }
+                screenshot("ha-refined-$theme-menu.png")
+                scenario.onActivity { activity ->
+                    val card = cards(activity).first() as HomeAssistantCameraView
+                    val popup = HomeAssistantCameraView::class.java.getDeclaredField("menu").apply { isAccessible = true }.get(card) as android.widget.PopupWindow
+                    val last = popup.contentView.findViewWithTag<View>("ha-camera-action-4")
+                    val bounds = android.graphics.Rect()
+                    assertTrue("Camera menu must not clip its final action", last.getGlobalVisibleRect(bounds))
+                    assertEquals(last.height, bounds.height())
+                }
+            }
+            ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
+                    .single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick() }
+                waitFor {
+                    var ready = false
+                    scenario.onActivity { activity -> ready = activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<EditText>("ha-camera-search") != null }
+                    ready
+                }
+                screenshot("ha-refined-$theme-selection.png")
+                scenario.onActivity { activity ->
+                    val save = views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
+                        .single { it.text == activity.getString(R.string.ha_save_selection) }
+                    val bounds = android.graphics.Rect()
+                    assertTrue("Save must remain visible with a long camera list", save.getGlobalVisibleRect(bounds))
+                    assertEquals(save.height, bounds.height())
+                }
+            }
+        } finally {
+            if (android.os.Build.VERSION.SDK_INT >= 33 && oldLocales != null) instrumentation.runOnMainSync { localeManager?.applicationLocales = oldLocales }
+        }
+    }
+
+    @Test fun cameraSearchPreservesSelectionsOutsideTheFilter() {
+        val address = server.url("/").toString()
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<EditText>("connection-ha-server").setText(address)
+                root.findViewWithTag<EditText>("connection-ha-token").setText("fixture-secret-token")
+                views(root).filterIsInstance<CheckBox>().single().isChecked = true
+                views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+            }
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).filterIsInstance<CheckBox>().any { it.text == "Ring test" } }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val checks = views(root).filterIsInstance<CheckBox>()
+                val ring = checks.single { it.text == "Ring test" }
+                ring.isChecked = true
+                val search = root.findViewWithTag<EditText>("ha-camera-search")
+                assertNotNull("Camera selection needs a search field", search)
+                search.setText("Blink")
+                assertFalse(ring.isShown)
+                assertTrue(checks.single { it.text == "Blink test" }.isShown)
+                search.setText("")
+                assertTrue(ring.isChecked)
+                views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_selection) }.performClick()
+            }
+        }
+        assertEquals("camera.ring_test", store.load()!!.cameras.single().entityId)
+        assertTrue(commands.isEmpty())
     }
 
     @Test fun emptyDiscoveryKeepsSavedCamerasUntilExplicitSelection() {
@@ -412,7 +528,7 @@ class HomeAssistantInstrumentationTest {
             waitFor {
                 var done = false
                 scenario.onActivity { activity -> done = views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>()
-                    .any { it.text == activity.getString(R.string.ha_image_only) } }
+                    .any { it.contentDescription == activity.getString(R.string.ha_image_only) } }
                 done
             }
             assertEquals(listOf("auth", "camera/capabilities"), commands)
@@ -443,8 +559,10 @@ class HomeAssistantInstrumentationTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             assertNotNull(server.takeRequest(10, TimeUnit.SECONDS))
             scenario.onActivity { activity ->
-                MainActivity::class.java.getDeclaredMethod("openHomeAssistantCamera", HomeAssistantConnection::class.java, HomeAssistantCamera::class.java)
-                    .apply { isAccessible = true }.invoke(activity, connection, connection.cameras.single())
+                val card = cards(activity).single() as HomeAssistantCameraView
+                card.findViewWithTag<View>("ha-camera-overflow").performClick()
+                val popup = HomeAssistantCameraView::class.java.getDeclaredField("menu").apply { isAccessible = true }.get(card) as android.widget.PopupWindow
+                popup.contentView.findViewWithTag<View>("ha-camera-action-3").performClick()
             }
             Thread.sleep(400)
             screenshot("ha-fullscreen.png")
@@ -476,6 +594,8 @@ class HomeAssistantInstrumentationTest {
                             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                         card.layout(0, 0, width, card.measuredHeight)
                     }
+                    assertNotNull("HA cards need the same overflow control as Frigate", card.findViewWithTag<View>("ha-camera-overflow"))
+                    assertEquals("HA grid footer must match Frigate", width * 9 / 16 + (48 * activity.resources.displayMetrics.density).toInt(), card.measuredHeight)
                     views(card).filterIsInstance<android.widget.ImageButton>().filter { it.visibility == View.VISIBLE }.forEach {
                         assertTrue("Controls overflow at $widthDp dp", it.right <= (it.parent as View).width)
                         assertTrue(it.left >= 0)

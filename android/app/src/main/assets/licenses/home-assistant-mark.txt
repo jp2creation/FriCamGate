@@ -1,0 +1,4 @@
+Home Assistant identifying mark
+Source: https://brands.home-assistant.io/homeassistant/icon.png
+Brand repository: https://github.com/home-assistant/brands
+Used solely to identify the Home Assistant integration, not as Camnory branding.
