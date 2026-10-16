@@ -1,5 +1,7 @@
 package com.nvr.camnory
 
+import android.widget.CheckBox
+
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -293,7 +295,26 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Palette.background)
         }
         scroll.addView(root, centeredScrollParams(560))
-        root.addView(logoHeader())
+        root.addView(brandWordmark(280), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)))
+        root.addView(label(getString(R.string.connection_title), 26, Palette.text).apply {
+            setPadding(0, dp(18), 0, dp(8))
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        })
+        root.addView(label(getString(R.string.connection_subtitle), 14, Palette.muted))
+        val choices = horizontal().apply { setPadding(0, dp(24), 0, dp(12)) }
+        val frigateChoice = secondaryButton("Frigate")
+        val onvifChoice = secondaryButton("ONVIF")
+        listOf(frigateChoice, onvifChoice).forEach { choice ->
+            choice.isAllCaps = false
+            choice.textSize = 15f
+        }
+        choices.addView(frigateChoice, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
+        choices.addView(onvifChoice, LinearLayout.LayoutParams(0, dp(52), 1f))
+        root.addView(choices, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val frigateForm = vertical()
+        val formRoot = root
+        frigateForm.apply {
+        val root = this
         root.addView(label(getString(R.string.frigate_server), 12, Palette.muted).apply { setPadding(0, dp(28), 0, dp(8)) })
         val serverInput = editText("http://cam.example.fr", prefs.getString("baseUrl", "") ?: "")
         root.addView(serverInput, matchWrap())
@@ -311,12 +332,97 @@ class MainActivity : AppCompatActivity() {
             }
         }
         root.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        root.addView(secondaryButton(getString(R.string.onvif_cameras)).apply {
-            setOnClickListener { startActivity(Intent(this@MainActivity, OnvifActivity::class.java)) }
+        root.addView(CheckBox(this@MainActivity).apply {
+            text = getString(R.string.connection_show_password)
+            setTextColor(Palette.muted)
+            setOnCheckedChangeListener { _, checked ->
+                passwordInput.transformationMethod = if (checked) null else android.text.method.PasswordTransformationMethod.getInstance()
+                passwordInput.setSelection(passwordInput.length())
+            }
         })
         root.addView(label(getString(R.string.login_hint), 14, Palette.muted).apply {
             setPadding(0, dp(20), 0, 0)
         })
+        }
+        val onvifForm = vertical().apply { visibility = View.GONE }
+        fun cameraField(title: String, hint: String, secret: Boolean = false): EditText {
+            onvifForm.addView(label(title, 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
+            return editText(hint, "").apply {
+                if (secret) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                onvifForm.addView(this, matchWrap())
+            }
+        }
+        val cameraName = cameraField(getString(R.string.onvif_name), getString(R.string.onvif_name))
+        val cameraAddress = cameraField(getString(R.string.connection_camera_address), "http://192.168.1.100:8000")
+        val cameraUser = cameraField(getString(R.string.username), "admin")
+        val cameraPassword = cameraField(getString(R.string.password), getString(R.string.password_hint), true)
+        onvifForm.addView(CheckBox(this).apply {
+            text = getString(R.string.connection_show_password)
+            setTextColor(Palette.muted)
+            setOnCheckedChangeListener { _, checked ->
+                cameraPassword.transformationMethod = if (checked) null else android.text.method.PasswordTransformationMethod.getInstance()
+                cameraPassword.setSelection(cameraPassword.length())
+            }
+        })
+        val cameraConnect = primaryButton(getString(R.string.onvif_connect))
+        onvifForm.addView(cameraConnect, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(16) })
+        val cameraStatus = label("", 14, Palette.muted).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        onvifForm.addView(cameraStatus)
+        onvifForm.addView(secondaryButton(getString(R.string.connection_saved_cameras)).apply {
+            setOnClickListener { startActivity(Intent(this@MainActivity, OnvifActivity::class.java)) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(12) })
+        cameraConnect.setOnClickListener {
+            val endpoint = runCatching { onvifEndpoint(cameraAddress.text.toString()).toASCIIString() }.getOrNull()
+            if (endpoint == null || cameraName.text.isBlank()) {
+                cameraAddress.error = getString(R.string.onvif_invalid_address)
+                return@setOnClickListener
+            }
+            val camera = OnvifSavedCamera(java.util.UUID.randomUUID().toString(), cameraName.text.toString().trim(), endpoint,
+                OnvifCredentials(cameraUser.text.toString(), cameraPassword.text.toString()))
+            cameraConnect.isEnabled = false
+            frigateChoice.isEnabled = false
+            cameraStatus.text = getString(R.string.connecting)
+            val client = OnvifReadOnlyClient()
+            Thread {
+                val result = runCatching { client.connect(camera.endpoint, camera.credentials) }
+                runOnUiThread {
+                    if (!formRoot.isAttachedToWindow || isFinishing || isDestroyed) return@runOnUiThread
+                    cameraConnect.isEnabled = true
+                    frigateChoice.isEnabled = true
+                    if (result.isSuccess) {
+                        val saved = runCatching {
+                            val store = OnvifCameraStore(this)
+                            store.save(store.load() + camera)
+                        }
+                        if (saved.isFailure) { cameraStatus.text = getString(R.string.onvif_storage_error); return@runOnUiThread }
+                        cameraPassword.text.clear()
+                        cameraStatus.text = ""
+                        startActivity(Intent(this, OnvifActivity::class.java).putExtra("cameraId", camera.id))
+                    } else cameraStatus.text = getString(R.string.onvif_connection_failed)
+                }
+                client.cancel()
+            }.start()
+        }
+        formRoot.addView(frigateForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        formRoot.addView(onvifForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        fun selectCamera(onvif: Boolean) {
+            frigateForm.visibility = if (onvif) View.GONE else View.VISIBLE
+            onvifForm.visibility = if (onvif) View.VISIBLE else View.GONE
+            listOf(frigateChoice to !onvif, onvifChoice to onvif).forEach { (choice, selected) ->
+                choice.isSelected = selected
+                choice.background = rounded(if (selected) Palette.accent else Palette.surface, 6)
+                choice.setTextColor(if (selected) Color.WHITE else Palette.text)
+                val icon = getDrawable(if (choice === frigateChoice) R.drawable.ic_grid else R.drawable.ic_videocam)?.mutate()
+                icon?.setTint(if (selected) Color.WHITE else Palette.text)
+                icon?.setBounds(0, 0, dp(19), dp(19))
+                choice.setCompoundDrawables(icon, null, null, null)
+                choice.compoundDrawablePadding = dp(6)
+                choice.setPadding(dp(12), 0, dp(12), 0)
+            }
+        }
+        frigateChoice.setOnClickListener { selectCamera(false) }
+        onvifChoice.setOnClickListener { selectCamera(true) }
+        selectCamera(false)
         setContentView(scroll)
     }
 

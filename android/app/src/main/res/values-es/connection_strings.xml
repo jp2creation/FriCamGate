@@ -1,0 +1,7 @@
+<resources>
+    <string name="connection_title">Conecta tus cámaras</string>
+    <string name="connection_subtitle">Elige tu conexión</string>
+    <string name="connection_camera_address">Dirección de la cámara</string>
+    <string name="connection_show_password">Mostrar contraseña</string>
+    <string name="connection_saved_cameras">Cámaras guardadas</string>
+</resources>

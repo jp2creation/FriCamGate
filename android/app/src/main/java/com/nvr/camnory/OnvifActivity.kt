@@ -40,7 +40,11 @@ class OnvifActivity : AppCompatActivity() {
             override fun handleOnBackPressed() { if (playingCamera != null) list() else finish() }
         })
         store = OnvifCameraStore(this)
-        try { saved = store.load(); list() } catch (_: Exception) {
+        try {
+            saved = store.load()
+            val initialCamera = saved.firstOrNull { it.id == intent.getStringExtra("cameraId") }
+            if (initialCamera == null) list() else connect(initialCamera)
+        } catch (_: Exception) {
             Toast.makeText(this, R.string.onvif_storage_error, Toast.LENGTH_LONG).show(); finish()
         }
     }

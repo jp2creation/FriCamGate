@@ -1,0 +1,7 @@
+<resources>
+    <string name="connection_title">Collega le tue telecamere</string>
+    <string name="connection_subtitle">Scegli la connessione</string>
+    <string name="connection_camera_address">Indirizzo della telecamera</string>
+    <string name="connection_show_password">Mostra password</string>
+    <string name="connection_saved_cameras">Telecamere salvate</string>
+</resources>
