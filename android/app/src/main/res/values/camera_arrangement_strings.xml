@@ -1,0 +1,10 @@
+<resources>
+    <string name="camera_source_icons">Camera source icons</string>
+    <string name="camera_source_icons_detail">Show source icons before camera names</string>
+    <string name="camera_order_visibility">Order and visibility</string>
+    <string name="camera_visibility_name">Show %1$s</string>
+    <string name="camera_reorder_name">Reorder %1$s</string>
+    <string name="camera_move_up">Move up</string>
+    <string name="camera_move_down">Move down</string>
+    <string name="camera_order_position">Position %1$d of %2$d</string>
+</resources>

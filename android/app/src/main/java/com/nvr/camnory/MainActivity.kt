@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
         .build()
     private val prefs by lazy { getSharedPreferences("fricamgate-native", MODE_PRIVATE) }
     private val appearancePrefs by lazy { getSharedPreferences("camgate-settings", MODE_PRIVATE) }
+    private val cameraArrangement by lazy { CameraArrangementStore(this) }
     private val reducedMotion get() = appearancePrefs.getBoolean("reducedMotion", false)
     private var session: NativeSession? = null
     private var api: FrigateNativeApi? = null
@@ -536,9 +537,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderHome(message: String? = null) {
         releasePlayer()
         homeVisible = true
-        val directCameras = savedOnvifCameras()
-        val haConnection = savedHomeAssistant()
-        val haCameras = haConnection?.cameras.orEmpty()
+        val dashboardCameras = dashboardCameras()
+        val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) }
         val content = appScrollView().apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
@@ -552,76 +552,82 @@ class MainActivity : AppCompatActivity() {
         }
         column.addView(homeTitleRow(message))
 
-        val homeCameras = visibleCameras()
         val dashboardError = dashboardErrorMessage
         if (!dashboardError.isNullOrBlank()) {
             column.addView(dashboardErrorCard(dashboardError))
-        } else if (cameras.isEmpty() && directCameras.isEmpty() && haCameras.isEmpty()) {
+        }
+        if (dashboardCameras.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.no_cameras)))
-        } else if (cameras.isNotEmpty() && homeCameras.isEmpty() && directCameras.isEmpty() && haCameras.isEmpty()) {
+        } else if (shownCameras.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.all_hidden)))
         } else {
             val layout = homeCameraLayout()
-            if (layout == HomeCameraLayout.Column) {
-                homeCameras.forEach { camera -> column.addView(cameraCard(camera)) }
-            } else {
-                homeCameras.chunked(layout.columns).forEach { cameraRow ->
-                    column.addView(horizontal().apply {
-                        gravity = Gravity.TOP
-                        repeat(layout.columns) { index ->
-                            val tile = cameraRow.getOrNull(index)?.let { cameraGridTile(it) } ?: View(context)
-                            addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                                if (index > 0) leftMargin = dp(8)
-                            })
-                        }
-                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        bottomMargin = dp(8)
-                    })
-                }
+            shownCameras.chunked(layout.columns).forEach { cameraRow ->
+                column.addView(horizontal().apply {
+                    gravity = Gravity.TOP
+                    repeat(layout.columns) { index ->
+                        val item = cameraRow.getOrNull(index)
+                        val tile = item?.let { dashboardCameraView(it, layout) } ?: View(context)
+                        tile.tag = item?.let { "dashboard-camera:${it.key}" }
+                        val height = if (item?.frigate != null && layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
+                        addView(tile, LinearLayout.LayoutParams(0, height, 1f).apply {
+                            if (index > 0) leftMargin = dp(8)
+                        })
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
             }
-        }
-        val directColumns = homeCameraLayout().columns
-        directCameras.chunked(directColumns).forEach { cameraRow ->
-            column.addView(horizontal().apply {
-                gravity = Gravity.TOP
-                repeat(directColumns) { index ->
-                    val camera = cameraRow.getOrNull(index)
-                    val tile = if (camera == null) View(context) else OnvifLiveCard(context, camera,
-                        fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
-                        manage = { openOnvifManager(camera.id, manage = true) },
-                        onAudible = { selected ->
-                            homeAssistantCards.forEach { it.mute() }
-                            onvifCards.filter { it !== selected }.forEach { it.mute() }
-                            homeAudioGeneration++
-                            soundEnabled = false
-                            prefs.edit().putBoolean("soundEnabled", false).apply()
-                            releaseHomeAudioWebView()
-                            currentPlaybackKey = null
-                            refreshHomeSoundIcons()
-                        }).also { onvifCards.add(it) }
-                    addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        if (index > 0) leftMargin = dp(8)
-                    })
-                }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
-        }
-        if (haConnection != null) haCameras.chunked(directColumns).forEach { cameraRow ->
-            column.addView(horizontal().apply {
-                gravity = Gravity.TOP
-                repeat(directColumns) { index ->
-                    val camera = cameraRow.getOrNull(index)
-                    val tile = if (camera == null) View(context) else HomeAssistantCameraView(context, haConnection, camera,
-                        fullscreen = { openHomeAssistantCamera(haConnection, camera) },
-                        onAudible = { selected -> silenceOtherSources(selected) }).also { homeAssistantCards.add(it) }
-                    addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        if (index > 0) leftMargin = dp(8)
-                    })
-                }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
         }
         setShell(content, Tab.Home, animateIn = true)
         onvifCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
+    }
+
+    private data class DashboardCamera(
+        val key: String, val name: String, val source: CameraSource,
+        val frigate: NativeCamera? = null, val onvif: OnvifSavedCamera? = null,
+        val haCamera: HomeAssistantCamera? = null, val haConnection: HomeAssistantConnection? = null
+    ) {
+        val enabled get() = frigate?.enabled ?: true
+    }
+
+    private fun dashboardCameras(): List<DashboardCamera> {
+        val items = cameras.map { camera ->
+            DashboardCamera(CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), camera.name),
+                camera.friendlyName, CameraSource.Frigate, frigate = camera)
+        } + savedOnvifCameras().map { camera ->
+            DashboardCamera(CameraArrangement.key("onvif", "", camera.id), camera.name, CameraSource.Onvif, onvif = camera)
+        } + savedHomeAssistant()?.let { connection ->
+            connection.cameras.map { camera ->
+                DashboardCamera(CameraArrangement.key("ha", connection.baseUrl, camera.entityId), camera.name,
+                    CameraSource.HomeAssistant, haCamera = camera, haConnection = connection)
+            }
+        }.orEmpty()
+        val byKey = items.associateBy { it.key }
+        return CameraArrangement.ordered(items.map { it.key }, cameraArrangement.savedOrder()).mapNotNull { byKey[it] }
+    }
+
+    private fun dashboardCameraVisible(camera: DashboardCamera): Boolean =
+        camera.enabled && !cameraArrangement.hidden(camera.key) && (camera.frigate?.let { isCameraVisible(it) } ?: true)
+
+    private fun dashboardCameraView(item: DashboardCamera, layout: HomeCameraLayout): View {
+        item.frigate?.let { return if (layout == HomeCameraLayout.Column) cameraCard(it) else cameraGridTile(it) }
+        item.onvif?.let { camera ->
+            return OnvifLiveCard(this, camera,
+                fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
+                manage = { openOnvifManager(camera.id, manage = true) },
+                onAudible = { selected ->
+                    homeAssistantCards.forEach { it.mute() }
+                    onvifCards.filter { it !== selected }.forEach { it.mute() }
+                    homeAudioGeneration++; soundEnabled = false
+                    prefs.edit().putBoolean("soundEnabled", false).apply()
+                    releaseHomeAudioWebView(); currentPlaybackKey = null; refreshHomeSoundIcons()
+                }).also { onvifCards.add(it) }
+        }
+        val connection = requireNotNull(item.haConnection)
+        val camera = requireNotNull(item.haCamera)
+        return HomeAssistantCameraView(this, connection, camera,
+            fullscreen = { openHomeAssistantCamera(connection, camera) },
+            onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
 
     private fun savedHomeAssistant(): HomeAssistantConnection? = runCatching { HomeAssistantStore(this).load() }
@@ -1398,7 +1404,14 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(10)
             topMargin = dp(10)
         })
-        card.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
+        val cameraName = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), 0, dp(10), 0)
+            background = rounded(Palette.overlay, 16)
+            addView(CameraSource.Frigate.iconView(this@MainActivity), LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
+            addView(label(camera.friendlyName, 12, Palette.text).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+        }
+        card.addView(cameraName, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
             leftMargin = dp(14)
             bottomMargin = dp(14)
         })
@@ -1418,6 +1431,12 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(12)
             bottomMargin = dp(12)
         })
+        card.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            val text = cameraName.getChildAt(1) as TextView
+            val iconWidth = if (cameraArrangement.showSourceIcons) dp(22) else 0
+            val maxWidth = (card.width - controls.width - dp(60) - iconWidth).coerceAtLeast(dp(12))
+            if (text.maxWidth != maxWidth) text.maxWidth = maxWidth
+        }
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(218)).apply {
                 bottomMargin = dp(8)
@@ -1450,6 +1469,7 @@ class MainActivity : AppCompatActivity() {
         tile.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), 0, 0, 0)
+            addView(CameraSource.Frigate.iconView(this@MainActivity), LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(label(camera.friendlyName, 12, Palette.text).apply {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
@@ -3121,11 +3141,10 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(column, centeredScrollParams(620))
         column.addView(pageTitle(getString(R.string.settings)))
         column.addView(sectionHeading(getString(R.string.general)))
+        val cameraSettingsItems = dashboardCameras()
         column.addView(settingsGroup(
             settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { if (session == null) renderLogin() else renderServerSettings() }),
-            settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, visibleCameras().size, cameras.size), { renderCameraSettings() }).apply {
-                if (session == null) visibility = View.GONE
-            },
+            settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, cameraSettingsItems.count { dashboardCameraVisible(it) }, cameraSettingsItems.size), { renderCameraSettings() }),
             settingsNavRow(getString(R.string.onvif_cameras), "", { openOnvifManager() }),
             settingsNavRow(getString(R.string.ha_cameras), savedHomeAssistant()?.baseUrl.orEmpty(), { openHomeAssistantManager() }),
             settingsNavRow(getString(R.string.about), "Camnory ${appVersionName()}", { renderAboutSettings() }),
@@ -3237,6 +3256,15 @@ class MainActivity : AppCompatActivity() {
         choices(R.string.timeline_color, "timelineColor", "accent", listOf("accent" to R.string.timeline_color_accent, "blue" to R.string.timeline_color_blue))
         choices(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))
         choices(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })
+        column.addView(sectionHeading(getString(R.string.camera_source_icons)))
+        column.addView(preferenceToggleRow(getString(R.string.camera_source_icons), getString(R.string.camera_source_icons_detail), SwitchCompat(this).apply {
+            tag = "show-camera-source-icons"
+            contentDescription = getString(R.string.camera_source_icons)
+            isChecked = cameraArrangement.showSourceIcons
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("showCameraSourceIcons", checked).apply()
+            }
+        }))
         column.addView(sectionHeading(getString(R.string.animations)))
         val motionSwitch = SwitchCompat(this).apply {
             isChecked = reducedMotion
@@ -3516,12 +3544,20 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
         scroll.addView(column, centeredScrollParams(620))
         column.addView(settingsPageHeader(getString(R.string.cameras)))
-        column.addView(sectionHeading(getString(R.string.visibility)))
-        column.addView(settingsGroup(settingsRow(getString(R.string.home), getString(R.string.camera_count_detail, visibleCameras().size, cameras.size))))
-        if (cameras.isEmpty()) {
+        column.addView(sectionHeading(getString(R.string.camera_order_visibility)))
+        val all = dashboardCameras()
+        val summary = settingsDetailLabel(getString(R.string.camera_count_detail, all.count { dashboardCameraVisible(it) }, all.size))
+        column.addView(summary)
+        if (all.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else {
-            column.addView(settingsGroup(*cameras.map { cameraVisibilityRow(it) }.toTypedArray()))
+            column.addView(CameraArrangementView(this, all.map {
+                CameraArrangementRow(it.key, it.name, it.source, it.enabled, dashboardCameraVisible(it))
+            }, onOrder = { cameraArrangement.saveOrder(it) }, onVisibility = { key, visible ->
+                cameraArrangement.setHidden(key, !visible)
+                all.firstOrNull { it.key == key }?.frigate?.let { setCameraHidden(it.name, !visible) }
+                summary.text = getString(R.string.camera_count_detail, all.count { dashboardCameraVisible(it) }, all.size)
+            }))
         }
         setShell(scroll, Tab.Settings)
     }
@@ -3580,26 +3616,6 @@ class MainActivity : AppCompatActivity() {
                     rightMargin = dp(18)
                 })
             }
-        }
-    }
-
-    private fun cameraVisibilityRow(camera: NativeCamera): View {
-        val visible = isCameraVisible(camera)
-        return horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), 0, dp(12), 0)
-            addView(vertical().apply {
-                addView(settingsTitleLabel(camera.friendlyName))
-                addView(settingsDetailLabel(if (camera.enabled) camera.name else getString(R.string.camera_disabled, camera.name)))
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(SwitchCompat(context).apply {
-                isChecked = visible
-                isEnabled = camera.enabled
-                setOnCheckedChangeListener { _, checked ->
-                    setCameraHidden(camera.name, !checked)
-                    renderCameraSettings()
-                }
-            })
         }
     }
 
@@ -3894,10 +3910,14 @@ class MainActivity : AppCompatActivity() {
         return NativeSession(baseUrl, token, username)
     }
 
-    private fun visibleCameras(): List<NativeCamera> = cameras.filter { isCameraVisible(it) }
+    private fun visibleCameras(): List<NativeCamera> {
+        val byKey = cameras.filter { isCameraVisible(it) }.associateBy { CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), it.name) }
+        return CameraArrangement.ordered(byKey.keys.toList(), cameraArrangement.savedOrder()).mapNotNull { byKey[it] }
+    }
 
     private fun isCameraVisible(camera: NativeCamera): Boolean =
-        camera.enabled && !hiddenCameraNames().contains(camera.name)
+        camera.enabled && !hiddenCameraNames().contains(camera.name) &&
+            !cameraArrangement.hidden(CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), camera.name))
 
     private fun hiddenCameraNames(): Set<String> =
         prefs.getStringSet(hiddenCameraKey(), emptySet())?.toSet() ?: emptySet()

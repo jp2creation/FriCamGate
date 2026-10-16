@@ -1,0 +1,11 @@
+Frigate source identifier: official Frigate logo, monochrome rendering.
+Source: https://github.com/blakeblackshear/frigate/blob/dev/docs/static/img/branding/logo.svg
+Trademark policy: https://github.com/blakeblackshear/frigate/blob/dev/TRADEMARK.md
+Used only to identify cameras connected through Frigate, not as Camnory branding.
+No endorsement or affiliation is implied.
+
+Home Assistant identifier: generic house with windows, adapted from Lucide house.
+Source: https://github.com/lucide-icons/lucide/blob/main/icons/house.svg
+See lucide.txt for ISC and MIT notices. This is not the Home Assistant logo.
+
+ONVIF identifier: generic wired security camera pictogram, not the ONVIF logo.

@@ -154,6 +154,109 @@ class HomeAssistantInstrumentationTest {
         }
     }
 
+    @Test fun mixedCameraArrangementPersistsVisibilityOrderAndIconPreference() {
+        store.save(connection())
+        OnvifCameraStore(context).save(listOf(OnvifSavedCamera("fixture", "ONVIF test", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("test", "test"))))
+        val address = server.url("/").toString().trimEnd('/')
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address)
+            .putString("username", "fixture").putString("token", "fixture-token").commit()
+        val arrangement = CameraArrangementStore(context)
+        val frigateKey = CameraArrangement.key("frigate", address, "front")
+        val onvifKey = CameraArrangement.key("onvif", "", "fixture")
+        val haKey = CameraArrangement.key("ha", address, "camera.ring_test")
+        val wanted = listOf(haKey, frigateKey, onvifKey)
+        arrangement.saveOrder(wanted)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).count {
+                    it.tag?.toString()?.startsWith("dashboard-camera:") == true
+                } == 3 }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertEquals(wanted.map { "dashboard-camera:$it" }, views(root).mapNotNull { it.tag as? String }.filter { it.startsWith("dashboard-camera:") })
+                val card = root.findViewWithTag<ViewGroup>("dashboard-camera:$haKey")
+                val icon = card.findViewWithTag<View>("camera-source-HomeAssistant")
+                val footer = icon.parent as ViewGroup
+                assertSame(icon, footer.getChildAt(0))
+                assertEquals("Ring test", (footer.getChildAt(1) as TextView).text.toString())
+                MainActivity::class.java.getDeclaredMethod("renderCameraSettings").apply { isAccessible = true }.invoke(activity)
+                val list = root.findViewWithTag<ViewGroup>("camera-arrangement")
+                assertEquals(3, list.childCount)
+                root.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("camera-visibility:$onvifKey").isChecked = false
+                assertTrue(arrangement.hidden(onvifKey))
+                assertEquals(1, OnvifCameraStore(context).load().size)
+                assertEquals(1, store.load()!!.cameras.size)
+            }
+            screenshot("camera-arrangement-settings.png")
+            // Exercise the real drag handle, not a direct call to the reorder callback.
+            var start = floatArrayOf(); var end = floatArrayOf()
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                fun point(view: View, fraction: Float): FloatArray {
+                    val location = IntArray(2); view.getLocationOnScreen(location)
+                    return floatArrayOf(location[0] + view.width / 2f, location[1] + view.height * fraction)
+                }
+                start = point(root.findViewWithTag("camera-reorder:$onvifKey"), 0.5f)
+                end = point(root.findViewWithTag("camera-arrangement-row:$haKey"), 0.1f)
+            }
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val down = android.os.SystemClock.uptimeMillis()
+            fun pointer(action: Int, x: Float, y: Float) {
+                val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)); event.recycle()
+            }
+            try {
+                pointer(android.view.MotionEvent.ACTION_DOWN, start[0], start[1]); Thread.sleep(750)
+                repeat(15) { index ->
+                    val progress = (index + 1) / 15f
+                    pointer(android.view.MotionEvent.ACTION_MOVE, start[0] + (end[0] - start[0]) * progress,
+                        start[1] + (end[1] - start[1]) * progress)
+                    Thread.sleep(40)
+                }
+            } finally {
+                pointer(android.view.MotionEvent.ACTION_UP, end[0], end[1])
+            }
+            waitFor { arrangement.savedOrder().firstOrNull() == onvifKey }
+            scenario.recreate()
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).any { it.tag == "camera-arrangement" } }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val list = root.findViewWithTag<ViewGroup>("camera-arrangement")
+                assertEquals("camera-arrangement-row:$onvifKey", list.getChildAt(0).tag)
+                assertFalse(root.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("camera-visibility:$onvifKey").isChecked)
+                MainActivity::class.java.getDeclaredMethod("renderAppearanceSettings").apply { isAccessible = true }.invoke(activity)
+                root.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("show-camera-source-icons").isChecked = false
+                assertFalse(CameraArrangementStore(context).showSourceIcons)
+                MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
+                val rendered = views(root)
+                assertEquals(listOf("dashboard-camera:$haKey", "dashboard-camera:$frigateKey"),
+                    rendered.mapNotNull { it.tag as? String }.filter { it.startsWith("dashboard-camera:") })
+                assertTrue(rendered.filter { it.tag?.toString()?.startsWith("camera-source-") == true }.all { it.visibility == View.GONE })
+            }
+        }
+    }
+
+    @Test fun standaloneCameraSettingsRemainAvailableWithoutFrigate() {
+        store.save(connection())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
+                val title = views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>().single { it.text == activity.getString(R.string.cameras) }
+                assertTrue(title.isShown)
+                (title.parent.parent as View).performClick()
+                assertNotNull(activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("camera-arrangement"))
+            }
+        }
+    }
+
     @Test fun connectionSelectsOnlyCamerasWithoutSendingServices() {
         val address = server.url("/").toString()
         ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
@@ -241,7 +344,7 @@ class HomeAssistantInstrumentationTest {
                     else -> "terrace"
                 }
                 return when (path) {
-                    "/api/config" -> MockResponse().setBody("""{"cameras":{"devant":{"enabled":true,"friendly_name":"Devant"},"allee":{"enabled":true,"friendly_name":"Allée"},"entree":{"enabled":true,"friendly_name":"Entrée"},"suivi":{"enabled":true,"friendly_name":"Entrée suivi"}}}""")
+                    "/api/config" -> MockResponse().setBody("""{"cameras":{"devant":{"enabled":true,"friendly_name":"Devant"},"allee":{"enabled":true,"friendly_name":"Allée"}}}""")
                     "/api/events" -> MockResponse().setBody("[]")
                     "/api/version" -> MockResponse().setBody("0.16.0")
                     "/api/states" -> MockResponse().setBody(states.toString())
@@ -251,6 +354,7 @@ class HomeAssistantInstrumentationTest {
         }
         val address = server.url("/").toString().trimEnd('/')
         store.save(HomeAssistantConnection(address, "fixture-token", names.take(2).mapIndexed { index, name -> HomeAssistantCamera("camera.preview_$index", name, true) }))
+        OnvifCameraStore(context).save(listOf(OnvifSavedCamera("visual-only", "IPC-BO", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("", ""))))
         context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address).putString("username", "fixture").putString("token", "fixture-token").commit()
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -261,7 +365,26 @@ class HomeAssistantInstrumentationTest {
                     } }
                     ready
                 }
+                scenario.onActivity { activity ->
+                    // Photo fixture only: validates ONVIF layout without connecting a real camera.
+                    val direct = MainActivity::class.java.getDeclaredField("onvifCards").apply { isAccessible = true }.get(activity) as List<*>
+                    val card = direct.single() as ViewGroup
+                    val frame = card.getChildAt(0) as android.widget.FrameLayout
+                    val status = OnvifLiveCard::class.java.getDeclaredField("status").apply { isAccessible = true }.get(card) as View
+                    status.visibility = View.GONE
+                    frame.addView(android.widget.ImageView(activity).apply {
+                        scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                        setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(images.getValue("workshop"), 0, images.getValue("workshop").size))
+                    }, android.widget.FrameLayout.LayoutParams(-1, -1))
+                }
                 screenshot("ha-refined-$theme-home.png")
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("renderCameraSettings").apply { isAccessible = true }.invoke(activity)
+                }
+                screenshot("camera-sources-$theme-settings.png")
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
+                }
                 scenario.onActivity { activity -> (cards(activity).first() as HomeAssistantCameraView).findViewWithTag<View>("ha-camera-overflow").performClick() }
                 screenshot("ha-refined-$theme-menu.png")
                 scenario.onActivity { activity ->

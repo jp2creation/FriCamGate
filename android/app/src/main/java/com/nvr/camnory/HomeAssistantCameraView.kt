@@ -108,17 +108,13 @@ internal class HomeAssistantCameraView(
         }
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
+            addView(CameraSource.HomeAssistant.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
                 text = camera.name; textSize = 12f * textScale; setTextColor(Palette.text); maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 contentDescription = camera.name
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.name)
             }, LayoutParams(0, -2, 1f))
-            addView(ImageView(context).apply {
-                tag = "ha-camera-source"; setImageResource(R.drawable.home_assistant_mark)
-                contentDescription = "Home Assistant"
-                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
-            }, LayoutParams(dp(16), dp(16)).apply { marginStart = dp(4) })
             addView(icon(R.drawable.ic_more_vertical, R.string.ha_camera_details) { showMenu(it) }.apply {
                 tag = "ha-camera-overflow"
                 contentDescription = context.getString(R.string.camera_options, camera.name)

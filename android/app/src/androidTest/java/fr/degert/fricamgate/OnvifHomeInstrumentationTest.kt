@@ -100,7 +100,11 @@ class OnvifHomeInstrumentationTest {
                     card.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                     card.layout(0, 0, width, card.measuredHeight)
-                    val controls = card.getChildAt(2) as ViewGroup
+                    assertEquals("ONVIF must have only a preview and a compact footer", 2, card.childCount)
+                    val controls = card.getChildAt(1) as ViewGroup
+                    assertEquals("Footer must match Frigate and Home Assistant cards", (48 * activity.resources.displayMetrics.density).toInt(), controls.height)
+                    assertEquals("Source icon must precede the name", "camera-source-Onvif", controls.getChildAt(0).tag)
+                    assertEquals("Only the overflow button belongs beside the name", 3, controls.childCount)
                     for (index in 0 until controls.childCount) {
                         val control = controls.getChildAt(index)
                         if (control.visibility != View.GONE) {
@@ -109,6 +113,48 @@ class OnvifHomeInstrumentationTest {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    @Test fun compactOverflowKeepsAllActionsVisibleAndReleasesItsWindow() {
+        OnvifCameraStore(context).save(emptyList())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var card: OnvifLiveCard? = null
+            var fullscreenCalls = 0; var settingsCalls = 0
+            scenario.onActivity { activity ->
+                card = OnvifLiveCard(activity, OnvifSavedCamera("menu", "ONVIF test", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("", "")),
+                    { fullscreenCalls++ }, { settingsCalls++ })
+                activity.setContentView(android.widget.FrameLayout(activity).apply {
+                    addView(card, android.widget.FrameLayout.LayoutParams((180 * resources.displayMetrics.density).toInt(), -2, android.view.Gravity.BOTTOM))
+                })
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            fun popup() = OnvifLiveCard::class.java.getDeclaredField("menu").apply { isAccessible = true }.get(card) as android.widget.PopupWindow
+            scenario.onActivity {
+                val anchor = card!!.findViewWithTag<View>("onvif-camera-overflow")
+                anchor.performClick()
+                val window = popup()
+                for (index in 0..4) {
+                    val action = window.contentView.findViewWithTag<View>("onvif-camera-action-$index")
+                    assertNotNull("Missing camera action $index", action)
+                    assertEquals(index >= 2, action.isEnabled)
+                }
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity {
+                val last = popup().contentView.findViewWithTag<View>("onvif-camera-action-4")
+                val bounds = android.graphics.Rect()
+                assertTrue("Settings action clipped at bottom of screen", last.getGlobalVisibleRect(bounds))
+                assertEquals(last.height, bounds.height())
+                popup().contentView.findViewWithTag<View>("onvif-camera-action-3").performClick()
+                assertEquals(1, fullscreenCalls); assertFalse(popup().isShowing)
+                card!!.findViewWithTag<View>("onvif-camera-overflow").performClick()
+                popup().contentView.findViewWithTag<View>("onvif-camera-action-4").performClick()
+                assertEquals(1, settingsCalls)
+                card!!.findViewWithTag<View>("onvif-camera-overflow").performClick()
+                card!!.setActive(false)
+                assertFalse("Menu leaked after navigation", popup().isShowing)
             }
         }
     }

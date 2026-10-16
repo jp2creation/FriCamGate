@@ -44,15 +44,15 @@ internal class OnvifLiveCard(
     private val bufferingTimeout = Runnable { if (player != null && player?.isPlaying != true && visible()) fail() }
     private val preview: PlayerView
     private val status: TextView
-    private val sound: ImageButton
-    private val retry: ImageButton
-    private val profiles: ImageButton
+    private val liveBadge: TextView
+    private var menu: PopupWindow? = null
+    private val textScale = Appearance.textScale(context.getSharedPreferences("camgate-settings", Context.MODE_PRIVATE).getString("textSize", null))
     private val watchScroll = ViewTreeObserver.OnScrollChangedListener { syncVisibility() }
     private val watchLayout = ViewTreeObserver.OnGlobalLayoutListener { syncVisibility() }
 
     init {
         orientation = VERTICAL
-        background = GradientDrawable().apply { setColor(Palette.surface); cornerRadius = dp(8).toFloat() }
+        background = GradientDrawable().apply { setColor(Palette.card); cornerRadius = dp(8).toFloat() }
         clipToOutline = true
         val frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -66,51 +66,95 @@ internal class OnvifLiveCard(
             gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         frame.addView(status, FrameLayout.LayoutParams(-1, -1))
+        liveBadge = TextView(context).apply {
+            text = context.getString(R.string.ha_live); textSize = 10f * textScale; setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0)
+            background = GradientDrawable().apply { setColor(0xb3000000.toInt()); cornerRadius = dp(12).toFloat() }
+            val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Palette.accent); setBounds(0, 0, dp(5), dp(5)) }
+            setCompoundDrawablesRelative(dot, null, null, null); compoundDrawablePadding = dp(4)
+            visibility = View.GONE
+            tag = "onvif-camera-live"
+        }
+        frame.addView(liveBadge, FrameLayout.LayoutParams(-2, dp(22), Gravity.TOP or Gravity.END).apply { topMargin = dp(5); rightMargin = dp(5) })
         addView(frame, LayoutParams(-1, -2))
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), 0, dp(6), 0)
+            tag = "onvif-camera-footer"
+            setPadding(dp(8), 0, 0, 0)
+            addView(CameraSource.Onvif.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
-                text = camera.name; setTextColor(Palette.text); textSize = 14f; maxLines = 1
+                text = camera.name; setTextColor(Palette.text); textSize = 12f * textScale; maxLines = 1
                 gravity = Gravity.CENTER_VERTICAL
                 ellipsize = android.text.TextUtils.TruncateAt.END
-            }, LayoutParams(0, dp(44), 1f))
-            addView(TextView(context).apply { text = "ONVIF"; textSize = 9f; setTextColor(Palette.muted) })
-        }, LayoutParams(-1, dp(44)))
-        val controls = LinearLayout(context).apply { gravity = Gravity.END }
-        sound = icon(R.drawable.ic_volume_off, context.getString(R.string.playback_sound)) {
-            muted = !muted
-            if (!muted) onAudible(this)
-            player?.volume = if (muted) 0f else 1f
-            updateSound()
-        }
-        retry = icon(R.drawable.ic_refresh, context.getString(R.string.retry)) {
-            stop(); retries = 0; failed = false; syncVisibility()
-        }
-        profiles = icon(R.drawable.ic_list, context.getString(R.string.onvif_profile)) { showProfiles() }.apply { isEnabled = false }
-        controls.addView(sound)
-        controls.addView(profiles)
-        controls.addView(retry)
-        controls.addView(icon(R.drawable.ic_fullscreen, context.getString(R.string.onvif_fullscreen)) { fullscreen() })
-        controls.addView(icon(R.drawable.ic_settings, context.getString(R.string.settings)) { manage() })
-        addView(controls, LayoutParams(-1, dp(44)))
+                contentDescription = camera.name
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.name)
+            }, LayoutParams(0, -2, 1f))
+            addView(ImageButton(context).apply {
+                tag = "onvif-camera-overflow"
+                setImageResource(R.drawable.ic_more_vertical); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
+                contentDescription = context.getString(R.string.camera_options, camera.name)
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+                setPadding(dp(13), dp(13), dp(13), dp(13))
+                setOnClickListener { showMenu(it) }
+            }, LayoutParams(dp(48), dp(48)))
+        }, LayoutParams(-1, dp(48)))
     }
 
-    private fun icon(resource: Int, description: String, click: () -> Unit) = ImageButton(context).apply {
-        setImageResource(resource); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
-        contentDescription = description; androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
-        setPadding(dp(11), dp(11), dp(11), dp(11)); layoutParams = LayoutParams(dp(44), dp(44))
-        setOnClickListener { click() }
+    private fun showMenu(anchor: View) {
+        menu?.dismiss()
+        val actions: List<Triple<Int, Int, () -> Unit>> = listOf(
+            Triple(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume,
+                if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio, {
+                    muted = !muted
+                    if (!muted) onAudible(this)
+                    player?.volume = if (muted) 0f else 1f
+                }),
+            Triple(R.drawable.ic_list, R.string.onvif_profile, { showProfiles(anchor) }),
+            Triple(R.drawable.ic_refresh, R.string.retry, { stop(); retries = 0; failed = false; syncVisibility() }),
+            Triple(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
+            Triple(R.drawable.ic_settings, R.string.settings, manage)
+        )
+        val rows = LinearLayout(context).apply {
+            orientation = VERTICAL; setPadding(dp(4), dp(6), dp(4), dp(6))
+            background = GradientDrawable().apply { setColor(Palette.card); cornerRadius = dp(8).toFloat(); setStroke(dp(1), Palette.divider) }
+        }
+        actions.forEachIndexed { index, (icon, title, action) ->
+            rows.addView(LinearLayout(context).apply {
+                tag = "onvif-camera-action-$index"
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
+                isFocusable = true
+                isEnabled = when (index) { 0 -> player != null; 1 -> connection != null; else -> true }
+                if (!isEnabled) alpha = 0.45f
+                contentDescription = context.getString(title)
+                addView(ImageView(context).apply { setImageResource(icon); setColorFilter(Palette.text) }, LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(12) })
+                addView(TextView(context).apply {
+                    text = context.getString(title); textSize = 14f * textScale; setTextColor(Palette.text)
+                    maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+                }, LayoutParams(0, -2, 1f))
+                setOnClickListener { menu?.dismiss(); action() }
+            }, LayoutParams(-1, dp(48)))
+        }
+        val bounds = Rect().also { anchor.getWindowVisibleDisplayFrame(it) }
+        val width = minOf(dp(260), bounds.width() - dp(24)).coerceAtLeast(dp(120))
+        rows.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        val height = minOf(rows.measuredHeight, bounds.height() - dp(24))
+        val location = IntArray(2).also { anchor.getLocationOnScreen(it) }
+        val x = (location[0] + anchor.width - width).coerceIn(bounds.left + dp(12), maxOf(bounds.left + dp(12), bounds.right - width - dp(12)))
+        val below = location[1] + anchor.height + dp(4)
+        val y = (if (below + height <= bounds.bottom - dp(12)) below else location[1] - height - dp(4))
+            .coerceIn(bounds.top + dp(12), maxOf(bounds.top + dp(12), bounds.bottom - height - dp(12)))
+        val scroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(rows) }
+        menu = PopupWindow(scroll, width, height, true).apply {
+            isOutsideTouchable = true; elevation = dp(12).toFloat()
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            showAtLocation(anchor.rootView, Gravity.TOP or Gravity.LEFT, x, y)
+        }
     }
-    private fun updateSound() {
-        sound.setImageResource(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume)
-        sound.isSelected = !muted
-    }
-    fun mute() { muted = true; player?.volume = 0f; updateSound() }
+    fun mute() { muted = true; player?.volume = 0f }
     fun setActive(value: Boolean) {
         if (value && !active) { retries = 0; failed = false }
         active = value
-        if (!value) { mute(); stop() } else syncVisibility()
+        if (!value) { menu?.dismiss(); mute(); stop() } else syncVisibility()
     }
     private fun visible() = active && isAttachedToWindow && isShown && getGlobalVisibleRect(Rect())
     private fun syncVisibility() {
@@ -132,7 +176,7 @@ internal class OnvifLiveCard(
                 if (request != generation || !visible()) return@post
                 connecting = false
                 result.onSuccess { (connected, uri) ->
-                    connection = connected; profiles.isEnabled = true
+                    connection = connected
                     play(uri)
                 }.onFailure { error ->
                     fail(error is java.net.SocketTimeoutException || error is java.net.ConnectException ||
@@ -152,7 +196,7 @@ internal class OnvifLiveCard(
                 if (state == Player.STATE_BUFFERING) handler.postDelayed(bufferingTimeout, 25_000)
             }
             override fun onRenderedFirstFrame() {
-                if (player === current) { status.visibility = View.GONE; retries = 0 }
+                if (player === current) { status.visibility = View.GONE; liveBadge.visibility = View.VISIBLE; retries = 0 }
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (player === current) fail(error.errorCode in listOf(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
@@ -171,9 +215,9 @@ internal class OnvifLiveCard(
             handler.postDelayed({ if (request == generation && visible()) { failed = false; syncVisibility() } }, delay)
         }
     }
-    private fun showProfiles() {
+    private fun showProfiles(anchor: View) {
         val connected = connection ?: return
-        PopupMenu(context, profiles).apply {
+        PopupMenu(context, anchor).apply {
             connected.profiles.forEachIndexed { index, profile -> menu.add(0, index, index, profile.name) }
             setOnMenuItemClickListener { item ->
                 val profile = connected.profiles[item.itemId]
@@ -192,7 +236,7 @@ internal class OnvifLiveCard(
         generation++; handler.removeCallbacksAndMessages(null); client.cancel()
         worker?.shutdownNow(); worker = null
         connecting = false; preview.player = null; player?.release(); player = null
-        connection = null; profiles.isEnabled = false
+        connection = null; liveBadge.visibility = View.GONE
     }
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -205,17 +249,10 @@ internal class OnvifLiveCard(
             viewTreeObserver.removeOnScrollChangedListener(watchScroll)
             viewTreeObserver.removeOnGlobalLayoutListener(watchLayout)
         }
-        stop(); super.onDetachedFromWindow()
+        menu?.dismiss(); stop(); super.onDetachedFromWindow()
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val available = MeasureSpec.getSize(widthMeasureSpec)
-        profiles.visibility = if (available < dp(240)) View.GONE else View.VISIBLE
-        retry.visibility = if (available < dp(240)) View.GONE else View.VISIBLE
-        sound.visibility = if (available < dp(140)) View.GONE else View.VISIBLE
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-    }
 }
 
 internal fun preferredOnvifProfile(profiles: List<OnvifProfile>, token: String?): OnvifProfile =
