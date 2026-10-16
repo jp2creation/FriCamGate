@@ -290,12 +290,21 @@ class MainActivity : AppCompatActivity() {
             isFillViewport = true
         }
         val root = vertical().apply {
-            setPadding(dp(24), dp(32), dp(24), dp(24))
+            setPadding(dp(24), dp(40), dp(24), dp(24))
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(Palette.background)
         }
         scroll.addView(root, centeredScrollParams(560))
-        root.addView(brandWordmark(280), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)))
+        root.addView(FrameLayout(this).apply {
+            addView(brandWordmark(280).apply {
+                scaleX = 0.75f
+                scaleY = 0.75f
+                pivotY = dp(52).toFloat()
+                addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                    view.pivotX = view.width / 2f
+                }
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104), Gravity.CENTER))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(78)))
         root.addView(label(getString(R.string.connection_title), 26, Palette.text).apply {
             setPadding(0, dp(18), 0, dp(8))
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
