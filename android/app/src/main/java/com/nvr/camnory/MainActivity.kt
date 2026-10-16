@@ -569,7 +569,7 @@ class MainActivity : AppCompatActivity() {
                         val item = cameraRow.getOrNull(index)
                         val tile = item?.let { dashboardCameraView(it, layout) } ?: View(context)
                         tile.tag = item?.let { "dashboard-camera:${it.key}" }
-                        val height = if (item?.frigate != null && layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
+                        val height = if (layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
                         addView(tile, LinearLayout.LayoutParams(0, height, 1f).apply {
                             if (index > 0) leftMargin = dp(8)
                         })
@@ -615,6 +615,7 @@ class MainActivity : AppCompatActivity() {
             return OnvifLiveCard(this, camera,
                 fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
                 manage = { openOnvifManager(camera.id, manage = true) },
+                columnMode = layout == HomeCameraLayout.Column,
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
                     onvifCards.filter { it !== selected }.forEach { it.mute() }
@@ -627,6 +628,7 @@ class MainActivity : AppCompatActivity() {
         val camera = requireNotNull(item.haCamera)
         return HomeAssistantCameraView(this, connection, camera,
             fullscreen = { openHomeAssistantCamera(connection, camera) },
+            columnMode = layout == HomeCameraLayout.Column,
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
 
@@ -1404,39 +1406,18 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(10)
             topMargin = dp(10)
         })
-        val cameraName = horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), 0, dp(10), 0)
-            background = rounded(Palette.overlay, 16)
-            addView(CameraSource.Frigate.iconView(this@MainActivity), LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
-            addView(label(camera.friendlyName, 12, Palette.text).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-        }
-        card.addView(cameraName, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
-            leftMargin = dp(14)
-            bottomMargin = dp(14)
-        })
-        val controls = horizontal().apply {
-            gravity = Gravity.CENTER
-            addView(homeSoundBubble(camera))
+        val controls = mutableListOf<View>().apply {
+            add(homeSoundBubble(camera))
             if (camera.audioEnabled == true) {
-                addView(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
+                add(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
                     toast(getString(R.string.micro_unavailable))
                 })
             }
-            addView(iconBubble(R.drawable.ic_fullscreen) { renderCameraFullscreen(camera) })
-            addView(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
-            addView(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
+            add(iconBubble(R.drawable.ic_fullscreen) { renderCameraFullscreen(camera) })
+            add(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
+            add(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
         }
-        card.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
-            rightMargin = dp(12)
-            bottomMargin = dp(12)
-        })
-        card.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val text = cameraName.getChildAt(1) as TextView
-            val iconWidth = if (cameraArrangement.showSourceIcons) dp(22) else 0
-            val maxWidth = (card.width - controls.width - dp(60) - iconWidth).coerceAtLeast(dp(12))
-            if (text.maxWidth != maxWidth) text.maxWidth = maxWidth
-        }
+        card.addView(CameraColumnOverlay(this, camera.friendlyName, CameraSource.Frigate, controls), frameMatch())
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(218)).apply {
                 bottomMargin = dp(8)
@@ -2680,16 +2661,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCameraPickerPopup(anchor: View) {
         dismissTransientPopups()
-        val choices = visibleCameras()
-        val directChoices = savedOnvifCameras()
-        val haConnection = savedHomeAssistant()
-        if (choices.isEmpty() && directChoices.isEmpty() && haConnection?.cameras.isNullOrEmpty()) {
+        val choices = dashboardCameras().filter { dashboardCameraVisible(it) }
+        if (choices.isEmpty()) {
             toast(getString(R.string.no_visible))
             return
         }
         val card = vertical().apply {
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(Palette.card, 16, Palette.border, 1)
+            background = rounded(Palette.card, 8, Palette.border, 1)
         }
         card.addView(label(getString(R.string.pick_camera), 13, Palette.muted).apply {
             setPadding(dp(8), dp(4), dp(8), dp(10))
@@ -2698,72 +2677,74 @@ class MainActivity : AppCompatActivity() {
         val activeApi = api
         choices.forEach { camera ->
             val row = horizontal().apply {
+                tag = "camera-picker-row:${camera.key}"
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(8), dp(7), dp(8), dp(7))
                 background = rounded(Color.TRANSPARENT, 10)
                 setOnClickListener {
                     dismissCameraPicker()
-                    renderCameraDetail(camera)
+                    when {
+                        camera.frigate != null -> renderCameraDetail(camera.frigate)
+                        camera.onvif != null -> openOnvifManager(camera.onvif.id, fullscreen = true)
+                        else -> openHomeAssistantCamera(requireNotNull(camera.haConnection), requireNotNull(camera.haCamera))
+                    }
                 }
             }
             val thumb = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackgroundColor(Palette.surface)
+                tag = "camera-picker-image"
+                visibility = View.GONE
             }
+            val placeholder = ImageView(this).apply { setImageResource(R.drawable.ic_image); setColorFilter(Palette.muted) }
             row.addView(FrameLayout(this).apply {
+                tag = "camera-picker-thumbnail"
                 background = rounded(Palette.surface, 7)
                 applyRoundedClip(7)
+                addView(placeholder, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
                 addView(thumb, frameMatch())
             }, LinearLayout.LayoutParams(dp(72), dp(44)).apply {
                 rightMargin = dp(12)
             })
             row.addView(vertical().apply {
-                addView(label(camera.friendlyName, 15, Palette.text))
-                addView(label(getString(R.string.open_live), 12, Palette.muted).apply {
+                addView(horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(camera.source.iconView(context), LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
+                    addView(label(camera.name, 15, Palette.text).apply {
+                        tag = "camera-picker-name"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                        contentDescription = camera.name
+                        androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.name)
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                })
+                addView(label(getString(if (camera.source == CameraSource.HomeAssistant) R.string.camera_fullscreen else R.string.open_live), 12, Palette.muted).apply {
                     setPadding(0, dp(4), 0, 0)
+                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(ImageView(this).apply {
                 setImageResource(R.drawable.ic_videocam)
                 setColorFilter(Palette.accent)
                 alpha = 0.95f
-            }, LinearLayout.LayoutParams(dp(22), dp(22)))
+            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(8) })
             card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply {
                 topMargin = dp(2)
             })
-            if (activeSession != null && activeApi != null) {
-                activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
-                    runOnUiThread { bitmap?.let { thumb.setImageBitmap(it) } }
+            fun showThumbnail(bitmap: Bitmap?) {
+                if (bitmap != null && !bitmap.isRecycled) {
+                    thumb.setImageBitmap(bitmap); thumb.visibility = View.VISIBLE; placeholder.visibility = View.GONE
                 }
             }
-        }
-        directChoices.forEach { camera ->
-            card.addView(horizontal().apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(8), dp(7), dp(8), dp(7))
-                addView(ImageView(context).apply {
-                    setImageResource(R.drawable.ic_videocam)
-                    setColorFilter(Palette.accent)
-                    setPadding(dp(18), dp(10), dp(18), dp(10))
-                }, LinearLayout.LayoutParams(dp(72), dp(44)).apply { rightMargin = dp(12) })
-                addView(vertical().apply {
-                    addView(label(camera.name, 15, Palette.text))
-                    addView(label("ONVIF · ${getString(R.string.open_live)}", 12, Palette.muted))
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                setOnClickListener { dismissCameraPicker(); openOnvifManager(camera.id, fullscreen = true) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { topMargin = dp(2) })
-        }
-        haConnection?.cameras?.forEach { camera ->
-            card.addView(horizontal().apply {
-                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(8))
-                addView(vertical().apply {
-                    addView(label(camera.name, 15, Palette.text))
-                    addView(label("Home Assistant", 12, Palette.muted))
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(ImageView(context).apply { setImageResource(R.drawable.ic_videocam); setColorFilter(Palette.accent) },
-                    LinearLayout.LayoutParams(dp(24), dp(24)))
-                setOnClickListener { dismissCameraPicker(); openHomeAssistantCamera(haConnection, camera) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
+            val cached = when {
+                camera.haCamera != null -> homeAssistantCards.firstOrNull { it.camera.entityId == camera.haCamera.entityId }?.cachedPreview()
+                camera.onvif != null -> runCatching { onvifCards.firstOrNull { it.cameraId() == camera.onvif.id }?.cachedPreview() }.getOrNull()
+                else -> null
+            }
+            showThumbnail(cached)
+            if (camera.frigate != null && activeSession != null && activeApi != null) {
+                activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.frigate.name)) { bitmap ->
+                    runOnUiThread { if (thumb.isAttachedToWindow) showThumbnail(bitmap) }
+                }
+            }
         }
         val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -2774,7 +2755,8 @@ class MainActivity : AppCompatActivity() {
             dp(360),
             dp(32)
         )
-        val popupHeight = minOf(dp(390), dp(56) + (choices.size + directChoices.size) * dp(62))
+        val visibleBounds = android.graphics.Rect().also { anchor.getWindowVisibleDisplayFrame(it) }
+        val popupHeight = minOf(dp(390), (visibleBounds.height() - dp(110)).coerceAtLeast(dp(62)), dp(56) + choices.size * dp(62))
         val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
             isOutsideTouchable = true
             isClippingEnabled = true

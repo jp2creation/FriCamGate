@@ -257,6 +257,98 @@ class HomeAssistantInstrumentationTest {
         }
     }
 
+    @Test fun columnCameraPresentationMatchesFrigateWithoutFooters() {
+        store.save(connection())
+        OnvifCameraStore(context).save(listOf(OnvifSavedCamera("fixture", "ONVIF test", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("test", "test"))))
+        val address = server.url("/").toString().trimEnd('/')
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address)
+            .putString("username", "fixture").putString("token", "fixture-token").commit()
+        context.getSharedPreferences("camgate-settings", 0).edit().putString("homeCameraLayout", "column").commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).count {
+                    it.tag?.toString()?.startsWith("dashboard-camera:") == true
+                } == 3 }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val direct = MainActivity::class.java.getDeclaredField("onvifCards").apply { isAccessible = true }.get(activity) as List<*>
+                val ha = cards(activity).single() as ViewGroup
+                val onvif = direct.single() as ViewGroup
+                assertEquals("HA column card must not have a separate footer", 1, ha.childCount)
+                assertEquals("ONVIF column card must not have a separate footer", 1, onvif.childCount)
+                for (card in listOf(ha, onvif)) {
+                    assertNotNull(card.findViewWithTag<View>("camera-column-overlay"))
+                    assertEquals((218 * activity.resources.displayMetrics.density).toInt(), card.height)
+                    val controls = card.findViewWithTag<ViewGroup>("camera-column-controls")
+                    assertEquals(4, controls.childCount)
+                    val name = card.findViewWithTag<View>("camera-column-name")
+                    val nameRect = android.graphics.Rect(); val controlsRect = android.graphics.Rect()
+                    name.getHitRect(nameRect); controls.getHitRect(controlsRect)
+                    assertTrue("Camera name overlaps controls", nameRect.right <= controlsRect.left)
+                }
+                val live = onvif.findViewWithTag<TextView>("onvif-camera-live")
+                assertEquals(activity.getString(R.string.live), live.text.toString())
+                context.getSharedPreferences("camgate-settings", 0).edit().putString("homeCameraLayout", "two_columns").commit()
+                MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
+                assertNull(root.findViewWithTag<View>("camera-column-overlay"))
+                val gridHa = cards(activity).single() as ViewGroup
+                assertEquals("Grid must keep its compact footer", 2, gridHa.childCount)
+            }
+        }
+    }
+
+    @Test fun cameraPickerUnifiesSourcesAndRespectsOrderAndVisibility() {
+        store.save(connection())
+        OnvifCameraStore(context).save(listOf(OnvifSavedCamera("fixture", "ONVIF test", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("test", "test"))))
+        val address = server.url("/").toString().trimEnd('/')
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address)
+            .putString("username", "fixture").putString("token", "fixture-token").commit()
+        val keys = listOf(CameraArrangement.key("ha", address, "camera.ring_test"),
+            CameraArrangement.key("onvif", "", "fixture"), CameraArrangement.key("frigate", address, "front"))
+        val arrangement = CameraArrangementStore(context)
+        arrangement.saveOrder(keys)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).count {
+                    it.tag?.toString()?.startsWith("dashboard-camera:") == true
+                } == 3 }
+                ready
+            }
+            fun popup(activity: MainActivity) = MainActivity::class.java.getDeclaredField("cameraPickerPopup").apply { isAccessible = true }.get(activity) as android.widget.PopupWindow
+            scenario.onActivity { activity ->
+                MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }
+                    .invoke(activity, activity.findViewById<View>(android.R.id.content))
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                val rows = views(popup(activity).contentView).filter { it.tag?.toString()?.startsWith("camera-picker-row:") == true }
+                assertEquals(keys.map { "camera-picker-row:$it" }, rows.map { it.tag })
+                rows.forEach { row ->
+                    val children = row as ViewGroup
+                    val thumbnail = children.getChildAt(0)
+                    assertEquals("camera-picker-thumbnail", thumbnail.tag)
+                    assertEquals((72 * activity.resources.displayMetrics.density).toInt(), thumbnail.width)
+                    val title = children.findViewWithTag<TextView>("camera-picker-name")
+                    val nameRow = title.parent as ViewGroup
+                    assertTrue(nameRow.getChildAt(0).tag.toString().startsWith("camera-source-"))
+                    assertSame(title, nameRow.getChildAt(1))
+                    val bounds = android.graphics.Rect()
+                    assertTrue("Picker row is clipped", row.getGlobalVisibleRect(bounds))
+                    assertEquals(row.height, bounds.height())
+                }
+                arrangement.setHidden(keys[1], true)
+                MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }
+                    .invoke(activity, activity.findViewById<View>(android.R.id.content))
+                val remaining = views(popup(activity).contentView).mapNotNull { it.tag as? String }.filter { it.startsWith("camera-picker-row:") }
+                assertEquals(listOf("camera-picker-row:${keys[0]}", "camera-picker-row:${keys[2]}"), remaining)
+            }
+        }
+    }
+
     @Test fun connectionSelectsOnlyCamerasWithoutSendingServices() {
         val address = server.url("/").toString()
         ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
@@ -320,9 +412,10 @@ class HomeAssistantInstrumentationTest {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("captureHaVisuals") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val theme = InstrumentationRegistry.getArguments().getString("previewTheme", "dark")
+        val layout = InstrumentationRegistry.getArguments().getString("previewLayout", "two_columns")
         val localeManager = if (android.os.Build.VERSION.SDK_INT >= 33) context.getSystemService(android.app.LocaleManager::class.java) else null
         val oldLocales = if (android.os.Build.VERSION.SDK_INT >= 33) localeManager?.applicationLocales else null
-        context.getSharedPreferences("camgate-settings", 0).edit().putString("theme", theme).putString("homeCameraLayout", "two_columns").commit()
+        context.getSharedPreferences("camgate-settings", 0).edit().putString("theme", theme).putString("homeCameraLayout", layout).commit()
         if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.runOnMainSync {
             localeManager?.applicationLocales = android.os.LocaleList.forLanguageTags("fr")
         }
@@ -355,29 +448,57 @@ class HomeAssistantInstrumentationTest {
         val address = server.url("/").toString().trimEnd('/')
         store.save(HomeAssistantConnection(address, "fixture-token", names.take(2).mapIndexed { index, name -> HomeAssistantCamera("camera.preview_$index", name, true) }))
         OnvifCameraStore(context).save(listOf(OnvifSavedCamera("visual-only", "IPC-BO", "http://127.0.0.1:1/onvif/device_service", OnvifCredentials("", ""))))
+        if (layout == "column") CameraArrangementStore(context).saveOrder(listOf(
+            CameraArrangement.key("frigate", address, "devant"),
+            CameraArrangement.key("ha", address, "camera.preview_0"),
+            CameraArrangement.key("ha", address, "camera.preview_1"),
+            CameraArrangement.key("frigate", address, "allee"),
+            CameraArrangement.key("onvif", "", "visual-only")))
         context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address).putString("username", "fixture").putString("token", "fixture-token").commit()
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitFor {
                     var ready = false
-                    scenario.onActivity { activity -> ready = cards(activity).size == 2 && cards(activity).all {
+                    scenario.onActivity { activity -> ready = cards(activity).size == 2 && (layout == "column" || cards(activity).all {
                         (HomeAssistantCameraView::class.java.getDeclaredField("image").apply { isAccessible = true }.get(it) as android.widget.ImageView).drawable != null
-                    } }
+                    }) }
                     ready
+                }
+                if (layout == "column") for (index in 0..1) {
+                    scenario.onActivity { activity ->
+                        val view = cards(activity)[index] as View
+                        view.requestRectangleOnScreen(android.graphics.Rect(0, 0, view.width, view.height), true)
+                    }
+                    waitFor {
+                        var loaded = false
+                        scenario.onActivity { activity -> loaded = (cards(activity)[index] as HomeAssistantCameraView).cachedPreview() != null }
+                        loaded
+                    }
                 }
                 scenario.onActivity { activity ->
                     // Photo fixture only: validates ONVIF layout without connecting a real camera.
                     val direct = MainActivity::class.java.getDeclaredField("onvifCards").apply { isAccessible = true }.get(activity) as List<*>
                     val card = direct.single() as ViewGroup
+                    (card as OnvifLiveCard).setActive(false)
                     val frame = card.getChildAt(0) as android.widget.FrameLayout
                     val status = OnvifLiveCard::class.java.getDeclaredField("status").apply { isAccessible = true }.get(card) as View
                     status.visibility = View.GONE
                     frame.addView(android.widget.ImageView(activity).apply {
                         scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                         setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(images.getValue("workshop"), 0, images.getValue("workshop").size))
-                    }, android.widget.FrameLayout.LayoutParams(-1, -1))
+                    }, 1, android.widget.FrameLayout.LayoutParams(-1, -1))
                 }
                 screenshot("ha-refined-$theme-home.png")
+                if (layout == "column") {
+                    scenario.onActivity { activity -> views(activity.findViewById(android.R.id.content)).filterIsInstance<android.widget.ScrollView>().first().fullScroll(View.FOCUS_DOWN) }
+                    screenshot("camera-column-$theme.png")
+                }
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }
+                        .invoke(activity, activity.findViewById<View>(android.R.id.content))
+                }
+                screenshot("camera-picker-$theme.png")
+                scenario.onActivity { activity -> MainActivity::class.java.getDeclaredMethod("dismissCameraPicker").apply { isAccessible = true }.invoke(activity) }
                 scenario.onActivity { activity ->
                     MainActivity::class.java.getDeclaredMethod("renderCameraSettings").apply { isAccessible = true }.invoke(activity)
                 }

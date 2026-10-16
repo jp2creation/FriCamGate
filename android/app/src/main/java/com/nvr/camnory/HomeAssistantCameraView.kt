@@ -1,6 +1,7 @@
 package com.nvr.camnory
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
@@ -35,7 +36,8 @@ internal class HomeAssistantCameraView(
     val camera: HomeAssistantCamera,
     private val fullscreen: () -> Unit,
     private val onAudible: (HomeAssistantCameraView) -> Unit,
-    private val fullscreenMode: Boolean = false
+    private val fullscreenMode: Boolean = false,
+    private val columnMode: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: java.util.concurrent.ExecutorService? = null
@@ -72,20 +74,20 @@ internal class HomeAssistantCameraView(
         frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 super.onMeasure(widthMeasureSpec, if (fullscreenMode) heightMeasureSpec else
-                    MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
+                    MeasureSpec.makeMeasureSpec(if (columnMode) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }.apply { setBackgroundColor(Color.BLACK) }
         image = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
         frame.addView(image, FrameLayout.LayoutParams(-1, -1))
         addView(frame, if (fullscreenMode) LayoutParams(-1, 0, 1f) else LayoutParams(-1, -2))
         state = TextView(context).apply {
-            tag = "ha-camera-state"; textSize = 10f * textScale; setTextColor(Color.WHITE)
+            tag = "ha-camera-state"; textSize = 10f * textScale; setTextColor(if (columnMode) Palette.text else Color.WHITE)
             gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(dp(8), 0, dp(8), 0)
-            background = GradientDrawable().apply { setColor(0xc8000000.toInt()); cornerRadius = dp(12).toFloat() }
+            background = GradientDrawable().apply { setColor(if (columnMode) Palette.overlay else 0xc8000000.toInt()); cornerRadius = dp(12).toFloat() }
         }
-        frame.addView(state, FrameLayout.LayoutParams(-2, maxOf(dp(22), state.paint.fontSpacing.toInt() + dp(4)), Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(5); marginEnd = dp(5)
+        frame.addView(state, FrameLayout.LayoutParams(-2, maxOf(dp(if (columnMode) 24 else 22), state.paint.fontSpacing.toInt() + dp(4)), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(if (columnMode) 10 else 5); marginEnd = topMargin
         })
         setState(R.string.ha_image)
         play = icon(R.drawable.ic_play_outline, R.string.ha_watch_live) { if (live) stopLive() else startLive() }
@@ -106,7 +108,16 @@ internal class HomeAssistantCameraView(
             play.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xb3000000.toInt()) }
             frame.addView(play, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
         }
-        addView(LinearLayout(context).apply {
+        if (columnMode && !fullscreenMode) {
+            frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.HomeAssistant, listOf(
+                sound,
+                icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
+                icon(R.drawable.ic_settings, R.string.ha_camera_details) { showInformation() },
+                icon(R.drawable.ic_list, R.string.ha_camera_details) { showMenu(it) }.apply {
+                    tag = "ha-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
+                }
+            )), FrameLayout.LayoutParams(-1, -1))
+        } else addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
             addView(CameraSource.HomeAssistant.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
@@ -126,6 +137,13 @@ internal class HomeAssistantCameraView(
             addView(icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() })
         }, LayoutParams(-1, dp(44)))
         image.setOnClickListener { if (!live) { stopLive(); loaded = false; loadImage() } }
+    }
+    fun cachedPreview(): Bitmap? = (image.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+
+    private fun showInformation() {
+        information = androidx.appcompat.app.AlertDialog.Builder(context).setTitle(camera.name)
+            .setMessage("Home Assistant\n${camera.entityId}\n\n${state.contentDescription}")
+            .setPositiveButton(android.R.string.ok, null).show()
     }
     private fun icon(resource: Int, description: Int, click: (View) -> Unit) = ImageButton(context).apply {
         setImageResource(resource); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
@@ -156,11 +174,7 @@ internal class HomeAssistantCameraView(
                 if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio, { sound.performClick() }),
             Triple(R.drawable.ic_refresh, R.string.reload, { retry.performClick() }),
             Triple(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
-            Triple(R.drawable.ic_info, R.string.ha_camera_details, {
-                information = androidx.appcompat.app.AlertDialog.Builder(context).setTitle(camera.name)
-                    .setMessage("Home Assistant\n${camera.entityId}\n\n${state.contentDescription}")
-                    .setPositiveButton(android.R.string.ok, null).show()
-            })
+            Triple(R.drawable.ic_info, R.string.ha_camera_details, { showInformation() })
         )
         val rows = LinearLayout(context).apply {
             orientation = VERTICAL; setPadding(dp(4), dp(6), dp(4), dp(6))

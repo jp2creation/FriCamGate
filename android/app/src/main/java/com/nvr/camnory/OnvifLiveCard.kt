@@ -28,7 +28,8 @@ internal class OnvifLiveCard(
     private var camera: OnvifSavedCamera,
     private val fullscreen: () -> Unit,
     private val manage: () -> Unit,
-    private val onAudible: (OnvifLiveCard) -> Unit = {}
+    private val onAudible: (OnvifLiveCard) -> Unit = {},
+    private val columnMode: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService? = null
@@ -46,6 +47,7 @@ internal class OnvifLiveCard(
     private val status: TextView
     private val liveBadge: TextView
     private var menu: PopupWindow? = null
+    private var overlaySound: ImageButton? = null
     private val textScale = Appearance.textScale(context.getSharedPreferences("camgate-settings", Context.MODE_PRIVATE).getString("textSize", null))
     private val watchScroll = ViewTreeObserver.OnScrollChangedListener { syncVisibility() }
     private val watchLayout = ViewTreeObserver.OnGlobalLayoutListener { syncVisibility() }
@@ -56,7 +58,7 @@ internal class OnvifLiveCard(
         clipToOutline = true
         val frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(if (columnMode) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }
         preview = LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView
@@ -67,17 +69,35 @@ internal class OnvifLiveCard(
         }
         frame.addView(status, FrameLayout.LayoutParams(-1, -1))
         liveBadge = TextView(context).apply {
-            text = context.getString(R.string.ha_live); textSize = 10f * textScale; setTextColor(Color.WHITE)
+            text = context.getString(R.string.live); textSize = 10f * textScale; setTextColor(if (columnMode) Palette.text else Color.WHITE)
             gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0)
-            background = GradientDrawable().apply { setColor(0xb3000000.toInt()); cornerRadius = dp(12).toFloat() }
+            background = GradientDrawable().apply { setColor(if (columnMode) Palette.overlay else 0xb3000000.toInt()); cornerRadius = dp(12).toFloat() }
             val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Palette.accent); setBounds(0, 0, dp(5), dp(5)) }
             setCompoundDrawablesRelative(dot, null, null, null); compoundDrawablePadding = dp(4)
             visibility = View.GONE
             tag = "onvif-camera-live"
         }
-        frame.addView(liveBadge, FrameLayout.LayoutParams(-2, dp(22), Gravity.TOP or Gravity.END).apply { topMargin = dp(5); rightMargin = dp(5) })
+        frame.addView(liveBadge, FrameLayout.LayoutParams(-2, dp(if (columnMode) 24 else 22), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(if (columnMode) 10 else 5); rightMargin = topMargin
+        })
         addView(frame, LayoutParams(-1, -2))
-        addView(LinearLayout(context).apply {
+        if (columnMode) {
+            fun action(icon: Int, description: Int, click: (View) -> Unit) = ImageButton(context).apply {
+                setImageResource(icon); setColorFilter(Palette.text)
+                contentDescription = context.getString(description)
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+                setOnClickListener { click(it) }
+            }
+            overlaySound = action(R.drawable.ic_volume_off, R.string.camera_enable_audio) { toggleSound() }.apply { isEnabled = false }
+            frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.Onvif, listOf(
+                requireNotNull(overlaySound),
+                action(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
+                action(R.drawable.ic_settings, R.string.settings) { manage() },
+                action(R.drawable.ic_list, R.string.settings) { showMenu(it) }.apply {
+                    tag = "onvif-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
+                }
+            )), FrameLayout.LayoutParams(-1, -1))
+        } else addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             tag = "onvif-camera-footer"
             setPadding(dp(8), 0, 0, 0)
@@ -104,11 +124,7 @@ internal class OnvifLiveCard(
         menu?.dismiss()
         val actions: List<Triple<Int, Int, () -> Unit>> = listOf(
             Triple(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume,
-                if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio, {
-                    muted = !muted
-                    if (!muted) onAudible(this)
-                    player?.volume = if (muted) 0f else 1f
-                }),
+                if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio, { toggleSound() }),
             Triple(R.drawable.ic_list, R.string.onvif_profile, { showProfiles(anchor) }),
             Triple(R.drawable.ic_refresh, R.string.retry, { stop(); retries = 0; failed = false; syncVisibility() }),
             Triple(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
@@ -150,7 +166,26 @@ internal class OnvifLiveCard(
             showAtLocation(anchor.rootView, Gravity.TOP or Gravity.LEFT, x, y)
         }
     }
-    fun mute() { muted = true; player?.volume = 0f }
+    private fun toggleSound() {
+        if (player == null) return
+        muted = !muted
+        if (!muted) onAudible(this)
+        player?.volume = if (muted) 0f else 1f
+        updateSound()
+    }
+    private fun updateSound() {
+        overlaySound?.apply {
+            setImageResource(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume)
+            contentDescription = context.getString(if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio)
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+        }
+    }
+    fun cachedPreview(): android.graphics.Bitmap? = if (player != null && liveBadge.visibility == View.VISIBLE)
+        (preview.videoSurfaceView as? android.view.TextureView)?.takeIf { it.isAvailable }?.getBitmap(dp(72), dp(44)) else null
+
+    fun cameraId(): String = camera.id
+
+    fun mute() { muted = true; player?.volume = 0f; updateSound() }
     fun setActive(value: Boolean) {
         if (value && !active) { retries = 0; failed = false }
         active = value
@@ -188,6 +223,7 @@ internal class OnvifLiveCard(
     private fun play(uri: String) {
         val current = ExoPlayer.Builder(context).build()
         player = current; preview.player = current
+        overlaySound?.isEnabled = true
         current.volume = if (muted) 0f else 1f
         current.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -237,6 +273,7 @@ internal class OnvifLiveCard(
         worker?.shutdownNow(); worker = null
         connecting = false; preview.player = null; player?.release(); player = null
         connection = null; liveBadge.visibility = View.GONE
+        overlaySound?.isEnabled = false
     }
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
