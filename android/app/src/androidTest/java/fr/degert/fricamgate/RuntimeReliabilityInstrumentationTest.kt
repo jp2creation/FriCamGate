@@ -207,6 +207,38 @@ class RuntimeReliabilityInstrumentationTest {
         }
     }
 
+    @Test fun sameMomentGridUsesTwoColumnsAndPreservesMetadata() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                field("cameras").set(activity, listOf("Allée", "Devant", "Entrée", "Entrée suivi").map {
+                    NativeCamera(it, it, true, it, null, null, null, null, null, null, null)
+                })
+                val event = NativeEvent("grid-test", "Allée", "person", "person", null, "09:42", 1000.0, 1020.0, null)
+                val grid = MainActivity::class.java.getDeclaredMethod("syncCameraGrid", NativeEvent::class.java, String::class.java)
+                    .apply { isAccessible = true }.invoke(activity, event, "Allée") as android.widget.LinearLayout
+                val width = (320 * activity.resources.displayMetrics.density).toInt()
+                grid.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED))
+                grid.layout(0, 0, width, grid.measuredHeight)
+                assertEquals(2, grid.childCount)
+                val firstRow = grid.getChildAt(0) as android.widget.LinearLayout
+                assertEquals(2, firstRow.childCount)
+                assertTrue(firstRow.getChildAt(0).width <= width / 2)
+                assertTrue(firstRow.getChildAt(1).left > firstRow.getChildAt(0).left)
+                assertEquals("Devant, 09:42", firstRow.getChildAt(0).contentDescription)
+                val preview = (firstRow.getChildAt(0) as android.view.ViewGroup).getChildAt(0)
+                assertEquals(preview.width * 9 / 16, preview.height)
+                val bitmap = Bitmap.createBitmap(width, grid.height, Bitmap.Config.ARGB_8888)
+                grid.draw(android.graphics.Canvas(bitmap))
+                context.openFileOutput("same-moment-grid.png", Context.MODE_PRIVATE).use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
+            }
+        }
+    }
+
     @Test fun minimumZoomRulerHasContinuousMinorMarks() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))

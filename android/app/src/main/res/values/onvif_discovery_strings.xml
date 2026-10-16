@@ -1,0 +1,11 @@
+<resources>
+    <string name="onvif_search">Find cameras on the network</string>
+    <string name="onvif_manual">Add manually</string>
+    <string name="onvif_searching">Searching the local network…</string>
+    <string name="onvif_found_count">Cameras found: %1$d</string>
+    <string name="onvif_already_saved">Already added</string>
+    <string name="onvif_search_again">Search again</string>
+    <string name="onvif_search_empty">No camera found. Check that the camera and phone use the same local network. Manual addition remains available.</string>
+    <string name="onvif_search_network">Connect to a local Wi-Fi or Ethernet network. Discovery is unavailable on mobile data or VPN.</string>
+    <string name="onvif_search_failed">Search unavailable. Check the local network or add the camera manually.</string>
+</resources>

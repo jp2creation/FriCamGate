@@ -1,0 +1,11 @@
+<resources>
+    <string name="onvif_search">Procurar câmaras na rede</string>
+    <string name="onvif_manual">Adicionar manualmente</string>
+    <string name="onvif_searching">A procurar na rede local…</string>
+    <string name="onvif_found_count">Câmaras encontradas: %1$d</string>
+    <string name="onvif_already_saved">Já adicionada</string>
+    <string name="onvif_search_again">Procurar novamente</string>
+    <string name="onvif_search_empty">Nenhuma câmara encontrada. Verifique se a câmara e o telefone estão na mesma rede local. Pode adicionar manualmente.</string>
+    <string name="onvif_search_network">Ligue-se a uma rede Wi-Fi ou Ethernet local. Pesquisa indisponível em dados móveis ou VPN.</string>
+    <string name="onvif_search_failed">Pesquisa indisponível. Verifique a rede ou adicione a câmara manualmente.</string>
+</resources>

@@ -1,0 +1,11 @@
+<resources>
+    <string name="onvif_search">Cerca telecamere nella rete</string>
+    <string name="onvif_manual">Aggiungi manualmente</string>
+    <string name="onvif_searching">Ricerca nella rete locale…</string>
+    <string name="onvif_found_count">Telecamere trovate: %1$d</string>
+    <string name="onvif_already_saved">Già aggiunta</string>
+    <string name="onvif_search_again">Cerca di nuovo</string>
+    <string name="onvif_search_empty">Nessuna telecamera trovata. Verifica che telefono e telecamera siano sulla stessa rete locale. Puoi aggiungerla manualmente.</string>
+    <string name="onvif_search_network">Connettiti a una rete Wi-Fi o Ethernet locale. Ricerca non disponibile tramite rete mobile o VPN.</string>
+    <string name="onvif_search_failed">Ricerca non disponibile. Controlla la rete o aggiungi la telecamera manualmente.</string>
+</resources>

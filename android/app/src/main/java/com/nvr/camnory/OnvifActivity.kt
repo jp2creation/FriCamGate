@@ -21,6 +21,9 @@ import java.util.concurrent.Executors
 class OnvifActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val client = OnvifReadOnlyClient()
+    private val discovery = OnvifDiscovery()
+    private var discoveryLock: android.net.wifi.WifiManager.MulticastLock? = null
+    private var pendingDiscovery = false
     private lateinit var store: OnvifCameraStore
     private var saved = emptyList<OnvifSavedCamera>()
     private var player: ExoPlayer? = null
@@ -48,6 +51,7 @@ class OnvifActivity : AppCompatActivity() {
             saved = store.load()
             val initialCamera = saved.firstOrNull { it.id == intent.getStringExtra("cameraId") }
             when {
+                intent.getBooleanExtra("discover", false) -> { pendingDiscovery = true; list() }
                 initialCamera == null -> list()
                 intent.getBooleanExtra("manage", false) -> { pendingEdit = initialCamera; list() }
                 else -> connect(initialCamera)
@@ -77,9 +81,10 @@ class OnvifActivity : AppCompatActivity() {
     }
 
     private fun list() {
+        stopDiscovery()
         generation++; job?.cancel(true); client.cancel(); player?.release(); player = null; playingCamera = null
         val root = root(getString(R.string.onvif_cameras)) { finish() }
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
         val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         saved.forEach { camera ->
             rows.addView(LinearLayout(this).apply {
@@ -96,7 +101,8 @@ class OnvifActivity : AppCompatActivity() {
         }
         scroll.addView(rows)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(Button(this).apply { text = getString(R.string.onvif_add); setOnClickListener { add() } })
+        root.addView(action(R.string.onvif_search, true) { showDiscovery() })
+        root.addView(action(R.string.onvif_manual, false) { add() })
         setContentView(root)
     }
 
@@ -104,7 +110,7 @@ class OnvifActivity : AppCompatActivity() {
         try { store.save(cameras); saved = cameras; list() } catch (_: Exception) { error(R.string.onvif_storage_error) }
     }
 
-    private fun add(existing: OnvifSavedCamera? = null) {
+    private fun add(existing: OnvifSavedCamera? = null, discovered: OnvifDiscoveredCamera? = null) {
         val form = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
         fun input(hint: String, password: Boolean = false) = EditText(this).apply {
             this.hint = hint; isSingleLine = true
@@ -119,6 +125,7 @@ class OnvifActivity : AppCompatActivity() {
             name.setText(existing.name); address.setText(existing.endpoint); username.setText(existing.credentials.username)
             password.hint = getString(R.string.onvif_keep_password)
         }
+        if (discovered != null) { name.setText(discovered.name); address.setText(discovered.endpoint) }
         val dialog = AlertDialog.Builder(this).setTitle(R.string.onvif_add).setView(form)
             .setNegativeButton(android.R.string.cancel, null).setPositiveButton(R.string.onvif_connect, null).create()
         dialog.setOnShowListener {
@@ -137,6 +144,7 @@ class OnvifActivity : AppCompatActivity() {
 
     private fun connect(camera: OnvifSavedCamera, adding: Boolean = false, autoProfile: Boolean = false) {
         if (appLock.locked) { pendingCamera = camera; list(); return }
+        stopDiscovery()
         job?.cancel(true); client.cancel()
         player?.release(); player = null; playingCamera = null
         val root = root(camera.name) { list() }
@@ -230,6 +238,15 @@ class OnvifActivity : AppCompatActivity() {
     }
 
     private fun text(value: String, size: Int) = TextView(this).apply { text = value; textSize = size.toFloat(); setTextColor(Palette.text); gravity = Gravity.CENTER_VERTICAL }
+    private fun action(resource: Int, primary: Boolean, click: () -> Unit) = Button(this).apply {
+        setText(resource); isAllCaps = false; textSize = 15f
+        setTextColor(if (primary) android.graphics.Color.WHITE else Palette.text)
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (primary) Palette.accent else Palette.surface); cornerRadius = dp(6).toFloat()
+        }
+        layoutParams = LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) }
+        setOnClickListener { click() }
+    }
     private fun icon(resource: Int, description: String, click: (View) -> Unit) = ImageButton(this).apply {
         setImageResource(resource); setColorFilter(Palette.text); setBackgroundColor(android.graphics.Color.TRANSPARENT)
         contentDescription = description; layoutParams = LinearLayout.LayoutParams(dp(48), dp(52)); setOnClickListener(click)
@@ -242,6 +259,7 @@ class OnvifActivity : AppCompatActivity() {
         if (::appLock.isInitialized) appLock.protectContent()
     }
     override fun onStop() {
+        stopDiscovery()
         stopped = true
         resumedPlayback = player?.playWhenReady == true
         if (resumedPlayback) pendingCamera = playingCamera
@@ -260,8 +278,62 @@ class OnvifActivity : AppCompatActivity() {
         }
     }
     private fun resumePendingCamera() {
+        if (pendingDiscovery) { pendingDiscovery = false; showDiscovery(); return }
         pendingEdit?.let { pendingEdit = null; add(it); return }
         pendingCamera?.let { pendingCamera = null; connect(it, autoProfile = true) }
     }
-    override fun onDestroy() { generation++; client.cancel(); worker.shutdownNow(); player?.release(); super.onDestroy() }
+    private fun showDiscovery() {
+        if (appLock.locked) { pendingDiscovery = true; return }
+        list()
+        val root = root(getString(R.string.onvif_search)) { list() }
+        lateinit var results: OnvifDiscoveryView
+        results = OnvifDiscoveryView(this,
+            select = { camera -> stopDiscovery(); generation++; job?.cancel(true); results.finish(); add(discovered = camera) },
+            search = { search(results) }, cancel = { list() })
+        root.addView(results, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+        search(results)
+    }
+
+    private fun search(results: OnvifDiscoveryView) {
+        stopDiscovery(); generation++; job?.cancel(true); client.cancel()
+        results.begin()
+        val local = onvifDiscoveryNetwork(this)
+        if (local == null) {
+            results.finish(R.string.onvif_search_network); return
+        }
+        if (local.wifi) {
+            try {
+                val wifi = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+                discoveryLock = wifi.createMulticastLock("Camnory.ONVIF").apply { setReferenceCounted(false); acquire() }
+            } catch (_: Exception) { stopDiscovery(); results.finish(R.string.onvif_search_failed); return }
+        }
+        val request = generation
+        val lock = discoveryLock
+        job = worker.submit {
+            val result = runCatching {
+                discovery.search(local.address, bindNetwork = { local.network.bindSocket(it) }) { camera ->
+                    runOnUiThread {
+                        if (request == generation && !isFinishing && !isDestroyed && results.isAttachedToWindow && !appLock.locked) {
+                            val alreadySaved = saved.any { runCatching { onvifEndpoint(it.endpoint).host == camera.host }.getOrDefault(false) }
+                            results.add(camera, alreadySaved)
+                        }
+                    }
+                }
+            }
+            runOnUiThread {
+                if (request == generation && discoveryLock === lock) stopDiscovery()
+                if (request == generation && !isFinishing && !isDestroyed && results.isAttachedToWindow && !appLock.locked)
+                    results.finish(if (result.isFailure) R.string.onvif_search_failed else null)
+            }
+        }
+    }
+
+    private fun stopDiscovery() {
+        discovery.cancel()
+        discoveryLock?.let { if (it.isHeld) it.release() }
+        discoveryLock = null
+    }
+
+    override fun onDestroy() { generation++; stopDiscovery(); client.cancel(); worker.shutdownNow(); player?.release(); super.onDestroy() }
 }

@@ -387,6 +387,9 @@ class MainActivity : AppCompatActivity() {
         onvifForm.addView(cameraConnect, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(16) })
         val cameraStatus = label("", 14, Palette.muted).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
         onvifForm.addView(cameraStatus)
+        onvifForm.addView(secondaryButton(getString(R.string.onvif_search)).apply {
+            setOnClickListener { openOnvifManager(discover = true) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(12) })
         onvifForm.addView(secondaryButton(getString(R.string.connection_saved_cameras)).apply {
             setOnClickListener { openOnvifManager() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(12) })
@@ -605,12 +608,13 @@ class MainActivity : AppCompatActivity() {
     private fun savedOnvifCameras(): List<OnvifSavedCamera> = runCatching { OnvifCameraStore(this).load() }
         .getOrElse { toast(getString(R.string.onvif_storage_error)); emptyList() }
 
-    private fun openOnvifManager(cameraId: String? = null, fullscreen: Boolean = false, manage: Boolean = false) {
+    private fun openOnvifManager(cameraId: String? = null, fullscreen: Boolean = false, manage: Boolean = false, discover: Boolean = false) {
         onvifCards.forEach { it.setActive(false) }
         onvifManager.launch(Intent(this, OnvifActivity::class.java).apply {
             putExtra("cameraId", cameraId)
             putExtra("fullscreen", fullscreen)
             putExtra("manage", manage)
+            putExtra("discover", discover)
         })
     }
 
@@ -689,6 +693,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderEventDetail(event: NativeEvent, displayedCameraName: String = event.camera) {
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
+        val scrollTag = "event-scroll:${event.id}"
+        val previousScrollY = findViewById<ViewGroup>(android.R.id.content)
+            .findViewWithTag<android.widget.ScrollView>(scrollTag)?.scrollY ?: 0
         releasePlayer()
         val displayedCamera = cameras.firstOrNull { it.name == displayedCameraName }
             ?: cameras.firstOrNull { it.name == event.camera }
@@ -747,6 +754,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(controls)
 
         val scroll = appScrollView()
+        scroll.tag = scrollTag
         val column = vertical().apply { setPadding(dp(16), dp(20), dp(16), dp(120)) }
         scroll.addView(column)
         column.addView(label(getString(R.string.event_playback), 12, Palette.muted))
@@ -761,6 +769,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setShell(body, Tab.Events)
+        scroll.post { scroll.scrollTo(0, previousScrollY) }
         eventPlaybackControls = controls
         if (showingEventCamera || displayedCamera == null) {
             startClipPlayer(activeApi, activeSession.token, event, playerView, fallback)
@@ -2230,17 +2239,26 @@ class MainActivity : AppCompatActivity() {
         val cameraByName = cameras.associateBy { it.name }
         sameMomentCameraNames(cameras.map { it.name }, displayedCameraName, visibleNames)
             .mapNotNull { cameraByName[it] }
-            .forEach { camera ->
-                val row = horizontal().apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(10), 0, dp(10))
+            .chunked(2).forEach { camerasInRow ->
+                val gridRow = horizontal().apply { setPadding(0, dp(12), 0, 0) }
+                camerasInRow.forEachIndexed { index, camera ->
+                val row = vertical().apply {
                     setOnClickListener { renderEventDetail(event, camera.name) }
+                    contentDescription = "${camera.friendlyName}, ${event.time}"
                 }
                 val image = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     setBackgroundColor(Palette.surface)
+                    applyRoundedClip(6)
                 }
-                row.addView(image, LinearLayout.LayoutParams(dp(160), dp(92)))
+                val preview = object : FrameLayout(this) {
+                    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                        val width = View.MeasureSpec.getSize(widthMeasureSpec)
+                        super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(width * 9 / 16, View.MeasureSpec.EXACTLY))
+                    }
+                }
+                preview.addView(image, frameMatch())
+                row.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                 session?.let { activeSession ->
                     api?.loadBitmap(activeSession.token, api?.recordingSnapshotUrl(camera.name, event.startTime ?: 0.0).orEmpty()) { bitmap ->
                         runOnUiThread {
@@ -2255,11 +2273,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 row.addView(vertical().apply {
-                    setPadding(dp(14), 0, 0, 0)
-                    addView(label(camera.friendlyName, 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-                    addView(label(event.time, 15, Palette.muted))
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                grid.addView(row)
+                    setPadding(0, dp(6), 0, 0)
+                    addView(label(camera.friendlyName, 14, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+                    addView(label(event.time, 12, Palette.muted))
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                gridRow.addView(row, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (index == 0) marginEnd = dp(10)
+                })
+                }
+                if (camerasInRow.size == 1) gridRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+                grid.addView(gridRow)
             }
         return grid
     }
