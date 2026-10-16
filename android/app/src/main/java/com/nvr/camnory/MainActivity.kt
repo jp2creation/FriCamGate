@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     private var events: List<NativeEvent> = emptyList()
     private var currentPlayer: ExoPlayer? = null
     private var eventFullscreenDialog: android.app.Dialog? = null
+    private var loginCancellation: (() -> Unit)? = null
     private var currentPlaybackKey: String? = null
     private var timelinePlaybackGeneration = 0
     private var timelineFrameGeneration = 0
@@ -229,6 +230,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        loginCancellation?.invoke()
         onvifCards.forEach { it.setActive(false) }
         homeAssistantFullscreen?.dismiss()
         homeAssistantCards.forEach { it.setActive(false) }
@@ -312,104 +314,69 @@ class MainActivity : AppCompatActivity() {
             isFillViewport = true
         }
         val root = vertical().apply {
-            setPadding(dp(24), dp(40), dp(24), dp(24))
-            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            gravity = Gravity.START
+            isFocusableInTouchMode = true
             setBackgroundColor(Palette.background)
         }
-        scroll.addView(root, centeredScrollParams(560))
-        root.addView(FrameLayout(this).apply {
-            addView(brandWordmark(280).apply {
-                scaleX = 0.75f
-                scaleY = 0.75f
-                pivotY = dp(52).toFloat()
-                addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
-                    view.pivotX = view.width / 2f
-                }
-            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104), Gravity.CENTER))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(78)))
-        root.addView(label(getString(R.string.connection_title), 26, Palette.text).apply {
-            setPadding(0, dp(18), 0, dp(8))
+        scroll.addView(root, responsiveScrollParams(560))
+        val ui = ConnectionFormUi(this)
+        root.addView(brandWordmark(190), LinearLayout.LayoutParams(dp(190), dp(59)))
+        root.addView(label(getString(R.string.connection_heading), 24, Palette.text).apply {
+            setPadding(0, dp(24), 0, dp(22))
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
         })
-        root.addView(label(getString(R.string.connection_subtitle), 14, Palette.muted))
-        val choices = horizontal().apply { setPadding(0, dp(24), 0, dp(12)) }
-        val frigateChoice = secondaryButton("Frigate")
-        val onvifChoice = secondaryButton("ONVIF")
-        val haChoice = secondaryButton("Home\nAssistant").apply {
-            isAllCaps = false; textSize = 12f
-            setOnClickListener { openHomeAssistantManager() }
+        root.addView(label(getString(R.string.connection_source), 12, Palette.muted).apply { setPadding(0, 0, 0, dp(8)) })
+        val sourceNames = listOf("Frigate", "ONVIF", "Home Assistant")
+        val sourceIcons = listOf(R.drawable.ic_grid, R.drawable.ic_videocam, R.drawable.ic_home)
+        val selector = android.widget.Spinner(this, android.widget.Spinner.MODE_DROPDOWN).apply {
+            contentDescription = getString(R.string.connection_source)
+            background = ui.outline()
+            adapter = object : android.widget.BaseAdapter() {
+                override fun getCount() = sourceNames.size
+                override fun getItem(position: Int) = sourceNames[position]
+                override fun getItemId(position: Int) = position.toLong()
+                private fun row(position: Int, dropdown: Boolean): View = horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, dp(14), 0)
+                    if (dropdown) setBackgroundColor(Palette.card)
+                    addView(ImageView(context).apply { setImageResource(sourceIcons[position]); setColorFilter(Palette.text) }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(12) })
+                    addView(label(sourceNames[position], 15, Palette.text).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    if (!dropdown) addView(ImageView(context).apply { setImageResource(R.drawable.ic_connection_expand); setColorFilter(Palette.muted) }, LinearLayout.LayoutParams(dp(20), dp(20)))
+                    layoutParams = android.widget.AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50))
+                }
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup) = row(position, false)
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup) = row(position, true)
+            }
         }
-        listOf(frigateChoice, onvifChoice).forEach { choice ->
-            choice.isAllCaps = false
-            choice.textSize = 15f
-        }
-        choices.addView(frigateChoice, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
-        choices.addView(onvifChoice, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
-        choices.addView(haChoice, LinearLayout.LayoutParams(0, dp(52), 1f))
-        root.addView(choices, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val frigateForm = vertical()
+        root.addView(selector, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+        val frigateForm = vertical().apply { tag = "connection-frigate-form" }
         val formRoot = root
         frigateForm.apply {
         val root = this
-        root.addView(label(getString(R.string.frigate_server), 12, Palette.muted).apply { setPadding(0, dp(28), 0, dp(8)) })
-        val serverInput = editText("http://cam.example.fr", prefs.getString("baseUrl", "") ?: "")
-        root.addView(serverInput, matchWrap())
-        root.addView(label(getString(R.string.username), 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
-        val usernameInput = editText("admin", prefs.getString("username", "") ?: "")
-        root.addView(usernameInput, matchWrap())
-        root.addView(label(getString(R.string.password), 12, Palette.muted).apply { setPadding(0, dp(18), 0, dp(8)) })
-        val passwordInput = editText(getString(R.string.password_hint), "").apply {
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        root.addView(passwordInput, matchWrap())
-        val button = primaryButton(getString(R.string.login)).apply {
-            setOnClickListener {
-                connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString())
-            }
-        }
-        root.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        root.addView(CheckBox(this@MainActivity).apply {
-            text = getString(R.string.connection_show_password)
-            setTextColor(Palette.muted)
-            setOnCheckedChangeListener { _, checked ->
-                passwordInput.transformationMethod = if (checked) null else android.text.method.PasswordTransformationMethod.getInstance()
-                passwordInput.setSelection(passwordInput.length())
-            }
-        })
-        root.addView(label(getString(R.string.login_hint), 14, Palette.muted).apply {
-            setPadding(0, dp(20), 0, 0)
+        val serverInput = ui.field(root, getString(R.string.frigate_server), "https://cam.example.fr", prefs.getString("baseUrl", "").orEmpty(), key = "connection-frigate-server")
+        val usernameInput = ui.field(root, getString(R.string.username), "admin", prefs.getString("username", "").orEmpty(), key = "connection-frigate-user")
+        val passwordInput = ui.field(root, getString(R.string.password), getString(R.string.password_hint), secret = true, key = "connection-frigate-password")
+        ui.advanced(root, "connection-frigate-advanced").addView(label(getString(R.string.login_hint), 12, Palette.muted))
+        ui.spacer(root)
+        root.addView(ui.action(getString(R.string.login)) {
+            connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString())
         })
         }
-        val onvifForm = vertical().apply { visibility = View.GONE }
-        fun cameraField(title: String, hint: String, secret: Boolean = false): EditText {
-            onvifForm.addView(label(title, 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
-            return editText(hint, "").apply {
-                if (secret) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-                onvifForm.addView(this, matchWrap())
-            }
-        }
-        val cameraName = cameraField(getString(R.string.onvif_name), getString(R.string.onvif_name))
-        val cameraAddress = cameraField(getString(R.string.connection_camera_address), "http://192.168.1.100:8000")
-        val cameraUser = cameraField(getString(R.string.username), "admin")
-        val cameraPassword = cameraField(getString(R.string.password), getString(R.string.password_hint), true)
-        onvifForm.addView(CheckBox(this).apply {
-            text = getString(R.string.connection_show_password)
-            setTextColor(Palette.muted)
-            setOnCheckedChangeListener { _, checked ->
-                cameraPassword.transformationMethod = if (checked) null else android.text.method.PasswordTransformationMethod.getInstance()
-                cameraPassword.setSelection(cameraPassword.length())
-            }
-        })
-        val cameraConnect = primaryButton(getString(R.string.onvif_connect))
-        onvifForm.addView(cameraConnect, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(16) })
+        val onvifForm = vertical().apply { visibility = View.GONE; tag = "connection-onvif-form" }
+        val cameraName = ui.field(onvifForm, getString(R.string.onvif_name), getString(R.string.onvif_name), key = "connection-onvif-name")
+        val cameraAddress = ui.field(onvifForm, getString(R.string.connection_camera_address), "http://192.168.1.100:8000", key = "connection-onvif-server")
+        val cameraUser = ui.field(onvifForm, getString(R.string.username), "admin", key = "connection-onvif-user")
+        val cameraPassword = ui.field(onvifForm, getString(R.string.password), getString(R.string.password_hint), secret = true, key = "connection-onvif-password")
+        val onvifAdvanced = ui.advanced(onvifForm, "connection-onvif-advanced")
+        ui.spacer(onvifForm)
+        val cameraConnect = ui.action(getString(R.string.onvif_connect)) {}
+        onvifForm.addView(cameraConnect)
         val cameraStatus = label("", 14, Palette.muted).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
         onvifForm.addView(cameraStatus)
-        onvifForm.addView(secondaryButton(getString(R.string.onvif_search)).apply {
-            setOnClickListener { openOnvifManager(discover = true) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(12) })
-        onvifForm.addView(secondaryButton(getString(R.string.connection_saved_cameras)).apply {
-            setOnClickListener { openOnvifManager() }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(12) })
+        onvifAdvanced.addView(ui.action(getString(R.string.onvif_search), false) { openOnvifManager(discover = true) })
+        onvifAdvanced.addView(ui.action(getString(R.string.connection_saved_cameras), false) { openOnvifManager() })
+        var onvifGeneration = 0
+        var onvifClient: OnvifReadOnlyClient? = null
         cameraConnect.setOnClickListener {
             val endpoint = runCatching { onvifEndpoint(cameraAddress.text.toString()).toASCIIString() }.getOrNull()
             if (endpoint == null || cameraName.text.isBlank()) {
@@ -419,15 +386,17 @@ class MainActivity : AppCompatActivity() {
             val camera = OnvifSavedCamera(java.util.UUID.randomUUID().toString(), cameraName.text.toString().trim(), endpoint,
                 OnvifCredentials(cameraUser.text.toString(), cameraPassword.text.toString()))
             cameraConnect.isEnabled = false
-            frigateChoice.isEnabled = false
+            selector.isEnabled = false
             cameraStatus.text = getString(R.string.connecting)
             val client = OnvifReadOnlyClient()
+            onvifClient = client
+            val request = ++onvifGeneration
             Thread {
                 val result = runCatching { client.connect(camera.endpoint, camera.credentials) }
                 runOnUiThread {
-                    if (!formRoot.isAttachedToWindow || isFinishing || isDestroyed) return@runOnUiThread
+                    if (request != onvifGeneration || !formRoot.isAttachedToWindow || !onvifForm.isShown || isFinishing || isDestroyed || appLock.locked) return@runOnUiThread
                     cameraConnect.isEnabled = true
-                    frigateChoice.isEnabled = true
+                    selector.isEnabled = true
                     if (result.isSuccess) {
                         val saved = runCatching {
                             val store = OnvifCameraStore(this)
@@ -442,27 +411,40 @@ class MainActivity : AppCompatActivity() {
                 client.cancel()
             }.start()
         }
-        formRoot.addView(frigateForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        formRoot.addView(onvifForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        fun selectCamera(onvif: Boolean) {
-            frigateForm.visibility = if (onvif) View.GONE else View.VISIBLE
-            onvifForm.visibility = if (onvif) View.VISIBLE else View.GONE
-            listOf(frigateChoice to !onvif, onvifChoice to onvif).forEach { (choice, selected) ->
-                choice.isSelected = selected
-                choice.background = rounded(if (selected) Palette.accent else Palette.surface, 6)
-                choice.setTextColor(if (selected) Color.WHITE else Palette.text)
-                val icon = getDrawable(if (choice === frigateChoice) R.drawable.ic_grid else R.drawable.ic_videocam)?.mutate()
-                icon?.setTint(if (selected) Color.WHITE else Palette.text)
-                icon?.setBounds(0, 0, dp(19), dp(19))
-                choice.setCompoundDrawables(icon, null, null, null)
-                choice.compoundDrawablePadding = dp(6)
-                choice.setPadding(dp(12), 0, dp(12), 0)
-            }
+        formRoot.addView(frigateForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        formRoot.addView(onvifForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val haForm = HomeAssistantSetupView(this, savedHomeAssistant(), { !appLock.locked }, { renderHome() }, { selector.isEnabled = !it }).apply { visibility = View.GONE }
+        formRoot.addView(haForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val cancel = {
+            onvifGeneration++; onvifClient?.cancel(); onvifClient = null
+            cameraConnect.isEnabled = true; cameraStatus.text = ""
+            haForm.cancel(); selector.isEnabled = true
         }
-        frigateChoice.setOnClickListener { selectCamera(false) }
-        onvifChoice.setOnClickListener { selectCamera(true) }
-        selectCamera(false)
+        loginCancellation = cancel
+        selector.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                cancel()
+                frigateForm.visibility = if (position == 0) View.VISIBLE else View.GONE
+                onvifForm.visibility = if (position == 1) View.VISIBLE else View.GONE
+                haForm.visibility = if (position == 2) View.VISIBLE else View.GONE
+                root.requestFocus()
+                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .hideSoftInputFromWindow(selector.windowToken, 0)
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
         setContentView(scroll)
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val location = IntArray(2).also { view.getLocationOnScreen(it) }
+            val safeTop = (maxOf(bars.top, cutout.top) - location[1]).coerceAtLeast(0)
+            view.setPadding(maxOf(bars.left, cutout.left), safeTop, maxOf(bars.right, cutout.right), maxOf(bars.bottom, keyboard.bottom))
+            insets
+        }
+        ViewCompat.requestApplyInsets(scroll)
+        scroll.doOnLayout { ViewCompat.getRootWindowInsets(window.decorView)?.let { ViewCompat.dispatchApplyWindowInsets(scroll, it) } }
     }
 
     private fun connect(baseUrlValue: String, username: String, password: String) {
@@ -4042,6 +4024,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        loginCancellation?.invoke(); loginCancellation = null
         homeVisible = false
         homeAssistantFullscreen?.dismiss()
         homeAssistantCards.forEach { it.setActive(false) }

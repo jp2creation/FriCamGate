@@ -185,6 +185,39 @@ class HomeAssistantInstrumentationTest {
         assertEquals(1, server.requestCount)
     }
 
+    @Test fun onboardingHomeAssistantRemainsInlineAndRequiresHttpConsent() {
+        val address = server.url("/").toString()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                views(activity.findViewById(android.R.id.content)).filterIsInstance<android.widget.Spinner>().single().setSelection(2)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<EditText>("connection-ha-server").setText(address)
+                root.findViewWithTag<EditText>("connection-ha-token").setText("fixture-secret-token")
+                views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+                assertTrue(root.findViewWithTag<View>("connection-ha-advanced-body").isShown)
+                assertEquals(0, server.requestCount)
+                views(root).filterIsInstance<CheckBox>().single { it.text == activity.getString(R.string.ha_allow_local_http) }.isChecked = true
+                views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+            }
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).filterIsInstance<CheckBox>().any { it.text == "Ring test" } }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val all = views(activity.findViewById(android.R.id.content))
+                all.filterIsInstance<CheckBox>().single { it.text == "Ring test" }.isChecked = true
+                all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_selection) }.performClick()
+                assertEquals(1, cards(activity).size)
+            }
+        }
+        assertEquals("camera.ring_test", store.load()!!.cameras.single().entityId)
+        assertTrue(commands.isEmpty())
+    }
+
     @Test fun standaloneHomeShowsImageButDoesNotAutoStartLiveAndReleasesOnNavigation() {
         store.save(connection())
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

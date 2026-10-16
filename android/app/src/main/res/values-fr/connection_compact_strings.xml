@@ -1,0 +1,7 @@
+<resources>
+    <string name="connection_heading">Connexion</string>
+    <string name="connection_source">Source</string>
+    <string name="connection_advanced">Options avancées</string>
+    <string name="connection_hide_secret">Masquer le mot de passe</string>
+    <string name="connection_token_help">Où trouver mon jeton ?</string>
+</resources>

@@ -2,49 +2,82 @@ package com.nvr.camnory
 
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
 import androidx.test.core.app.ActivityScenario
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionScreenTest {
-    @Test fun providerSelectionShowsOnlyItsFormAndPreservesDrafts() {
+    private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
+        (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
+    private fun screenshot(name: String) {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        Thread.sleep(300)
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.openFileOutput(name, 0).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+    }
+    @Test fun providerSelectionShowsAllThreeFormsInlineAndPreservesDrafts() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 MainActivity::class.java.getDeclaredMethod("renderLogin").apply { isAccessible = true }.invoke(activity)
-                val views = mutableListOf<View>()
-                fun collect(view: View) {
-                    views.add(view)
-                    if (view is ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
-                }
-                collect(activity.findViewById(android.R.id.content))
-                fun snapshot(name: String) {
-                    val content = activity.findViewById<View>(android.R.id.content)
-                    val metrics = activity.resources.displayMetrics
-                    content.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
-                    content.layout(0, 0, content.measuredWidth, content.measuredHeight)
-                    val bitmap = android.graphics.Bitmap.createBitmap(content.width, content.height, android.graphics.Bitmap.Config.ARGB_8888)
-                    content.draw(android.graphics.Canvas(bitmap))
-                    activity.openFileOutput(name, 0).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
-                    bitmap.recycle()
-                }
-                snapshot("connection-frigate.png")
-                val inputs = views.filterIsInstance<EditText>()
-                assertEquals(7, inputs.size)
-                inputs.first().setText("http://draft.example")
-                val buttons = views.filterIsInstance<Button>()
-                buttons.first { it.text == "ONVIF" }.performClick()
-                assertFalse(inputs.first().isShown)
-                assertTrue(inputs[3].isShown)
-                snapshot("connection-onvif.png")
-                buttons.first { it.text == activity.getString(R.string.onvif_connect) }.performClick()
-                assertNotNull(inputs[4].error)
-                buttons.first { it.text == "Frigate" }.performClick()
-                assertTrue(inputs.first().isShown)
-                assertFalse(inputs[3].isShown)
-                assertEquals("http://draft.example", inputs.first().text.toString())
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val selector = views(root).filterIsInstance<Spinner>().single()
+                assertEquals(3, selector.adapter.count)
+                root.findViewWithTag<EditText>("connection-frigate-server").setText("https://draft.example")
+                selector.setSelection(1)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertFalse(root.findViewWithTag<View>("connection-frigate-form").isShown)
+                assertTrue(root.findViewWithTag<View>("connection-onvif-form").isShown)
+                root.findViewWithTag<EditText>("connection-onvif-name").setText("Camera draft")
+                views(root).filterIsInstance<Spinner>().single().setSelection(2)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            screenshot("connection-home-assistant.png")
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertTrue(root.findViewWithTag<View>("connection-ha-form").isShown)
+                assertTrue(root.findViewWithTag<EditText>("connection-ha-server").isShown)
+                assertFalse(root.findViewWithTag<View>("connection-onvif-form").isShown)
+                assertFalse(root.findViewWithTag<View>("connection-frigate-form").isShown)
+                views(root).filterIsInstance<Spinner>().single().setSelection(0)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            screenshot("connection-frigate.png")
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertEquals("https://draft.example", root.findViewWithTag<EditText>("connection-frigate-server").text.toString())
+                views(root).filterIsInstance<Spinner>().single().setSelection(1)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            screenshot("connection-onvif.png")
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertEquals("Camera draft", root.findViewWithTag<EditText>("connection-onvif-name").text.toString())
+            }
+        }
+    }
+    @Test fun secretVisibilityAndAdvancedOptionsAreExplicit() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                MainActivity::class.java.getDeclaredMethod("renderLogin").apply { isAccessible = true }.invoke(activity)
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val password = root.findViewWithTag<EditText>("connection-frigate-password")
+                password.setText("draft-password")
+                assertNotNull(password.transformationMethod)
+                root.findViewWithTag<View>("connection-frigate-password-eye").performClick()
+                assertNull(password.transformationMethod)
+                root.findViewWithTag<View>("connection-frigate-password-eye").performClick()
+                assertNotNull(password.transformationMethod)
+                assertFalse(root.findViewWithTag<View>("connection-frigate-advanced-body").isShown)
+                root.findViewWithTag<View>("connection-frigate-advanced").performClick()
+                assertTrue(root.findViewWithTag<View>("connection-frigate-advanced-body").isShown)
             }
         }
     }

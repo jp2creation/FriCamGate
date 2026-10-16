@@ -1,0 +1,4 @@
+<!-- Lucide eye, ISC license: https://github.com/lucide-icons/lucide -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="@android:color/transparent" android:strokeColor="@android:color/white" android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M2.062,12.348a1,1 0,0 1,0 -0.696a10.75,10.75 0,0 1,19.876 0a1,1 0,0 1,0 0.696a10.75,10.75 0,0 1,-19.876 0M15,12a3,3 0,1 0,-6 0a3,3 0,1 0,6 0" />
+</vector>

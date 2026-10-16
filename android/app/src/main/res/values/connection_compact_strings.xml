@@ -1,0 +1,7 @@
+<resources>
+    <string name="connection_heading">Connection</string>
+    <string name="connection_source">Source</string>
+    <string name="connection_advanced">Advanced options</string>
+    <string name="connection_hide_secret">Hide password</string>
+    <string name="connection_token_help">Where can I find my token?</string>
+</resources>
