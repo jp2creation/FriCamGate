@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
+import androidx.core.widget.doAfterTextChanged
 import java.util.concurrent.Executors
 
 /** One reusable camera-only setup form, embedded in onboarding or settings. */
@@ -23,6 +24,10 @@ internal class HomeAssistantSetupView(
     private var status: TextView? = null
     private var connect: Button? = null
     private var dialog: AlertDialog? = null
+    private var connection = saved
+    private var addressDraft = saved?.baseUrl.orEmpty()
+    private var tokenDraft = ""
+    private var allowHttpDraft = saved?.baseUrl?.startsWith("http://") == true
     var choosing = false
         private set
 
@@ -30,9 +35,11 @@ internal class HomeAssistantSetupView(
 
     fun showForm() {
         cancel(); choosing = false; removeAllViews()
-        val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", saved?.baseUrl.orEmpty(), key = "connection-ha-server")
-        val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (saved == null) R.string.ha_token_hint else R.string.ha_keep_token),
-            secret = true, key = "connection-ha-token")
+        val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", addressDraft, key = "connection-ha-server")
+        val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (connection == null) R.string.ha_token_hint else R.string.ha_keep_token),
+            tokenDraft, secret = true, key = "connection-ha-token")
+        address.doAfterTextChanged { addressDraft = it.toString() }
+        token.doAfterTextChanged { tokenDraft = it.toString() }
         addView(ui.action(context.getString(R.string.connection_token_help), false) {
             dialog = AlertDialog.Builder(context).setTitle(R.string.ha_token).setMessage(R.string.ha_token_help)
                 .setPositiveButton(android.R.string.ok, null).show()
@@ -40,7 +47,8 @@ internal class HomeAssistantSetupView(
         val advanced = ui.advanced(this, "connection-ha-advanced")
         val localHttp = CheckBox(context).apply {
             text = context.getString(R.string.ha_allow_local_http); setTextColor(Palette.muted); textSize = 12f
-            isChecked = saved?.baseUrl?.startsWith("http://") == true
+            isChecked = allowHttpDraft
+            setOnCheckedChangeListener { _, checked -> allowHttpDraft = checked }
         }
         advanced.addView(localHttp)
         if (allowDisconnect && saved != null) advanced.addView(ui.action(context.getString(R.string.ha_disconnect), false) {
@@ -63,7 +71,7 @@ internal class HomeAssistantSetupView(
                 if (advanced.visibility == View.GONE) findViewWithTag<View>("connection-ha-advanced").performClick()
                 message.text = context.getString(R.string.ha_allow_local_http); return@setOnClickListener
             }
-            val secret = token.text.toString().trim().ifBlank { saved?.takeIf { it.baseUrl == base }?.token.orEmpty() }
+            val secret = token.text.toString().trim().ifBlank { connection?.takeIf { it.baseUrl == base }?.token.orEmpty() }
             if (secret.isBlank()) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
             val api = runCatching { HomeAssistantClient(base, secret) }.getOrNull()
             if (api == null) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
@@ -76,7 +84,18 @@ internal class HomeAssistantSetupView(
                 post {
                     if (request != generation || !isAttachedToWindow || !isShown || !canInteract()) return@post
                     busy = false; button.isEnabled = true; onBusy(false)
-                    result.onSuccess { cameras -> token.text.clear(); showSelection(HomeAssistantConnection(base, secret, cameras)) }
+                    result.onSuccess { cameras ->
+                        val previous = connection?.takeIf { it.baseUrl == base }?.cameras.orEmpty()
+                        val validated = HomeAssistantConnection(base, secret, previous)
+                        runCatching {
+                            if (connection == null || connection?.baseUrl == base) {
+                                HomeAssistantStore(context).save(validated)
+                                connection = validated
+                            }
+                        }.onSuccess {
+                            showSelection(HomeAssistantConnection(base, secret, cameras))
+                        }.onFailure { message.text = context.getString(R.string.ha_storage_failed) }
+                    }
                         .onFailure { message.text = context.getString(if (it is HomeAssistantAuthException) R.string.ha_auth_failed else R.string.ha_connection_failed) }
                     api.close()
                 }
@@ -89,9 +108,15 @@ internal class HomeAssistantSetupView(
         cancel(); choosing = true; removeAllViews()
         addView(ui.action(context.getString(R.string.onvif_back), false) { showForm() }.apply { gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL })
         addView(ui.text(context.getString(R.string.ha_select_cameras), 18, Palette.text))
-        val selected = if (saved?.baseUrl == connection.baseUrl) saved.cameras.map { it.entityId }.toMutableSet() else mutableSetOf()
+        val availableIds = connection.cameras.map { it.entityId }.toSet()
+        val selected = if (this.connection?.baseUrl == connection.baseUrl)
+            this.connection!!.cameras.map { it.entityId }.filter { it in availableIds }.toMutableSet() else mutableSetOf()
+        var saveButton: Button? = null
         val count = ui.text("").apply { setPadding(0, ui.dp(12), 0, 0) }
-        fun refresh() { count.text = context.getString(R.string.ha_selected_count, selected.size) }
+        fun refresh() {
+            count.text = context.getString(R.string.ha_selected_count, selected.size)
+            saveButton?.isEnabled = selected.isNotEmpty()
+        }
         if (connection.cameras.isEmpty()) addView(ui.text(context.getString(R.string.ha_no_cameras)))
         connection.cameras.forEach { camera ->
             addView(CheckBox(context).apply {
@@ -101,12 +126,14 @@ internal class HomeAssistantSetupView(
             }, LayoutParams(-1, -2))
         }
         refresh(); addView(count)
-        addView(ui.action(context.getString(R.string.ha_save_selection)) {
-            if (canInteract()) runCatching {
+        saveButton = ui.action(context.getString(R.string.ha_save_selection)) {
+            if (canInteract() && selected.isNotEmpty()) runCatching {
                 HomeAssistantStore(context).save(HomeAssistantConnection(connection.baseUrl, connection.token,
                     connection.cameras.filter { it.entityId in selected }))
             }.onSuccess { onSaved() }.onFailure { Toast.makeText(context, R.string.ha_storage_failed, Toast.LENGTH_LONG).show() }
-        })
+        }
+        addView(saveButton)
+        refresh()
     }
 
     fun cancel() {

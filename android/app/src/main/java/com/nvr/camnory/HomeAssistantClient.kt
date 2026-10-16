@@ -97,7 +97,9 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
     }
     fun socket() = HomeAssistantSocket(this, token).also { sockets.add(it) }
     override fun close() {
-        sockets.forEach { it.close() }; sockets.clear(); http.dispatcher.cancelAll(); http.connectionPool.evictAll()
+        sockets.forEach { it.close() }; sockets.clear(); http.dispatcher.cancelAll()
+        // TLS close_notify can write to the socket, even after the response was read.
+        http.dispatcher.executorService.execute { http.connectionPool.evictAll() }
     }
 }
 

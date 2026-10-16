@@ -185,6 +185,174 @@ class HomeAssistantInstrumentationTest {
         assertEquals(1, server.requestCount)
     }
 
+    @Test fun selectionCannotSaveEmptyAndBackRetainsConnection() {
+        val address = server.url("/").toString()
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val all = views(activity.findViewById(android.R.id.content))
+                all.filterIsInstance<EditText>()[0].setText(address)
+                all.filterIsInstance<EditText>()[1].setText("fixture-secret-token")
+                all.filterIsInstance<CheckBox>().single().isChecked = true
+                all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+            }
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = views(activity.findViewById(android.R.id.content)).filterIsInstance<CheckBox>().any { it.text == "Ring test" } }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val all = views(activity.findViewById(android.R.id.content))
+                assertFalse(all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_selection) }.isEnabled)
+                all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.onvif_back) }.performClick()
+                val fields = views(activity.findViewById(android.R.id.content)).filterIsInstance<EditText>()
+                assertEquals(address, fields[0].text.toString())
+                assertEquals("fixture-secret-token", fields[1].text.toString())
+            }
+            assertEquals("fixture-secret-token", store.load()!!.token)
+            assertTrue(store.load()!!.cameras.isEmpty())
+        }
+    }
+
+    @Test fun emptyDiscoveryKeepsSavedCamerasUntilExplicitSelection() {
+        store.save(connection())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setBody("[]")
+        }
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
+                    .single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+            }
+            waitFor {
+                var empty = false
+                scenario.onActivity { activity -> empty = views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>().any { it.text == activity.getString(R.string.ha_no_cameras) } }
+                empty
+            }
+            assertEquals("camera.ring_test", store.load()!!.cameras.single().entityId)
+            scenario.onActivity { activity ->
+                assertFalse(views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
+                    .single { it.text == activity.getString(R.string.ha_save_selection) }.isEnabled)
+                assertFalse(activity.isFinishing)
+            }
+        }
+    }
+
+    @Test fun authenticationFailureStaysOnFormAndDoesNotSaveToken() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(401)
+        }
+        val address = server.url("/").toString()
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val all = views(activity.findViewById(android.R.id.content))
+                all.filterIsInstance<EditText>()[0].setText(address)
+                all.filterIsInstance<EditText>()[1].setText("fixture-secret-token")
+                all.filterIsInstance<CheckBox>().single().isChecked = true
+                all.filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+            }
+            waitFor {
+                var failed = false
+                scenario.onActivity { activity -> failed = views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>().any { it.text == activity.getString(R.string.ha_auth_failed) } }
+                failed
+            }
+            scenario.onActivity { activity ->
+                assertFalse(activity.isFinishing)
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertEquals("fixture-secret-token", root.findViewWithTag<EditText>("connection-ha-token").text.toString())
+                assertEquals(address, root.findViewWithTag<EditText>("connection-ha-server").text.toString())
+                assertNull(store.load())
+            }
+        }
+    }
+
+    @Test fun cancelingHomeAssistantReturnsToSettingsWithoutLosingFrigate() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", server.url("/").toString().trimEnd('/'))
+            .putString("username", "test").putString("token", "frigate-fixture-token").commit()
+        val monitor = instrumentation.addMonitor(HomeAssistantActivity::class.java.name, null, false)
+        var setupActivity: HomeAssistantActivity? = null
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitFor {
+                    var loaded = false
+                    scenario.onActivity { activity -> loaded = (MainActivity::class.java.getDeclaredField("cameras").apply { isAccessible = true }.get(activity) as List<*>).isNotEmpty() }
+                    loaded
+                }
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
+                    views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>()
+                        .single { it.text == activity.getString(R.string.ha_cameras) }.let { (it.parent.parent as View).performClick() }
+                }
+                setupActivity = instrumentation.waitForMonitorWithTimeout(monitor, 5000) as? HomeAssistantActivity
+                val setup = requireNotNull(setupActivity)
+                instrumentation.runOnMainSync { setup.onBackPressedDispatcher.onBackPressed() }
+                waitFor { scenario.state == Lifecycle.State.RESUMED }
+                scenario.onActivity { activity ->
+                    assertTrue("Canceling HA setup must stay in settings", views(activity.findViewById(android.R.id.content))
+                        .filterIsInstance<TextView>().any { it.text == activity.getString(R.string.ha_cameras) })
+                }
+            }
+        } finally {
+            instrumentation.runOnMainSync { setupActivity?.takeUnless { it.isFinishing }?.finish() }
+            instrumentation.removeMonitor(monitor)
+        }
+        assertNull(store.load())
+        assertEquals("frigate-fixture-token", context.getSharedPreferences("fricamgate-native", 0).getString("token", null))
+    }
+
+    @Test fun settingsWithFrigateKeepsHomeAssistantSelectionOpen() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val address = server.url("/").toString()
+        context.getSharedPreferences("fricamgate-native", 0).edit().putString("baseUrl", address.trimEnd('/'))
+            .putString("username", "test").putString("token", "frigate-fixture-token").commit()
+        val monitor = instrumentation.addMonitor(HomeAssistantActivity::class.java.name, null, false)
+        var setupActivity: HomeAssistantActivity? = null
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitFor {
+                    var loaded = false
+                    scenario.onActivity { activity -> loaded = (MainActivity::class.java.getDeclaredField("cameras").apply { isAccessible = true }.get(activity) as List<*>).isNotEmpty() }
+                    loaded
+                }
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
+                    views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>()
+                        .single { it.text == activity.getString(R.string.ha_cameras) }.let { (it.parent.parent as View).performClick() }
+                }
+                setupActivity = instrumentation.waitForMonitorWithTimeout(monitor, 5000) as? HomeAssistantActivity
+                val activity = requireNotNull(setupActivity)
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                    root.findViewWithTag<EditText>("connection-ha-server").setText(address)
+                    root.findViewWithTag<EditText>("connection-ha-token").setText("fixture-secret-token")
+                    views(root).filterIsInstance<CheckBox>().single().isChecked = true
+                    views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+                }
+                waitFor {
+                    var ready = false
+                    instrumentation.runOnMainSync { ready = views(activity.findViewById(android.R.id.content)).filterIsInstance<CheckBox>().any { it.text == "Ring test" } }
+                    ready
+                }
+                instrumentation.runOnMainSync {
+                    assertFalse(activity.isFinishing)
+                    views(activity.findViewById(android.R.id.content)).filterIsInstance<CheckBox>().single { it.text == "Ring test" }.isChecked = true
+                    views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_selection) }.performClick()
+                }
+                waitFor {
+                    var shown = false
+                    if (scenario.state == Lifecycle.State.RESUMED) scenario.onActivity { shown = cards(it).size == 1 }
+                    shown
+                }
+            }
+        } finally {
+            instrumentation.runOnMainSync { setupActivity?.takeUnless { it.isFinishing }?.finish() }
+            instrumentation.removeMonitor(monitor)
+        }
+        assertEquals("camera.ring_test", store.load()!!.cameras.single().entityId)
+        assertTrue(commands.isEmpty())
+    }
+
     @Test fun onboardingHomeAssistantRemainsInlineAndRequiresHttpConsent() {
         val address = server.url("/").toString()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

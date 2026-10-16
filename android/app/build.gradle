@@ -20,8 +20,8 @@ android {
         applicationId "com.nvr.camnory"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 92
-        versionName "0.2.69"
+        versionCode 93
+        versionName "0.2.70"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -58,6 +58,7 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     androidTestImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+    androidTestImplementation "com.squareup.okhttp3:okhttp-tls:4.12.0"
 }
 
 try {

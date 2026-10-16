@@ -130,8 +130,10 @@ class MainActivity : AppCompatActivity() {
             if (session == null && !hasStandaloneCameras()) renderLogin() else renderHome()
         }
     }
-    private val homeAssistantManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (session == null && !hasStandaloneCameras()) renderLogin() else renderHome()
+    private val homeAssistantManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            if (session == null && !hasStandaloneCameras()) renderLogin() else renderHome()
+        }
     }
     private val playbackResume = PlaybackResumeGate<ExoPlayer>()
     private val homeSoundIcons = mutableMapOf<String, ImageView>()
