@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Cámaras Home Assistant</string>
+    <string name="ha_server">Servidor Home Assistant</string>
+    <string name="ha_token">Token de acceso de larga duración</string>
+    <string name="ha_token_hint">Pega tu token de Home Assistant</string>
+    <string name="ha_keep_token">Dejar vacío para conservar el token guardado</string>
+    <string name="ha_token_help">Perfil de Home Assistant → Seguridad → Tokens de acceso de larga duración. Usa una cuenta dedicada sin permisos de administrador.</string>
+    <string name="ha_allow_local_http">Permitir HTTP sin cifrar en mi red local</string>
+    <string name="ha_select_cameras">Elegir cámaras</string>
+    <string name="ha_save_selection">Guardar selección</string>
+    <string name="ha_selected_count">%1$d cámaras seleccionadas</string>
+    <string name="ha_no_cameras">No se encontraron cámaras accesibles.</string>
+    <string name="ha_invalid_address">Usa HTTPS o HTTP con una IP local o un nombre .local.</string>
+    <string name="ha_connection_failed">No se puede conectar a Home Assistant. Revisa la dirección y la red.</string>
+    <string name="ha_auth_failed">Acceso denegado. Revisa el token y sus permisos.</string>
+    <string name="ha_storage_failed">No se puede leer o guardar la conexión de Home Assistant.</string>
+    <string name="ha_disconnect">Desconectar Home Assistant</string>
+    <string name="ha_disconnect_question">¿Eliminar esta conexión de Camnory? Tus dispositivos de Home Assistant no se modificarán.</string>
+    <string name="ha_unavailable">No disponible</string>
+    <string name="ha_image">Home Assistant · Última imagen</string>
+    <string name="ha_image_failed">Home Assistant · Imagen no disponible</string>
+    <string name="ha_image_only">Home Assistant · Solo imagen</string>
+    <string name="ha_live">Home Assistant · Directo</string>
+    <string name="ha_live_failed">Home Assistant · Directo no disponible</string>
+    <string name="ha_watch_live">Ver en directo</string>
+    <string name="ha_stop_live">Detener directo</string>
+    <string name="ha_sources">Añadir cámaras</string>
+</resources>

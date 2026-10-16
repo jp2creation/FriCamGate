@@ -239,6 +239,37 @@ class RuntimeReliabilityInstrumentationTest {
         }
     }
 
+    @Test fun sameMomentFullscreenKeepsClockPauseAndRestoresPlayer() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))
+            var fullscreenPlayer: ExoPlayer? = null
+            scenario.onActivity { activity ->
+                val camera = NativeCamera("front", "Devant", true, "front", null, null, null, null, null, null, null)
+                field("cameras").set(activity, listOf(camera))
+                val event = NativeEvent("fullscreen-test", "front", "person", "person", null, "09:42", 1000.0, 1020.0, null)
+                MainActivity::class.java.getDeclaredMethod("renderEventDetail", NativeEvent::class.java, String::class.java)
+                    .apply { isAccessible = true }.invoke(activity, event, camera.name)
+                (field("currentPlayer").get(activity) as ExoPlayer).apply { seekTo(5000); pause() }
+                MainActivity::class.java.getDeclaredMethod("openEventCameraFullscreen", NativeEvent::class.java, NativeCamera::class.java)
+                    .apply { isAccessible = true }.invoke(activity, event, camera)
+                val dialog = field("eventFullscreenDialog").get(activity) as android.app.Dialog
+                assertTrue(dialog.isShowing)
+                val player = field("currentPlayer").get(activity) as ExoPlayer
+                fullscreenPlayer = player
+                assertFalse(player.playWhenReady)
+                assertEquals(5000L, player.currentPosition)
+                assertNotNull(dialog.findViewById<android.view.View>(R.id.event_playback_controls))
+                dialog.dismiss()
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertNull(field("eventFullscreenDialog").get(activity))
+                assertSame(fullscreenPlayer, field("currentPlayer").get(activity))
+                assertNotNull(activity.findViewById<android.view.View>(R.id.event_playback_controls))
+            }
+        }
+    }
+
     @Test fun minimumZoomRulerHasContinuousMinorMarks() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withText(R.string.no_cameras)).check(matches(isDisplayed()))

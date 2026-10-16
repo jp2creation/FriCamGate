@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src blob:">
+<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style></head>
+<body><video id="camera" autoplay muted playsinline></video><script>
+"use strict";
+let peer, pending = [], remoteReady = false;
+const video = document.getElementById("camera");
+video.onplaying = () => CamnoryCamera.ready();
+video.onwaiting = () => CamnoryCamera.buffering();
+async function start(config) {
+  try {
+    peer = new RTCPeerConnection(config.configuration || {});
+    peer.addTransceiver("video", { direction: "recvonly" });
+    peer.addTransceiver("audio", { direction: "recvonly" });
+    if (config.dataChannel) peer.createDataChannel(config.dataChannel);
+    peer.onicecandidate = event => {
+      if (event.candidate) CamnoryCamera.candidate(JSON.stringify(event.candidate.toJSON()));
+    };
+    peer.onconnectionstatechange = () => {
+      if (["failed", "disconnected"].includes(peer.connectionState)) CamnoryCamera.failed();
+    };
+    const stream = new MediaStream();
+    video.srcObject = stream;
+    peer.ontrack = event => { stream.addTrack(event.track); video.play().catch(() => CamnoryCamera.failed()); };
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    CamnoryCamera.offer(offer.sdp);
+  } catch (_) { CamnoryCamera.failed(); }
+}
+async function receive(message) {
+  try {
+    if (!peer) return;
+    if (message.type === "answer") {
+      await peer.setRemoteDescription({ type: "answer", sdp: message.answer });
+      remoteReady = true;
+      for (const candidate of pending) await peer.addIceCandidate(candidate);
+      pending = [];
+    } else if (message.type === "candidate") {
+      if (remoteReady) await peer.addIceCandidate(message.candidate);
+      else pending.push(message.candidate);
+    } else if (message.type === "error") CamnoryCamera.failed();
+  } catch (_) { CamnoryCamera.failed(); }
+}
+function setMuted(value) { video.muted = value; }
+function stop() { if (peer) peer.close(); peer = undefined; video.srcObject = null; pending = []; }
+window.addEventListener("pagehide", stop);
+</script></body></html>

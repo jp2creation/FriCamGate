@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Home Assistant-Kameras</string>
+    <string name="ha_server">Home Assistant-Server</string>
+    <string name="ha_token">Langlebiges Zugriffstoken</string>
+    <string name="ha_token_hint">Home Assistant-Token einfügen</string>
+    <string name="ha_keep_token">Leer lassen, um das gespeicherte Token zu behalten</string>
+    <string name="ha_token_help">Home Assistant-Profil → Sicherheit → Langlebige Zugriffstoken. Verwenden Sie ein eigenes Konto ohne Administratorrechte.</string>
+    <string name="ha_allow_local_http">Unverschlüsseltes HTTP im lokalen Netzwerk zulassen</string>
+    <string name="ha_select_cameras">Kameras auswählen</string>
+    <string name="ha_save_selection">Auswahl speichern</string>
+    <string name="ha_selected_count">%1$d Kameras ausgewählt</string>
+    <string name="ha_no_cameras">Keine zugänglichen Kameras gefunden.</string>
+    <string name="ha_invalid_address">HTTPS oder HTTP mit lokaler IP-Adresse oder .local-Namen verwenden.</string>
+    <string name="ha_connection_failed">Keine Verbindung zu Home Assistant. Adresse und Netzwerk prüfen.</string>
+    <string name="ha_auth_failed">Zugriff verweigert. Token und Berechtigungen prüfen.</string>
+    <string name="ha_storage_failed">Home Assistant-Verbindung konnte nicht gelesen oder gespeichert werden.</string>
+    <string name="ha_disconnect">Home Assistant trennen</string>
+    <string name="ha_disconnect_question">Diese Verbindung aus Camnory entfernen? Ihre Home Assistant-Geräte werden nicht geändert.</string>
+    <string name="ha_unavailable">Nicht verfügbar</string>
+    <string name="ha_image">Home Assistant · Letztes Bild</string>
+    <string name="ha_image_failed">Home Assistant · Bild nicht verfügbar</string>
+    <string name="ha_image_only">Home Assistant · Nur Bild</string>
+    <string name="ha_live">Home Assistant · Live</string>
+    <string name="ha_live_failed">Home Assistant · Live nicht verfügbar</string>
+    <string name="ha_watch_live">Live ansehen</string>
+    <string name="ha_stop_live">Live beenden</string>
+    <string name="ha_sources">Kameras hinzufügen</string>
+</resources>

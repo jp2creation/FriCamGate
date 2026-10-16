@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Telecamere Home Assistant</string>
+    <string name="ha_server">Server Home Assistant</string>
+    <string name="ha_token">Token di accesso a lunga durata</string>
+    <string name="ha_token_hint">Incolla il token di Home Assistant</string>
+    <string name="ha_keep_token">Lascia vuoto per mantenere il token salvato</string>
+    <string name="ha_token_help">Profilo Home Assistant → Sicurezza → Token di accesso a lunga durata. Usa un account dedicato senza privilegi di amministratore.</string>
+    <string name="ha_allow_local_http">Consenti HTTP non cifrato nella rete locale</string>
+    <string name="ha_select_cameras">Scegli telecamere</string>
+    <string name="ha_save_selection">Salva selezione</string>
+    <string name="ha_selected_count">%1$d telecamere selezionate</string>
+    <string name="ha_no_cameras">Nessuna telecamera accessibile trovata.</string>
+    <string name="ha_invalid_address">Usa HTTPS o HTTP con un indirizzo IP locale o un nome .local.</string>
+    <string name="ha_connection_failed">Connessione a Home Assistant non riuscita. Controlla indirizzo e rete.</string>
+    <string name="ha_auth_failed">Accesso negato. Controlla il token e i permessi.</string>
+    <string name="ha_storage_failed">Impossibile leggere o salvare la connessione Home Assistant.</string>
+    <string name="ha_disconnect">Disconnetti Home Assistant</string>
+    <string name="ha_disconnect_question">Rimuovere questa connessione da Camnory? I dispositivi Home Assistant non saranno modificati.</string>
+    <string name="ha_unavailable">Non disponibile</string>
+    <string name="ha_image">Home Assistant · Ultima immagine</string>
+    <string name="ha_image_failed">Home Assistant · Immagine non disponibile</string>
+    <string name="ha_image_only">Home Assistant · Solo immagine</string>
+    <string name="ha_live">Home Assistant · Diretta</string>
+    <string name="ha_live_failed">Home Assistant · Diretta non disponibile</string>
+    <string name="ha_watch_live">Guarda in diretta</string>
+    <string name="ha_stop_live">Interrompi diretta</string>
+    <string name="ha_sources">Aggiungi telecamere</string>
+</resources>

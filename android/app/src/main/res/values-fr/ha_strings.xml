@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Caméras Home Assistant</string>
+    <string name="ha_server">Serveur Home Assistant</string>
+    <string name="ha_token">Jeton d’accès longue durée</string>
+    <string name="ha_token_hint">Collez votre jeton Home Assistant</string>
+    <string name="ha_keep_token">Laisser vide pour garder le jeton enregistré</string>
+    <string name="ha_token_help">Profil Home Assistant → Sécurité → Jetons d’accès longue durée. Utilisez un compte dédié non administrateur.</string>
+    <string name="ha_allow_local_http">Autoriser HTTP non chiffré sur mon réseau local</string>
+    <string name="ha_select_cameras">Choisir les caméras</string>
+    <string name="ha_save_selection">Enregistrer la sélection</string>
+    <string name="ha_selected_count">%1$d caméras sélectionnées</string>
+    <string name="ha_no_cameras">Aucune caméra accessible trouvée.</string>
+    <string name="ha_invalid_address">Utilisez HTTPS, ou HTTP avec une adresse IP locale ou un nom .local.</string>
+    <string name="ha_connection_failed">Connexion à Home Assistant impossible. Vérifiez l’adresse et le réseau.</string>
+    <string name="ha_auth_failed">Accès refusé. Vérifiez le jeton Home Assistant et ses autorisations.</string>
+    <string name="ha_storage_failed">Impossible de lire ou d’enregistrer la connexion Home Assistant.</string>
+    <string name="ha_disconnect">Déconnecter Home Assistant</string>
+    <string name="ha_disconnect_question">Supprimer cette connexion de Camnory ? Vos appareils Home Assistant ne seront pas modifiés.</string>
+    <string name="ha_unavailable">Indisponible</string>
+    <string name="ha_image">Home Assistant · Dernière image</string>
+    <string name="ha_image_failed">Home Assistant · Image indisponible</string>
+    <string name="ha_image_only">Home Assistant · Image uniquement</string>
+    <string name="ha_live">Home Assistant · Direct</string>
+    <string name="ha_live_failed">Home Assistant · Direct indisponible</string>
+    <string name="ha_watch_live">Voir le direct</string>
+    <string name="ha_stop_live">Arrêter le direct</string>
+    <string name="ha_sources">Ajouter des caméras</string>
+</resources>

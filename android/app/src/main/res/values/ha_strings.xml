@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Home Assistant cameras</string>
+    <string name="ha_server">Home Assistant server</string>
+    <string name="ha_token">Long-lived access token</string>
+    <string name="ha_token_hint">Paste your Home Assistant token</string>
+    <string name="ha_keep_token">Leave blank to keep the saved token</string>
+    <string name="ha_token_help">Home Assistant profile → Security → Long-lived access tokens. Use a dedicated non-administrator account.</string>
+    <string name="ha_allow_local_http">Allow unencrypted HTTP on my local network</string>
+    <string name="ha_select_cameras">Choose cameras</string>
+    <string name="ha_save_selection">Save selection</string>
+    <string name="ha_selected_count">%1$d selected cameras</string>
+    <string name="ha_no_cameras">No accessible cameras found.</string>
+    <string name="ha_invalid_address">Use HTTPS, or HTTP with a local IP address or .local name.</string>
+    <string name="ha_connection_failed">Unable to connect to Home Assistant. Check the address and network.</string>
+    <string name="ha_auth_failed">Access refused. Check the Home Assistant token and permissions.</string>
+    <string name="ha_storage_failed">Unable to read or save the Home Assistant connection.</string>
+    <string name="ha_disconnect">Disconnect Home Assistant</string>
+    <string name="ha_disconnect_question">Remove this connection from Camnory? Your Home Assistant devices will not be changed.</string>
+    <string name="ha_unavailable">Unavailable</string>
+    <string name="ha_image">Home Assistant · Latest image</string>
+    <string name="ha_image_failed">Home Assistant · Image unavailable</string>
+    <string name="ha_image_only">Home Assistant · Image only</string>
+    <string name="ha_live">Home Assistant · Live</string>
+    <string name="ha_live_failed">Home Assistant · Live unavailable</string>
+    <string name="ha_watch_live">Watch live</string>
+    <string name="ha_stop_live">Stop live</string>
+    <string name="ha_sources">Add cameras</string>
+</resources>

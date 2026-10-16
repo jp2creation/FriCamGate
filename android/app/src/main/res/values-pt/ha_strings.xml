@@ -1,0 +1,28 @@
+<resources>
+    <string name="ha_cameras">Câmaras Home Assistant</string>
+    <string name="ha_server">Servidor Home Assistant</string>
+    <string name="ha_token">Token de acesso de longa duração</string>
+    <string name="ha_token_hint">Cole o token do Home Assistant</string>
+    <string name="ha_keep_token">Deixe vazio para manter o token guardado</string>
+    <string name="ha_token_help">Perfil do Home Assistant → Segurança → Tokens de acesso de longa duração. Use uma conta dedicada sem privilégios de administrador.</string>
+    <string name="ha_allow_local_http">Permitir HTTP sem encriptação na rede local</string>
+    <string name="ha_select_cameras">Escolher câmaras</string>
+    <string name="ha_save_selection">Guardar seleção</string>
+    <string name="ha_selected_count">%1$d câmaras selecionadas</string>
+    <string name="ha_no_cameras">Não foram encontradas câmaras acessíveis.</string>
+    <string name="ha_invalid_address">Use HTTPS ou HTTP com um endereço IP local ou um nome .local.</string>
+    <string name="ha_connection_failed">Não foi possível ligar ao Home Assistant. Verifique o endereço e a rede.</string>
+    <string name="ha_auth_failed">Acesso recusado. Verifique o token e as permissões.</string>
+    <string name="ha_storage_failed">Não foi possível ler ou guardar a ligação Home Assistant.</string>
+    <string name="ha_disconnect">Desligar Home Assistant</string>
+    <string name="ha_disconnect_question">Remover esta ligação do Camnory? Os dispositivos Home Assistant não serão alterados.</string>
+    <string name="ha_unavailable">Indisponível</string>
+    <string name="ha_image">Home Assistant · Última imagem</string>
+    <string name="ha_image_failed">Home Assistant · Imagem indisponível</string>
+    <string name="ha_image_only">Home Assistant · Apenas imagem</string>
+    <string name="ha_live">Home Assistant · Direto</string>
+    <string name="ha_live_failed">Home Assistant · Direto indisponível</string>
+    <string name="ha_watch_live">Ver em direto</string>
+    <string name="ha_stop_live">Parar direto</string>
+    <string name="ha_sources">Adicionar câmaras</string>
+</resources>
