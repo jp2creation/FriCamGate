@@ -63,6 +63,11 @@ class CamnoryBrandingTest {
                 val brand = header.getChildAt(0)
                 val chat = header.getChildAt(2)
                 assertTrue("Compact header overlaps chat", brand.right <= chat.left)
+                val artwork = artworkViews.first()
+                val logoCenter = brand.top + artwork.top + artwork.pivotY +
+                    (artwork.height / 2f - artwork.pivotY) * artwork.scaleY
+                assertEquals("Logo and actions must be vertically aligned",
+                    chat.top + chat.height / 2f, logoCenter, 1f)
                 val wasDark = Palette.dark
                 for (dark in listOf(false, true)) {
                     Palette.dark = dark

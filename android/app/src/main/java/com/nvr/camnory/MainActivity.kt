@@ -2124,21 +2124,22 @@ class MainActivity : AppCompatActivity() {
                     scaleX = 0.65f
                     scaleY = 0.65f
                     pivotX = 0f
+                    pivotY = dp(35).toFloat()
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70)))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(10)
                 rightMargin = dp(118)
-                topMargin = dp(34)
+                topMargin = dp(26)
             })
             addView(alertsButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
                 rightMargin = dp(14)
-                topMargin = dp(46)
+                topMargin = dp(38)
             })
             addView(chatButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
                 rightMargin = dp(64)
-                topMargin = dp(46)
+                topMargin = dp(38)
             })
-        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118)) }
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)) }
     }
 
     private fun brandWordmark(widthDp: Int): View = BrandWordmarkView(this, widthDp)
