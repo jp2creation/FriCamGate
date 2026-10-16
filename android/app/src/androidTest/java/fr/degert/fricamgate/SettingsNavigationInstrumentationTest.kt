@@ -115,6 +115,98 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
+    @Test fun appearancePreviewUpdatesWithoutScrollJumpAndResetKeepsConnections() {
+        context.getSharedPreferences("camgate-settings", 0).edit().putString("timelineColor", "blue").commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { render(it, "renderAppearanceSettings") }
+            instrumentation.waitForIdleSync()
+            var previousScroll = 0
+            scenario.onActivity { activity ->
+                val preview = root(activity).findViewWithTag<View>("appearance-preview")
+                assertNotNull(preview)
+                val bitmap = android.graphics.Bitmap.createBitmap(preview.width, preview.height, android.graphics.Bitmap.Config.ARGB_8888)
+                preview.draw(android.graphics.Canvas(bitmap))
+                assertEquals("The timeline playhead must be visible below the camera",
+                    Palette.accent, bitmap.getPixel((preview.width * 0.42f).toInt(), preview.height - (20 * activity.resources.displayMetrics.density).toInt()))
+                bitmap.recycle()
+                val scroll = root(activity).findViewWithTag<ScrollView>("appearance-scroll")
+                scroll.scrollTo(0, 300)
+                previousScroll = scroll.scrollY
+                root(activity).findViewWithTag<View>("appearance-accent-green").performClick()
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val scroll = root(activity).findViewWithTag<ScrollView>("appearance-scroll")
+                assertEquals(previousScroll, scroll.scrollY)
+                assertEquals("green", context.getSharedPreferences("camgate-settings", 0).getString("accent", null))
+                assertEquals(Appearance.accent("green"), Palette.accent)
+                root(activity).findViewWithTag<View>("appearance-textSize").performClick()
+            }
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("appearance-option-textSize-small" as Any)))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                .perform(androidx.test.espresso.action.ViewActions.click())
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertEquals(previousScroll, root(activity).findViewWithTag<ScrollView>("appearance-scroll").scrollY)
+                root(activity).findViewWithTag<View>("appearance-reset").performClick()
+                val dialog = activity.window.decorView
+                assertNotNull(dialog)
+            }
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(android.R.string.ok))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(androidx.test.espresso.action.ViewActions.click())
+            instrumentation.waitForIdleSync()
+            scenario.onActivity {
+                assertFalse(context.getSharedPreferences("camgate-settings", 0).contains("accent"))
+                assertEquals("fixture-token", context.getSharedPreferences("fricamgate-native", 0).getString("token", null))
+                assertEquals("appearance", page(it))
+            }
+        }
+    }
+
+    @Test fun captureAppearanceInBothThemes() {
+        for (theme in listOf("dark", "light")) {
+            context.getSharedPreferences("camgate-settings", 0).edit().putString("theme", theme).commit()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitDashboard(scenario)
+                scenario.onActivity { render(it, "renderAppearanceSettings") }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity -> root(activity).findViewWithTag<View>("appearance-backgroundStyle").performClick() }
+                instrumentation.waitForIdleSync()
+                Thread.sleep(250)
+                val screenshot = instrumentation.uiAutomation.takeScreenshot()
+                File(context.getExternalFilesDir(null), "appearance-$theme.png").outputStream().use {
+                    screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                screenshot.recycle()
+            }
+        }
+    }
+
+    @Test fun appearanceSheetIsBottomAnchoredAndCanBeCanceledWithoutChanges() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                render(activity, "renderAppearanceSettings")
+                assertNotNull(root(activity).findViewWithTag<View>("appearance-accent-ochre"))
+                assertNull(root(activity).findViewWithTag<View>("appearance-timelineColor"))
+                root(activity).findViewWithTag<View>("appearance-backgroundStyle").performClick()
+                val sheet = MainActivity::class.java.getDeclaredField("appearanceChoiceSheet").apply { isAccessible = true }.get(activity) as AppearanceChoiceSheet
+                assertTrue(sheet.isShowing)
+                assertEquals(android.view.Gravity.BOTTOM, sheet.window!!.attributes.gravity)
+                assertNotNull(sheet.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("appearance-option-backgroundStyle-anthracite"))
+            }
+            androidx.test.espresso.Espresso.pressBack()
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertFalse(context.getSharedPreferences("camgate-settings", 0).contains("backgroundStyle"))
+                assertEquals("appearance", page(activity))
+                root(activity).findViewWithTag<View>("appearance-accent-ochre").performClick()
+                assertEquals(Appearance.accent("ochre"), Palette.accent)
+            }
+        }
+    }
+
     @Test fun captureSettingsInBothThemes() {
         for (theme in listOf("dark", "light")) {
             context.getSharedPreferences("camgate-settings", 0).edit().putString("theme", theme).commit()

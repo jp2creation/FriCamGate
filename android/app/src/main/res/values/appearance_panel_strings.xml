@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_ambience">Ambience</string>
+    <string name="appearance_readability">Readability</string>
+    <string name="appearance_details">Display details</string>
+    <string name="appearance_timeline">Timeline</string>
+    <string name="appearance_preview">Preview</string>
+    <string name="appearance_reset">Reset appearance</string>
+    <string name="appearance_reset_confirm">Restore appearance defaults? Your connections, cameras and notifications will be kept.</string>
+    <string name="accent_ochre">Ochre</string>
+</resources>

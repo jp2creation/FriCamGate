@@ -24,6 +24,7 @@ class AppearanceTest {
         assertEquals(1f, Appearance.textScale("unknown"), 0f)
         assertEquals(0xffff2d63.toInt(), Appearance.accent(null))
         assertEquals(Appearance.accent(null), Appearance.accent("unknown"))
+        assertEquals(0xffa77b21.toInt(), Appearance.accent("ochre"))
     }
 
     @Test fun lightThemeChangesAllInterfaceSurfacesAndText() {

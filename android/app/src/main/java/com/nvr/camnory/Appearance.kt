@@ -17,6 +17,7 @@ internal object Appearance {
         "blue" -> 0xff1976d2.toInt()
         "green" -> 0xff00856a.toInt()
         "violet" -> 0xff9162d4.toInt()
+        "ochre" -> 0xffa77b21.toInt()
         else -> 0xffff2d63.toInt()
     }
 }

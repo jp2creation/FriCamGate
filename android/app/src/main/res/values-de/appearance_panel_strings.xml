@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_ambience">Farben und Design</string>
+    <string name="appearance_readability">Lesbarkeit</string>
+    <string name="appearance_details">Anzeige</string>
+    <string name="appearance_timeline">Zeitleiste</string>
+    <string name="appearance_preview">Vorschau</string>
+    <string name="appearance_reset">Darstellung zurücksetzen</string>
+    <string name="appearance_reset_confirm">Darstellung zurücksetzen? Verbindungen, Kameras und Benachrichtigungen bleiben erhalten.</string>
+    <string name="accent_ochre">Ocker</string>
+</resources>

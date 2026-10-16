@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_ambience">Stile</string>
+    <string name="appearance_readability">Leggibilità</string>
+    <string name="appearance_details">Dettagli visualizzati</string>
+    <string name="appearance_timeline">Cronologia</string>
+    <string name="appearance_preview">Anteprima</string>
+    <string name="appearance_reset">Ripristina aspetto</string>
+    <string name="appearance_reset_confirm">Ripristinare lo stile? Connessioni, telecamere e notifiche saranno conservate.</string>
+    <string name="accent_ochre">Ocra</string>
+</resources>

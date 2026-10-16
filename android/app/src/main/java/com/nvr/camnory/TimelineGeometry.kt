@@ -44,5 +44,5 @@ internal fun timelinePreviewGroups(timesDescending: List<Double>, minimumGapSeco
     return groups
 }
 
-internal fun timelineColor(mode: String?, accent: Int): Int =
-    if (mode == "blue") 0xff07b8ff.toInt() else accent
+// Ignore legacy overrides so existing installations also use the shared accent.
+internal fun timelineColor(@Suppress("UNUSED_PARAMETER") legacyMode: String?, accent: Int): Int = accent

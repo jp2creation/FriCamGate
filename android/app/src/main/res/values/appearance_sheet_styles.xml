@@ -1,0 +1,6 @@
+<resources>
+    <style name="AppearanceSheetAnimation">
+        <item name="android:windowEnterAnimation">@anim/appearance_sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/appearance_sheet_exit</item>
+    </style>
+</resources>

@@ -29,9 +29,9 @@ class TimelineGeometryTest {
         assertEquals(40, timelineY(1000.0, times[groups[0][0]], 40, 60))
         assertTrue(timelinePreviewGroups(emptyList(), 90.0).isEmpty())
     }
-    @Test fun timelineFollowsAccentByDefaultWithOptionalClassicBlue() {
+    @Test fun timelineFollowsAccentEvenWithLegacyBlueOverride() {
         assertEquals(123, timelineColor(null, 123))
         assertEquals(456, timelineColor("accent", 456))
-        assertEquals(0xff07b8ff.toInt(), timelineColor("blue", 123))
+        assertEquals(123, timelineColor("blue", 123))
     }
 }

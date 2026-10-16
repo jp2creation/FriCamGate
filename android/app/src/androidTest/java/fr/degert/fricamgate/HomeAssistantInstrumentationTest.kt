@@ -318,14 +318,15 @@ class HomeAssistantInstrumentationTest {
                 } == 3 }
                 ready
             }
-            fun popup(activity: MainActivity) = MainActivity::class.java.getDeclaredField("cameraPickerPopup").apply { isAccessible = true }.get(activity) as android.widget.PopupWindow
+            fun popup(activity: MainActivity) = MainActivity::class.java.getDeclaredField("cameraPickerSheet").apply { isAccessible = true }.get(activity) as SelectionBottomSheet
             scenario.onActivity { activity ->
                 MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }
                     .invoke(activity, activity.findViewById<View>(android.R.id.content))
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
-                val rows = views(popup(activity).contentView).filter { it.tag?.toString()?.startsWith("camera-picker-row:") == true }
+                assertEquals(android.view.Gravity.BOTTOM, popup(activity).window!!.attributes.gravity)
+                val rows = views(popup(activity).findViewById(android.R.id.content)).filter { it.tag?.toString()?.startsWith("camera-picker-row:") == true }
                 assertEquals(keys.map { "camera-picker-row:$it" }, rows.map { it.tag })
                 rows.forEach { row ->
                     val children = row as ViewGroup
@@ -343,7 +344,7 @@ class HomeAssistantInstrumentationTest {
                 arrangement.setHidden(keys[1], true)
                 MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }
                     .invoke(activity, activity.findViewById<View>(android.R.id.content))
-                val remaining = views(popup(activity).contentView).mapNotNull { it.tag as? String }.filter { it.startsWith("camera-picker-row:") }
+                val remaining = views(popup(activity).findViewById(android.R.id.content)).mapNotNull { it.tag as? String }.filter { it.startsWith("camera-picker-row:") }
                 assertEquals(listOf("camera-picker-row:${keys[0]}", "camera-picker-row:${keys[2]}"), remaining)
             }
         }

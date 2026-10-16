@@ -111,6 +111,7 @@ class MainActivity : AppCompatActivity() {
     private var timelinePlaybackGeneration = 0
     private var timelineFrameGeneration = 0
     private var cameraPickerPopup: PopupWindow? = null
+    private var cameraPickerSheet: SelectionBottomSheet? = null
     private var alertsPopup: PopupWindow? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -163,6 +164,9 @@ class MainActivity : AppCompatActivity() {
     private var onvifSettingsReturnPage: String? = null
     private var haSettingsReturnPage: String? = null
     private var appearanceScrollY = 0
+    private var appearanceChoiceSheet: AppearanceChoiceSheet? = null
+    private var appearancePreviewBitmap: Bitmap? = null
+    private var appearancePreviewKey: String? = null
     private var notificationScrollY = 0
     private var eventSearch = EventSearch()
     private var globalResults: List<NativeEvent>? = null
@@ -308,6 +312,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        dismissCameraPicker()
+        appearanceChoiceSheet?.dismiss()
         notificationHandler.removeCallbacks(notificationPoll)
         releasePlayer()
         super.onDestroy()
@@ -2692,20 +2698,18 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val card = vertical().apply {
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(Palette.card, 8, Palette.border, 1)
+            setPadding(dp(20), 0, dp(20), dp(12))
         }
-        card.addView(label(getString(R.string.pick_camera), 13, Palette.muted).apply {
-            setPadding(dp(8), dp(4), dp(8), dp(10))
-        })
         val activeSession = session
         val activeApi = api
         choices.forEach { camera ->
             val row = horizontal().apply {
                 tag = "camera-picker-row:${camera.key}"
+                isFocusable = true
+                contentDescription = camera.name
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(8), dp(7), dp(8), dp(7))
-                background = rounded(Color.TRANSPARENT, 10)
+                background = rounded(Color.TRANSPARENT, 8)
                 setOnClickListener {
                     dismissCameraPicker()
                     when {
@@ -2751,7 +2755,8 @@ class MainActivity : AppCompatActivity() {
                 setColorFilter(Palette.accent)
                 alpha = 0.95f
             }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(8) })
-            card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply {
+            row.minimumHeight = dp(64)
+            card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(2)
             })
             fun showThumbnail(bitmap: Bitmap?) {
@@ -2771,31 +2776,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val content = appScrollView().apply {
-            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val sheet = SelectionBottomSheet(this, getString(R.string.pick_camera), card).apply {
+            setOnDismissListener { if (cameraPickerSheet === this) cameraPickerSheet = null }
         }
-        val popupWidth = cameraPickerPopupWidth(
-            resources.displayMetrics.widthPixels,
-            resources.displayMetrics.heightPixels,
-            dp(360),
-            dp(32)
-        )
-        val visibleBounds = android.graphics.Rect().also { anchor.getWindowVisibleDisplayFrame(it) }
-        val popupHeight = minOf(dp(390), (visibleBounds.height() - dp(110)).coerceAtLeast(dp(62)), dp(56) + choices.size * dp(62))
-        val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
-            isOutsideTouchable = true
-            isClippingEnabled = true
-            elevation = dp(18).toFloat()
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setOnDismissListener {
-                if (cameraPickerPopup === this) cameraPickerPopup = null
-            }
-        }
-        cameraPickerPopup = popup
-        popup.showAtLocation(anchor, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, dp(86))
+        cameraPickerSheet = sheet
+        sheet.show()
     }
 
     private fun dismissCameraPicker() {
+        cameraPickerSheet?.dismiss()
+        cameraPickerSheet = null
         cameraPickerPopup?.dismiss()
         cameraPickerPopup = null
     }
@@ -2806,6 +2796,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        appearanceChoiceSheet?.dismiss()
+        appearanceChoiceSheet = null
         dismissCameraPicker()
         dismissAlertsPopup()
     }
@@ -3265,92 +3257,132 @@ class MainActivity : AppCompatActivity() {
     private fun renderAppearanceSettings() {
         settingsPage = "appearance"
         releasePlayer()
-        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
+        val scroll = appScrollView().apply {
+            tag = "appearance-scroll"
+            setBackgroundColor(Palette.background)
+        }
         val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
         scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.appearance)))
         scroll.setOnScrollChangeListener { _, _, y, _, _ -> appearanceScrollY = y }
-        fun choices(titleRes: Int, key: String, fallback: String, options: List<Pair<String, Int>>) {
-            column.addView(sectionHeading(getString(titleRes)))
-            var selected = appearancePrefs.getString(key, fallback)
-            val radios = mutableMapOf<String, android.widget.RadioButton>()
-            column.addView(settingsGroup(*options.map { (value, textRes) ->
-                horizontal().apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(18), 0, dp(12), 0)
-                    isFocusable = true
-                    if (key == "accent" || key == "backgroundStyle") {
-                        addView(View(context).apply {
-                            background = rounded(if (key == "accent") Appearance.accent(value) else BackgroundStyle.fromPreference(value).background, 8, Palette.border, 1)
-                        }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(12) })
-                    }
-                    addView(settingsTitleLabel(getString(textRes)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    addView(android.widget.RadioButton(context).apply {
-                        radios[value] = this
-                        isChecked = value == selected
-                        isClickable = false
-                        isFocusable = false
-                        buttonTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Palette.accent else Palette.muted)
-                    })
-                    setOnClickListener {
-                        if (value != selected) {
-                            appearanceScrollY = scroll.scrollY
-                            val previous = selected
-                            selected = value
-                            appearancePrefs.edit().putString(key, value).apply()
-                            radios.forEach { (option, radio) ->
-                                radio.isChecked = option == value
-                                radio.buttonTintList = android.content.res.ColorStateList.valueOf(if (radio.isChecked) Palette.accent else Palette.muted)
-                            }
-                            if (key == "theme") {
-                                recreate()
-                            } else if (key == "textSize") {
-                                val ratio = Appearance.textScale(value) / Appearance.textScale(previous)
-                                fun resize(view: View) {
-                                    if (view is TextView) view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, view.textSize * ratio)
-                                    if (view is ViewGroup) for (index in 0 until view.childCount) resize(view.getChildAt(index))
-                                }
-                                resize(window.decorView)
-                            } else if (key != "homeCameraLayout") {
-                                Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
-                                Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
-                                window.statusBarColor = Palette.background
-                                window.navigationBarColor = Palette.black
-                                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
-                                    isAppearanceLightStatusBars = !Palette.dark
-                                    isAppearanceLightNavigationBars = !Palette.dark
-                                }
-                                renderAppearanceSettings()
-                            }
+        val previewEvent = events.firstOrNull { event -> cameras.any { it.name == event.camera && it.friendlyName.equals("Devant", true) } }
+            ?: events.firstOrNull()
+        val previewKey = "${session?.baseUrl}:${previewEvent?.id}"
+        if (appearancePreviewKey != previewKey) {
+            appearancePreviewKey = previewKey
+            appearancePreviewBitmap = previewEvent?.thumbnail
+        }
+        val appearancePreview = AppearancePreviewView(this, appearancePreviewBitmap).apply {
+            tag = "appearance-preview"
+        }
+        column.addView(appearancePreview, LinearLayout.LayoutParams(-1, dp(166)).apply { bottomMargin = dp(12) })
+        if (appearancePreviewBitmap == null && previewEvent != null) {
+            val previewApi = api
+            val previewSession = session
+            if (previewApi != null && previewSession != null) {
+                previewApi.loadBitmap(previewSession.token, previewApi.eventSnapshotUrl(previewEvent.id)) { bitmap ->
+                    runOnUiThread {
+                        if (bitmap != null && appearancePreviewKey == previewKey) {
+                            appearancePreviewBitmap = bitmap
+                            appearancePreview.showThumbnail(bitmap)
                         }
                     }
                 }
-            }.toTypedArray()))
+            }
         }
-        choices(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light))
-        choices(R.string.background_style, "backgroundStyle", "automatic", BackgroundStyle.values().map { it.preference to it.titleRes })
-        choices(R.string.accent_color, "accent", "red", listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet))
-        choices(R.string.timeline_color, "timelineColor", "accent", listOf("accent" to R.string.timeline_color_accent, "blue" to R.string.timeline_color_blue))
-        choices(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))
-        choices(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })
-        column.addView(sectionHeading(getString(R.string.camera_source_icons)))
+
+        fun refreshAppearance() {
+            appearanceScrollY = scroll.scrollY
+            Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
+            Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
+            Palette.dark = Appearance.isDark(appearancePrefs.getString("theme", "system"),
+                resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
+            window.statusBarColor = Palette.background
+            window.navigationBarColor = Palette.black
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !Palette.dark
+                isAppearanceLightNavigationBars = !Palette.dark
+            }
+            renderAppearanceSettings()
+        }
+        fun choice(title: Int, key: String, fallback: String, options: List<Pair<String, Int>>): View {
+            val selected = appearancePrefs.getString(key, fallback)
+            val selectedTitle = options.firstOrNull { it.first == selected }?.second ?: options.first().second
+            return settingsNavRow(getString(title), getString(selectedTitle), {
+                AppearanceChoiceSheet(this, getString(title), key, selected.orEmpty(),
+                    options.map { (value, textRes) ->
+                        AppearanceSheetOption(value, getString(textRes),
+                            if (key == "backgroundStyle") BackgroundStyle.fromPreference(value).background else null,
+                            if (key == "textSize") Appearance.textScale(value) else 1f)
+                    }) { value ->
+                        if (appearancePrefs.getString(key, fallback) != value) {
+                            appearancePrefs.edit().putString(key, value).apply()
+                            refreshAppearance()
+                        }
+                    }.also { sheet ->
+                        appearanceChoiceSheet?.dismiss()
+                        appearanceChoiceSheet = sheet
+                        sheet.setOnDismissListener { if (appearanceChoiceSheet === sheet) appearanceChoiceSheet = null }
+                    }.show()
+            }).apply { tag = "appearance-$key" }
+        }
+        column.addView(sectionHeading(getString(R.string.appearance_ambience)))
+        column.addView(settingsGroup(
+            choice(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light)),
+            choice(R.string.background_style, "backgroundStyle", "automatic", BackgroundStyle.values().map { it.preference to it.titleRes })
+        ))
+        column.addView(settingsDetailLabel(getString(R.string.accent_color)))
+        column.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            val selected = appearancePrefs.getString("accent", "red")
+            listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet, "ochre" to R.string.accent_ochre).forEach { (value, title) ->
+                addView(FrameLayout(context).apply {
+                    tag = "appearance-accent-$value"
+                    contentDescription = getString(title)
+                    isSelected = selected == value
+                    isFocusable = true
+                    setOnClickListener {
+                        appearancePrefs.edit().putString("accent", value).apply()
+                        refreshAppearance()
+                    }
+                    addView(View(context).apply {
+                        background = rounded(Appearance.accent(value), 15, if (selected == value) Palette.text else Color.TRANSPARENT, if (selected == value) 2 else 0)
+                    }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+                }, LinearLayout.LayoutParams(0, dp(52), 1f))
+            }
+        })
+        column.addView(sectionHeading(getString(R.string.appearance_readability)))
+        column.addView(settingsGroup(choice(R.string.text_size, "textSize", "standard",
+            listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))))
+        column.addView(preferenceToggleRow(getString(R.string.reduce_motion), getString(R.string.reduce_motion_detail), SwitchCompat(this).apply {
+            tag = "appearance-reduced-motion"
+            isChecked = reducedMotion
+            contentDescription = getString(R.string.reduce_motion)
+            setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
+        }))
+        column.addView(sectionHeading(getString(R.string.appearance_details)))
+        column.addView(settingsGroup(choice(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
         column.addView(preferenceToggleRow(getString(R.string.camera_source_icons), getString(R.string.camera_source_icons_detail), SwitchCompat(this).apply {
             tag = "show-camera-source-icons"
             contentDescription = getString(R.string.camera_source_icons)
             isChecked = cameraArrangement.showSourceIcons
             setOnCheckedChangeListener { _, checked ->
                 appearancePrefs.edit().putBoolean("showCameraSourceIcons", checked).apply()
+                column.findViewWithTag<AppearancePreviewView>("appearance-preview").invalidate()
             }
         }))
-        column.addView(sectionHeading(getString(R.string.animations)))
-        val motionSwitch = SwitchCompat(this).apply {
-            isChecked = reducedMotion
-            contentDescription = getString(R.string.reduce_motion)
-            setOnCheckedChangeListener { _, checked ->
-                appearancePrefs.edit().putBoolean("reducedMotion", checked).apply()
-            }
-        }
-        column.addView(preferenceToggleRow(getString(R.string.reduce_motion), getString(R.string.reduce_motion_detail), motionSwitch))
+        column.addView(secondaryButton(getString(R.string.appearance_reset)).apply { setOnClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.appearance_reset)
+                .setMessage(R.string.appearance_reset_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val edit = appearancePrefs.edit()
+                    listOf("theme", "backgroundStyle", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "reducedMotion").forEach { edit.remove(it) }
+                    edit.apply()
+                    refreshAppearance()
+                }.show()
+        }; tag = "appearance-reset" })
         val restoreY = appearanceScrollY
         setShell(scroll, Tab.Settings)
         scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {

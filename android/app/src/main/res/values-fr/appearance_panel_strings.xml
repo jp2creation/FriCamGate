@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_ambience">Ambiance</string>
+    <string name="appearance_readability">Lisibilité</string>
+    <string name="appearance_details">Détails affichés</string>
+    <string name="appearance_timeline">Timeline</string>
+    <string name="appearance_preview">Aperçu</string>
+    <string name="appearance_reset">Rétablir l’apparence par défaut</string>
+    <string name="appearance_reset_confirm">Rétablir les réglages visuels ? Vos connexions, caméras et notifications seront conservées.</string>
+    <string name="accent_ochre">Ocre</string>
+</resources>
