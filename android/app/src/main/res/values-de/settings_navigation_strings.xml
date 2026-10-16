@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_installation">Installation</string>
+    <string name="settings_preferences">Einstellungen</string>
+    <string name="settings_connections">Verbindungen</string>
+    <string name="settings_notifications_detail">Ton, Vibration und Filter</string>
+    <string name="settings_about_detail">Informationen und Lizenzen</string>
+    <string name="settings_sources">Kameraquellen</string>
+    <string name="settings_add_connection">Verbindung hinzufügen</string>
+    <string name="settings_onvif_detail">Suchen, hinzufügen und verwalten</string>
+    <string name="settings_ha_detail">Verbindung und Kameraauswahl</string>
+    <string name="settings_licenses">Lizenzen und Hinweise</string>
+    <string name="settings_licenses_detail">Komponenten und Quellen</string>
+    <string name="settings_connections_detail">Frigate, ONVIF, Home Assistant</string>
+</resources>
+

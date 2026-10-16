@@ -127,13 +127,20 @@ class MainActivity : AppCompatActivity() {
     private var homeAssistantFullscreen: android.app.Dialog? = null
     private var homeVisible = false
     private val onvifManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (homeVisible || session == null) {
+        val returnPage = onvifSettingsReturnPage
+        onvifSettingsReturnPage = null
+        if (returnPage != null) {
+            if (session == null && !hasStandaloneCameras()) renderLogin() else renderSettingsDestination(returnPage)
+        } else if (homeVisible || session == null) {
             if (session == null && !hasStandaloneCameras()) renderLogin() else renderHome()
         }
     }
     private val homeAssistantManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val returnPage = haSettingsReturnPage
+        haSettingsReturnPage = null
         if (result.resultCode == RESULT_OK) {
-            if (session == null && !hasStandaloneCameras()) renderLogin() else renderHome()
+            if (session == null && !hasStandaloneCameras()) renderLogin()
+            else if (returnPage != null) renderSettingsDestination(returnPage) else renderHome()
         }
     }
     private val playbackResume = PlaybackResumeGate<ExoPlayer>()
@@ -151,6 +158,10 @@ class MainActivity : AppCompatActivity() {
     private var activeTab = Tab.Home
     private var settingsPage = "main"
     private var restoredSettingsPage: String? = null
+    private var settingsScrollY = 0
+    private var settingsBackCallback: androidx.activity.OnBackPressedCallback? = null
+    private var onvifSettingsReturnPage: String? = null
+    private var haSettingsReturnPage: String? = null
     private var appearanceScrollY = 0
     private var notificationScrollY = 0
     private var eventSearch = EventSearch()
@@ -194,6 +205,12 @@ class MainActivity : AppCompatActivity() {
             openPendingNotification()
         }
         restoredSettingsPage = savedInstanceState?.getString("settingsPage")
+        settingsScrollY = savedInstanceState?.getInt("settingsScrollY") ?: 0
+        onvifSettingsReturnPage = savedInstanceState?.getString("onvifSettingsReturnPage")
+        haSettingsReturnPage = savedInstanceState?.getString("haSettingsReturnPage")
+        settingsBackCallback = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { if (!appLock.locked) navigateSettingsBack() }
+        }.also { onBackPressedDispatcher.addCallback(this, it) }
         appearanceScrollY = savedInstanceState?.getInt("appearanceScrollY") ?: 0
         pendingEventId = intent?.getStringExtra(CameraNotifications.EVENT_ID)
         window.statusBarColor = Palette.background
@@ -206,7 +223,7 @@ class MainActivity : AppCompatActivity() {
         session = loadSession()
         api = session?.let { FrigateNativeApi(it.baseUrl, httpClient) }
         if (session == null) {
-            if (hasStandaloneCameras()) renderHome() else renderLogin()
+            if (hasStandaloneCameras()) renderRestoredSettingsOrHome() else renderLogin()
         } else {
             loadDashboard(getString(R.string.restored, session?.username.orEmpty()))
         }
@@ -265,6 +282,9 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         if (activeTab == Tab.Settings) outState.putString("settingsPage", settingsPage)
         outState.putInt("appearanceScrollY", appearanceScrollY)
+        outState.putInt("settingsScrollY", settingsScrollY)
+        outState.putString("onvifSettingsReturnPage", onvifSettingsReturnPage)
+        outState.putString("haSettingsReturnPage", haSettingsReturnPage)
         super.onSaveInstanceState(outState)
     }
 
@@ -489,7 +509,7 @@ class MainActivity : AppCompatActivity() {
         val activeSession = session
         val activeApi: NvrConnector? = api
         if (activeSession == null || activeApi == null) {
-            if (hasStandaloneCameras()) renderHome() else renderLogin()
+            if (hasStandaloneCameras()) renderRestoredSettingsOrHome() else renderLogin()
             return
         }
         renderLoading(getString(R.string.loading_cameras))
@@ -499,18 +519,7 @@ class MainActivity : AppCompatActivity() {
                     cameras = data.cameras
                     events = data.events
                     dashboardErrorMessage = null
-                    val restoredPage = restoredSettingsPage
-                    restoredSettingsPage = null
-                    when (restoredPage) {
-                        "language" -> renderLanguageSettings()
-                        "appearance" -> renderAppearanceSettings()
-                        "notifications" -> renderNotificationSettings()
-                        "server" -> renderServerSettings()
-                        "cameras" -> renderCameraSettings()
-                        "about" -> renderAboutSettings()
-                        "main" -> renderSettings()
-                        else -> renderHome(message)
-                    }
+                    renderRestoredSettingsOrHome(message)
                     CameraNotifications.schedule(this)
                     openPendingNotification()
                 }.onFailure { error ->
@@ -638,6 +647,7 @@ class MainActivity : AppCompatActivity() {
     private fun hasStandaloneCameras() = savedOnvifCameras().isNotEmpty() || savedHomeAssistant()?.cameras?.isNotEmpty() == true
 
     private fun openHomeAssistantManager() {
+        haSettingsReturnPage = settingsPage.takeIf { activeTab == Tab.Settings }
         homeAssistantCards.forEach { it.setActive(false) }
         onvifCards.forEach { it.setActive(false) }
         homeAssistantManager.launch(Intent(this, HomeAssistantActivity::class.java))
@@ -686,6 +696,7 @@ class MainActivity : AppCompatActivity() {
         .getOrElse { toast(getString(R.string.onvif_storage_error)); emptyList() }
 
     private fun openOnvifManager(cameraId: String? = null, fullscreen: Boolean = false, manage: Boolean = false, discover: Boolean = false) {
+        onvifSettingsReturnPage = settingsPage.takeIf { activeTab == Tab.Settings }
         onvifCards.forEach { it.setActive(false) }
         onvifManager.launch(Intent(this, OnvifActivity::class.java).apply {
             putExtra("cameraId", cameraId)
@@ -816,9 +827,22 @@ class MainActivity : AppCompatActivity() {
             setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
-        playerFrame.addView(soundToggleButton(), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.TOP).apply {
-            rightMargin = dp(18)
-            topMargin = dp(14)
+        val playerActions = horizontal().apply {
+            tag = "event-player-actions"
+            addView(soundToggleButton().apply {
+                contentDescription = getString(R.string.playback_sound)
+            }, LinearLayout.LayoutParams(dp(44), dp(44)))
+            addView(iconBubble(R.drawable.ic_fullscreen) {
+                val dialog = eventFullscreenDialog
+                if (dialog != null) dialog.dismiss()
+                else displayedCamera?.let { openEventCameraFullscreen(event, it) }
+            }.apply {
+                contentDescription = getString(R.string.camera_fullscreen)
+            }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(6) })
+        }
+        playerFrame.addView(playerActions, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = dp(12)
+            bottomMargin = dp(10)
         })
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
         val controls = layoutInflater.inflate(R.layout.event_playback_controls, body, false) as androidx.media3.ui.PlayerControlView
@@ -2381,7 +2405,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 preview.addView(image, frameMatch())
-                preview.addView(iconBubble(R.drawable.ic_fullscreen) {
+                preview.addView(discreetFullscreenButton {
                     openEventCameraFullscreen(event, camera)
                 }.apply {
                     contentDescription = "${getString(R.string.camera_fullscreen)} : ${camera.friendlyName}"
@@ -2417,6 +2441,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setShell(content: View, activeTab: Tab, showHeader: Boolean = true, animateIn: Boolean = false) {
         this.activeTab = activeTab
+        settingsBackCallback?.isEnabled = activeTab == Tab.Settings && settingsPage != "main"
         releaseLoadingAnimations()
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
@@ -3119,20 +3144,91 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "main"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(8), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(pageTitle(getString(R.string.settings)))
-        column.addView(sectionHeading(getString(R.string.general)))
         val cameraSettingsItems = dashboardCameras()
+        column.addView(sectionHeading(getString(R.string.settings_installation)).apply { tag = "settings-section-installation" })
         column.addView(settingsGroup(
-            settingsNavRow(getString(R.string.server), session?.baseUrl ?: "-", { if (session == null) renderLogin() else renderServerSettings() }),
-            settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, cameraSettingsItems.count { dashboardCameraVisible(it) }, cameraSettingsItems.size), { renderCameraSettings() }),
-            settingsNavRow(getString(R.string.onvif_cameras), "", { openOnvifManager() }),
-            settingsNavRow(getString(R.string.ha_cameras), savedHomeAssistant()?.baseUrl.orEmpty(), { openHomeAssistantManager() }),
-            settingsNavRow(getString(R.string.about), "Camnory ${appVersionName()}", { renderAboutSettings() }),
-            settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() }),
-            settingsNavRow(getString(R.string.appearance), getString(R.string.appearance_detail), { renderAppearanceSettings() })
+            settingsNavRow(getString(R.string.settings_connections), getString(R.string.settings_connections_detail), { renderConnectionsSettings() }, icon = R.drawable.ic_settings_link, key = "connections"),
+            settingsNavRow(getString(R.string.cameras), getString(R.string.camera_count, cameraSettingsItems.count { dashboardCameraVisible(it) }, cameraSettingsItems.size), { renderCameraSettings() }, icon = R.drawable.ic_videocam, key = "cameras")
         ))
+        column.addView(sectionHeading(getString(R.string.settings_preferences)).apply { tag = "settings-section-preferences" })
+        column.addView(settingsGroup(
+            settingsNavRow(getString(R.string.notifications), getString(R.string.settings_notifications_detail), { renderNotificationSettings() }, icon = R.drawable.ic_bell_header, key = "notifications"),
+            settingsNavRow(getString(R.string.appearance), getString(R.string.appearance_detail), { renderAppearanceSettings() }, icon = R.drawable.ic_settings_palette, key = "appearance"),
+            settingsNavRow(getString(R.string.language), currentLanguageLabel(), { renderLanguageSettings() }, icon = R.drawable.ic_settings_globe, key = "language")
+        ))
+        column.addView(sectionHeading(getString(R.string.application)).apply { tag = "settings-section-application" })
+        column.addView(settingsGroup(
+            settingsNavRow(getString(R.string.security), getString(R.string.biometric_lock), { renderSecuritySettings() }, icon = R.drawable.ic_settings_lock, key = "security"),
+            settingsNavRow(getString(R.string.updates), "Camnory ${appVersionName()}", { renderUpdatesSettings() }, icon = R.drawable.ic_refresh, key = "updates"),
+            settingsNavRow(getString(R.string.about), getString(R.string.settings_about_detail), { renderAboutSettings() }, icon = R.drawable.ic_info, key = "about")
+        ))
+        val restoreY = settingsScrollY
+        scroll.setOnScrollChangeListener { _, _, y, _, _ -> settingsScrollY = y }
+        setShell(scroll, Tab.Settings)
+        scroll.doOnLayout { scroll.scrollTo(0, restoreY) }
+    }
+
+    private fun renderRestoredSettingsOrHome(message: String? = null) {
+        val page = restoredSettingsPage
+        restoredSettingsPage = null
+        if (page == null) renderHome(message) else renderSettingsDestination(page)
+    }
+
+    private fun renderSettingsDestination(page: String) {
+        when (page) {
+            "connections" -> renderConnectionsSettings()
+            "security" -> renderSecuritySettings()
+            "updates" -> renderUpdatesSettings()
+            "language" -> renderLanguageSettings()
+            "appearance" -> renderAppearanceSettings()
+            "notifications" -> renderNotificationSettings()
+            "server" -> renderServerSettings()
+            "cameras" -> renderCameraSettings()
+            "about" -> renderAboutSettings()
+            "licenses" -> renderLicensesSettings()
+            else -> renderSettings()
+        }
+    }
+
+    private fun navigateSettingsBack() {
+        when (settingsPage) {
+            "server" -> renderConnectionsSettings()
+            "licenses" -> renderAboutSettings()
+            else -> renderSettings()
+        }
+    }
+
+    private fun newSettingsPage(page: String, title: String): Pair<ScrollView, LinearLayout> {
+        settingsPage = page
+        releasePlayer()
+        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
+        column.addView(settingsPageHeader(title))
+        return scroll to column
+    }
+
+    private fun renderConnectionsSettings() {
+        val (scroll, column) = newSettingsPage("connections", getString(R.string.settings_connections))
+        column.addView(sectionHeading(getString(R.string.settings_sources)))
+        column.addView(settingsGroup(
+            settingsNavRow("Frigate", session?.baseUrl ?: getString(R.string.settings_add_connection), { renderServerSettings() }, icon = R.drawable.ic_source_frigate, key = "frigate"),
+            settingsNavRow(getString(R.string.onvif_cameras), getString(R.string.settings_onvif_detail), { openOnvifManager() }, icon = R.drawable.ic_source_onvif, key = "onvif"),
+            settingsNavRow(getString(R.string.ha_cameras), getString(R.string.settings_ha_detail), { openHomeAssistantManager() }, icon = R.drawable.ic_source_home_assistant, key = "ha")
+        ))
+        column.addView(sectionHeading(getString(R.string.actions)))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.reload), getString(R.string.reload_detail), {
+            restoredSettingsPage = "connections"
+            loadDashboard(getString(R.string.reloaded))
+        }, showChevron = false, icon = R.drawable.ic_refresh)))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderSecuritySettings() {
+        val (scroll, column) = newSettingsPage("security", getString(R.string.security))
         column.addView(sectionHeading(getString(R.string.security)))
         val biometricSwitch = SwitchCompat(this).apply {
             isChecked = appLock.enabled
@@ -3141,20 +3237,19 @@ class MainActivity : AppCompatActivity() {
                 button.isEnabled = false
                 appLock.changeEnabled(checked) { actual ->
                     button.isEnabled = true
-                    if (actual != checked) renderSettings()
+                    if (actual != checked) renderSecuritySettings()
                 }
             }
         }
         column.addView(preferenceToggleRow(getString(R.string.biometric_lock),
             getString(if (appLock.available() || appLock.enabled) R.string.biometric_detail else R.string.biometric_unavailable), biometricSwitch))
-        column.addView(sectionHeading(getString(R.string.notifications)))
-        column.addView(settingsGroup(settingsNavRow(getString(R.string.device_alerts), notificationStatus(), { renderNotificationSettings() })))
-        column.addView(sectionHeading(getString(R.string.updates_heading)))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderUpdatesSettings() {
+        val (scroll, column) = newSettingsPage("updates", getString(R.string.updates))
+        column.addView(settingsGroup(settingsRow(getString(R.string.app_version), appVersionName())))
         column.addView(settingsUpdateCard())
-        column.addView(sectionHeading(getString(R.string.actions)))
-        column.addView(settingsGroup(
-            settingsNavRow(getString(R.string.reload), getString(R.string.reload_detail), { loadDashboard(getString(R.string.reloaded)) }, showChevron = false)
-        ))
         setShell(scroll, Tab.Settings)
         if (updateResult == null && !updateChecking) {
             checkForUpdates(renderSettingsWhenDone = true)
@@ -3171,8 +3266,8 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "appearance"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.appearance)))
         scroll.setOnScrollChangeListener { _, _, y, _, _ -> appearanceScrollY = y }
         fun choices(titleRes: Int, key: String, fallback: String, options: List<Pair<String, Int>>) {
@@ -3271,8 +3366,8 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "language"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.language)))
         column.addView(sectionHeading(getString(R.string.language_detail)))
         val selected = AppCompatDelegate.getApplicationLocales().get(0)?.language.orEmpty()
@@ -3312,8 +3407,8 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "notifications"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(32)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.notifications)))
         scroll.setOnScrollChangeListener { _, _, y, _, _ -> notificationScrollY = y }
         val switch = SwitchCompat(this).apply {
@@ -3485,8 +3580,8 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "server"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.server)))
         column.addView(sectionHeading(getString(R.string.connection)))
         val serverInput = editText("http://cam.example.fr", session?.baseUrl ?: prefs.getString("baseUrl", "").orEmpty())
@@ -3523,8 +3618,8 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "cameras"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.cameras)))
         column.addView(sectionHeading(getString(R.string.camera_order_visibility)))
         val all = dashboardCameras()
@@ -3539,6 +3634,16 @@ class MainActivity : AppCompatActivity() {
                 cameraArrangement.setHidden(key, !visible)
                 all.firstOrNull { it.key == key }?.frigate?.let { setCameraHidden(it.name, !visible) }
                 summary.text = getString(R.string.camera_count_detail, all.count { dashboardCameraVisible(it) }, all.size)
+            }, onOpen = { key, anchor ->
+                all.firstOrNull { it.key == key }?.let { camera ->
+                    when {
+                        camera.frigate != null -> showCameraOptionsPopup(camera.frigate, anchor)
+                        camera.onvif != null -> openOnvifManager(camera.onvif.id, manage = true)
+                        else -> androidx.appcompat.app.AlertDialog.Builder(this).setTitle(camera.name)
+                            .setMessage("Home Assistant\n${camera.haCamera?.entityId.orEmpty()}")
+                            .setPositiveButton(android.R.string.ok, null).show()
+                    }
+                }
             }))
         }
         setShell(scroll, Tab.Settings)
@@ -3548,54 +3653,83 @@ class MainActivity : AppCompatActivity() {
         settingsPage = "about"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(120)) }
-        scroll.addView(column, centeredScrollParams(620))
+        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
+        scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.about)))
         column.addView(sectionHeading(getString(R.string.application)))
         column.addView(settingsGroup(
             settingsRow(getString(R.string.name), "Camnory"),
             settingsRow(getString(R.string.app_version), appVersionName())
         ))
-        column.addView(sectionHeading("NVR"))
-        column.addView(settingsGroup(
-            settingsRow(getString(R.string.nvr_version), nvrVersion ?: getString(R.string.loading)),
-            settingsRow(getString(R.string.server), session?.baseUrl ?: "-")
-        ))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.settings_licenses), getString(R.string.settings_licenses_detail), { renderLicensesSettings() }, key = "licenses")))
+        if (session != null) {
+            column.addView(sectionHeading("NVR"))
+            column.addView(settingsGroup(
+                settingsRow(getString(R.string.nvr_version), nvrVersion ?: getString(R.string.loading)),
+                settingsRow(getString(R.string.server), session?.baseUrl ?: "-")
+            ))
+        }
         setShell(scroll, Tab.Settings)
-        if (nvrVersion == null) {
+        if (session != null && nvrVersion == null) {
             loadNvrVersion(renderAboutWhenDone = true)
         }
+    }
+
+    private fun renderLicensesSettings() {
+        val (scroll, column) = newSettingsPage("licenses", getString(R.string.settings_licenses))
+        val rows = assets.list("licenses").orEmpty().sorted().map { file ->
+            settingsNavRow(file.removeSuffix(".txt").replace('-', ' '), "", {
+                val notice = assets.open("licenses/$file").bufferedReader().use { it.readText() }
+                val text = TextView(this).apply {
+                    this.text = notice
+                    setTextColor(Palette.text)
+                    setPadding(dp(16), dp(16), dp(16), dp(16))
+                    textSize = 14f
+                }
+                androidx.appcompat.app.AlertDialog.Builder(this).setTitle(file.removeSuffix(".txt"))
+                    .setView(ScrollView(this).apply { addView(text) })
+                    .setPositiveButton(android.R.string.ok, null).show()
+            })
+        }
+        column.addView(settingsGroup(*rows.toTypedArray()))
+        setShell(scroll, Tab.Settings)
     }
 
     private fun settingsRow(title: String, value: String): View {
         return FrameLayout(this).apply {
             addView(vertical().apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(18), 0, dp(18), 0)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
                 addView(settingsTitleLabel(title))
                 addView(settingsDetailLabel(value))
-            }, frameMatch())
+            }, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL))
         }
     }
 
-    private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true): View {
+    private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true, icon: Int? = null, key: String? = null): View {
         return FrameLayout(this).apply {
+            if (key != null) tag = "settings-entry-$key"
             isClickable = true
             isFocusable = true
+            contentDescription = if (detail.isBlank()) title else "$title. $detail"
             setOnClickListener { onClick() }
             addView(vertical().apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(18), 0, dp(settingsMenuTextEndPaddingDp(showChevron)), 0)
+                setPadding(dp(if (icon != null) 48 else 14), dp(12), dp(settingsMenuTextEndPaddingDp(showChevron)), dp(12))
                 addView(settingsTitleLabel(title))
-                addView(settingsDetailLabel(detail))
-            }, frameMatch())
+                if (detail.isNotBlank()) addView(settingsDetailLabel(detail))
+            }, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL))
+            if (icon != null) addView(ImageView(context).apply {
+                setImageResource(icon); setColorFilter(Palette.text)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(14) })
             if (showChevron) {
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.ic_chevron_right)
                     setColorFilter(Palette.muted)
                     alpha = 0.7f
-                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                    rightMargin = dp(18)
+                }, FrameLayout.LayoutParams(dp(16), dp(16), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                    marginEnd = dp(14)
                 })
             }
         }
@@ -3716,8 +3850,9 @@ class MainActivity : AppCompatActivity() {
         return FrameLayout(this).apply {
             isClickable = true
             isFocusable = true
-            background = rounded(Palette.overlay, 22)
-            setOnClickListener { renderSettings() }
+            tag = "settings-back"
+            contentDescription = getString(R.string.onvif_back)
+            setOnClickListener { navigateSettingsBack() }
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_arrow_back)
                 setColorFilter(Palette.text)
@@ -3727,7 +3862,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun settingsGroup(vararg rows: View): View {
         return vertical().apply {
-            background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
+            background = rounded(Palette.card, settingsMenuCornerRadiusDp())
             rows.forEachIndexed { index, row ->
                 if (index > 0) {
                     addView(View(context).apply {
@@ -3737,7 +3872,8 @@ class MainActivity : AppCompatActivity() {
                         rightMargin = dp(14)
                     })
                 }
-                addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(settingsMenuRowHeightDp())))
+                row.minimumHeight = dp(settingsMenuRowHeightDp())
+                addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -3757,7 +3893,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsDetailLabel(textValue: String): TextView {
         return label(textValue, SETTINGS_MENU_DETAIL_SP, Palette.muted).apply {
             setPadding(0, dp(4), 0, 0)
-            maxLines = 1
+            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
         }
     }
@@ -3941,7 +4077,7 @@ class MainActivity : AppCompatActivity() {
         activeApi.loadNvrVersion(activeSession.token) { result ->
             runOnUiThread {
                 nvrVersion = result.getOrElse { getString(R.string.unavailable) }
-                if (renderAboutWhenDone) renderAboutSettings()
+                if (renderAboutWhenDone && activeTab == Tab.Settings && settingsPage == "about") renderAboutSettings()
             }
         }
     }
@@ -3962,7 +4098,7 @@ class MainActivity : AppCompatActivity() {
                         downloadUrl = null
                     )
                 }
-                if (renderSettingsWhenDone && activeTab == Tab.Settings && settingsPage == "main") refreshUpdateCard()
+                if (renderSettingsWhenDone && activeTab == Tab.Settings && settingsPage == "updates") refreshUpdateCard()
             }
         }
     }
@@ -4288,6 +4424,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun discreetFullscreenButton(onClick: () -> Unit): View {
+        return FrameLayout(this).apply {
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            addView(FrameLayout(context).apply {
+                background = rounded(0x66000000, 8)
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_fullscreen)
+                    setColorFilter(Color.WHITE)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
+        }
+    }
+
     private fun timelineDateButton(textValue: String): View {
         return horizontal().apply {
             gravity = Gravity.CENTER
@@ -4447,7 +4599,7 @@ private const val TIMELINE_PLAYHEAD_FRACTION = 0.25f
 private const val LOADING_STAGE_COUNT = 3
 private const val LOADING_SLOW_ACTIONS_DELAY_MS = 6000L
 private const val SETTINGS_MENU_ROW_HEIGHT_DP = 68
-private const val SETTINGS_MENU_RADIUS_DP = 12
+private const val SETTINGS_MENU_RADIUS_DP = 8
 private const val SETTINGS_MENU_TITLE_SP = 15
 private const val SETTINGS_MENU_DETAIL_SP = 12
 

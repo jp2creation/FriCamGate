@@ -91,7 +91,7 @@ class UrlNormalizationTest {
     @Test
     fun keepsSettingsMenuRowsCompact() {
         assertEquals(68, settingsMenuRowHeightDp())
-        assertEquals(12, settingsMenuCornerRadiusDp())
+        assertEquals(8, settingsMenuCornerRadiusDp())
         assertEquals(44, settingsMenuTextEndPaddingDp(showChevron = true))
         assertEquals(18, settingsMenuTextEndPaddingDp(showChevron = false))
     }

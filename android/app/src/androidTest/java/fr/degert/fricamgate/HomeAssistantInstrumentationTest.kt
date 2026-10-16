@@ -640,8 +640,8 @@ class HomeAssistantInstrumentationTest {
                 }
                 scenario.onActivity { activity ->
                     MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
-                    views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>()
-                        .single { it.text == activity.getString(R.string.ha_cameras) }.let { (it.parent.parent as View).performClick() }
+                    activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("settings-entry-connections").performClick()
+                    activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("settings-entry-ha").performClick()
                 }
                 setupActivity = instrumentation.waitForMonitorWithTimeout(monitor, 5000) as? HomeAssistantActivity
                 val setup = requireNotNull(setupActivity)
@@ -676,8 +676,8 @@ class HomeAssistantInstrumentationTest {
                 }
                 scenario.onActivity { activity ->
                     MainActivity::class.java.getDeclaredMethod("renderSettings").apply { isAccessible = true }.invoke(activity)
-                    views(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>()
-                        .single { it.text == activity.getString(R.string.ha_cameras) }.let { (it.parent.parent as View).performClick() }
+                    activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("settings-entry-connections").performClick()
+                    activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("settings-entry-ha").performClick()
                 }
                 setupActivity = instrumentation.waitForMonitorWithTimeout(monitor, 5000) as? HomeAssistantActivity
                 val activity = requireNotNull(setupActivity)
@@ -701,7 +701,9 @@ class HomeAssistantInstrumentationTest {
                 }
                 waitFor {
                     var shown = false
-                    if (scenario.state == Lifecycle.State.RESUMED) scenario.onActivity { shown = cards(it).size == 1 }
+                    if (scenario.state == Lifecycle.State.RESUMED) scenario.onActivity {
+                        shown = it.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("settings-entry-ha") != null
+                    }
                     shown
                 }
             }

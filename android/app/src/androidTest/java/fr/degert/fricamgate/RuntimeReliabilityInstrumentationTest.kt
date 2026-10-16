@@ -229,6 +229,10 @@ class RuntimeReliabilityInstrumentationTest {
                 assertEquals("Devant, 09:42", firstRow.getChildAt(0).contentDescription)
                 val preview = (firstRow.getChildAt(0) as android.view.ViewGroup).getChildAt(0)
                 assertEquals(preview.width * 9 / 16, preview.height)
+                val fullscreen = (preview as android.view.ViewGroup).getChildAt(1) as android.view.ViewGroup
+                assertEquals((44 * activity.resources.displayMetrics.density).toInt(), fullscreen.width)
+                val glyph = fullscreen.getChildAt(0) as android.view.ViewGroup
+                assertEquals((28 * activity.resources.displayMetrics.density).toInt(), glyph.width)
                 val bitmap = Bitmap.createBitmap(width, grid.height, Bitmap.Config.ARGB_8888)
                 grid.draw(android.graphics.Canvas(bitmap))
                 context.openFileOutput("same-moment-grid.png", Context.MODE_PRIVATE).use {
@@ -249,6 +253,13 @@ class RuntimeReliabilityInstrumentationTest {
                 val event = NativeEvent("fullscreen-test", "front", "person", "person", null, "09:42", 1000.0, 1020.0, null)
                 MainActivity::class.java.getDeclaredMethod("renderEventDetail", NativeEvent::class.java, String::class.java)
                     .apply { isAccessible = true }.invoke(activity, event, camera.name)
+                val frame = activity.findViewById<android.view.ViewGroup>(android.R.id.content)
+                    .findViewWithTag<android.widget.FrameLayout>("event-player-frame")
+                val actions = frame.findViewWithTag<android.view.View>("event-player-actions")
+                assertNotNull(actions)
+                val placement = actions.layoutParams as android.widget.FrameLayout.LayoutParams
+                assertEquals(android.view.Gravity.END or android.view.Gravity.BOTTOM, placement.gravity)
+                assertEquals(2, (actions as android.view.ViewGroup).childCount)
                 (field("currentPlayer").get(activity) as ExoPlayer).apply { seekTo(5000); pause() }
                 MainActivity::class.java.getDeclaredMethod("openEventCameraFullscreen", NativeEvent::class.java, NativeCamera::class.java)
                     .apply { isAccessible = true }.invoke(activity, event, camera)

@@ -23,7 +23,8 @@ internal class CameraArrangementView(
     context: Context,
     rows: List<CameraArrangementRow>,
     private val onOrder: (List<String>) -> Unit,
-    private val onVisibility: (String, Boolean) -> Unit
+    private val onVisibility: (String, Boolean) -> Unit,
+    private val onOpen: ((String, View) -> Unit)? = null
 ) : LinearLayout(context) {
     private val keys = rows.map { it.key }.toMutableList()
     private val rowViews = mutableMapOf<String, View>()
@@ -35,6 +36,7 @@ internal class CameraArrangementView(
             val row = LinearLayout(context).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 tag = "camera-arrangement-row:${camera.key}"
+                if (onOpen != null) setOnClickListener { onOpen.invoke(camera.key, it) }
                 addView(camera.source.iconView(context), LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
                 addView(LinearLayout(context).apply {
                     orientation = VERTICAL
