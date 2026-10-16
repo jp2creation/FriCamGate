@@ -2120,7 +2120,11 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Palette.background)
             addView(horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
-                addView(brandWordmark(230), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70)))
+                addView(brandWordmark(230).apply {
+                    scaleX = 0.65f
+                    scaleY = 0.65f
+                    pivotX = 0f
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70)))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(10)
                 rightMargin = dp(118)

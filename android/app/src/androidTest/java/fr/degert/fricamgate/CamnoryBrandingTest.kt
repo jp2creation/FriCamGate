@@ -53,6 +53,9 @@ class CamnoryBrandingTest {
                 }
                 collect(header)
                 assertEquals(1, artworkViews.size)
+                assertEquals(0.65f, artworkViews.first().scaleX, 0.001f)
+                assertEquals(0.65f, artworkViews.first().scaleY, 0.001f)
+                assertEquals(0f, artworkViews.first().pivotX, 0.001f)
                 assertEquals("Camnory · EVERY CAMERA. ONE PLACE.", artworkViews.first().contentDescription)
                 assertNull(header.getChildAt(1).background)
                 assertNull(header.getChildAt(2).background)
