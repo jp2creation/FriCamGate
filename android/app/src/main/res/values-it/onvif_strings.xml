@@ -1,4 +1,6 @@
 <resources>
+    <string name="onvif_fullscreen">Diretta a schermo intero</string>
+    <string name="onvif_keep_password">Lascia vuoto per mantenere la password</string>
     <string name="onvif_cameras">Telecamere ONVIF</string>
     <string name="onvif_add">Aggiungi telecamera</string>
     <string name="onvif_name">Nome della telecamera</string>

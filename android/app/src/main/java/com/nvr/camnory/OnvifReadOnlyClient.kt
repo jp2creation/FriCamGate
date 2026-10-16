@@ -23,6 +23,7 @@ internal class OnvifCredentials(val username: String, val password: String) {
 }
 internal data class OnvifProfile(val token: String, val name: String, val encoding: String)
 internal data class OnvifConnection(val deviceEndpoint: String, val mediaEndpoint: String, val profiles: List<OnvifProfile>, val clockOffsetMs: Long)
+internal class OnvifHttpException(val statusCode: Int) : IOException("ONVIF HTTP $statusCode")
 
 internal fun onvifEndpoint(value: String): URI {
     val uri = URI(if (value.contains("://")) value.trim() else "http://${value.trim()}")
@@ -118,7 +119,7 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
         val body = out.toString().toRequestBody("application/soap+xml; charset=utf-8; action=\"${operation.namespace}/${operation.method}\"".toMediaType())
         http.newCall(Request.Builder().url(target.toASCIIString()).post(body)
             .header("SOAPAction", "\"${operation.namespace}/${operation.method}\"").build()).execute().use {
-            if (!it.isSuccessful) throw IOException("ONVIF HTTP ${it.code}")
+            if (!it.isSuccessful) throw OnvifHttpException(it.code)
             // Keep reads bounded before parsing untrusted XML.
             val source = it.body?.source() ?: throw IOException("Empty ONVIF response")
             val buffer = okio.Buffer()

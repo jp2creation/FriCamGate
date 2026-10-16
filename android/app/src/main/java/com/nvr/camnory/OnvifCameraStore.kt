@@ -13,7 +13,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal class OnvifSavedCamera(val id: String, val name: String, val endpoint: String, val credentials: OnvifCredentials) {
+internal class OnvifSavedCamera(val id: String, val name: String, val endpoint: String, val credentials: OnvifCredentials,
+    val profileToken: String? = null) {
     override fun toString() = "OnvifSavedCamera([redacted])"
 }
 
@@ -36,13 +37,15 @@ internal class OnvifCameraStore(context: Context, storageName: String = "onvif-c
         return (0 until array.length()).map { index ->
             val o = array.getJSONObject(index)
             OnvifSavedCamera(o.getString("id"), o.getString("name"), o.getString("endpoint"),
-                OnvifCredentials(o.getString("username"), o.getString("password")))
+                OnvifCredentials(o.getString("username"), o.getString("password")),
+                o.optString("profileToken").takeIf { it.isNotBlank() })
         }
     }
     fun save(cameras: List<OnvifSavedCamera>) {
         val array = JSONArray()
         cameras.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("endpoint", it.endpoint)
-            .put("username", it.credentials.username).put("password", it.credentials.password)) }
+            .put("username", it.credentials.username).put("password", it.credentials.password)
+            .put("profileToken", it.profileToken)) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val bytes = cipher.iv + cipher.doFinal(array.toString().toByteArray(Charsets.UTF_8))

@@ -1,4 +1,6 @@
 <resources>
+    <string name="onvif_fullscreen">Vídeo en directo a pantalla completa</string>
+    <string name="onvif_keep_password">Dejar vacío para conservar la contraseña</string>
     <string name="onvif_cameras">Cámaras ONVIF</string>
     <string name="onvif_add">Añadir cámara</string>
     <string name="onvif_name">Nombre de la cámara</string>

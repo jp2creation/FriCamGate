@@ -1,4 +1,6 @@
 <resources>
+    <string name="onvif_fullscreen">Fullscreen live video</string>
+    <string name="onvif_keep_password">Leave blank to keep the password</string>
     <string name="onvif_cameras">ONVIF cameras</string>
     <string name="onvif_add">Add camera</string>
     <string name="onvif_name">Camera name</string>

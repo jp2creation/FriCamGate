@@ -31,19 +31,27 @@ class OnvifActivity : AppCompatActivity() {
     private lateinit var appLock: BiometricAppLock
     private var job: java.util.concurrent.Future<*>? = null
     private var dialog: AlertDialog? = null
+    private var stopped = false
+    private var pendingCamera: OnvifSavedCamera? = null
+    private var pendingEdit: OnvifSavedCamera? = null
+    private val fullscreen get() = intent.getBooleanExtra("fullscreen", false)
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-        appLock = BiometricAppLock(this) { if (resumedPlayback) player?.play() }
+        appLock = BiometricAppLock(this) { resumePendingCamera() }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { if (playingCamera != null) list() else finish() }
+            override fun handleOnBackPressed() { if (fullscreen) finish() else if (playingCamera != null) list() else finish() }
         })
         store = OnvifCameraStore(this)
         try {
             saved = store.load()
             val initialCamera = saved.firstOrNull { it.id == intent.getStringExtra("cameraId") }
-            if (initialCamera == null) list() else connect(initialCamera)
+            when {
+                initialCamera == null -> list()
+                intent.getBooleanExtra("manage", false) -> { pendingEdit = initialCamera; list() }
+                else -> connect(initialCamera)
+            }
         } catch (_: Exception) {
             Toast.makeText(this, R.string.onvif_storage_error, Toast.LENGTH_LONG).show(); finish()
         }
@@ -77,6 +85,7 @@ class OnvifActivity : AppCompatActivity() {
             rows.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(text(camera.name, 17).apply { setOnClickListener { connect(camera) } }, LinearLayout.LayoutParams(0, dp(68), 1f))
+                addView(icon(R.drawable.ic_settings, getString(R.string.settings)) { add(camera) })
                 addView(icon(R.drawable.ic_delete, getString(R.string.onvif_delete)) {
                     AlertDialog.Builder(this@OnvifActivity).setMessage(getString(R.string.onvif_delete_question, camera.name))
                         .setNegativeButton(android.R.string.cancel, null).setPositiveButton(android.R.string.ok) { _, _ ->
@@ -95,7 +104,7 @@ class OnvifActivity : AppCompatActivity() {
         try { store.save(cameras); saved = cameras; list() } catch (_: Exception) { error(R.string.onvif_storage_error) }
     }
 
-    private fun add() {
+    private fun add(existing: OnvifSavedCamera? = null) {
         val form = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
         fun input(hint: String, password: Boolean = false) = EditText(this).apply {
             this.hint = hint; isSingleLine = true
@@ -106,14 +115,19 @@ class OnvifActivity : AppCompatActivity() {
         val address = input(getString(R.string.onvif_address))
         val username = input(getString(R.string.username))
         val password = input(getString(R.string.password), true)
+        if (existing != null) {
+            name.setText(existing.name); address.setText(existing.endpoint); username.setText(existing.credentials.username)
+            password.hint = getString(R.string.onvif_keep_password)
+        }
         val dialog = AlertDialog.Builder(this).setTitle(R.string.onvif_add).setView(form)
             .setNegativeButton(android.R.string.cancel, null).setPositiveButton(R.string.onvif_connect, null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val endpoint = runCatching { onvifEndpoint(address.text.toString()).toASCIIString() }.getOrNull()
                 if (endpoint == null || name.text.isBlank()) { address.error = getString(R.string.onvif_invalid_address); return@setOnClickListener }
-                val camera = OnvifSavedCamera(UUID.randomUUID().toString(), name.text.toString().trim(), endpoint,
-                    OnvifCredentials(username.text.toString(), password.text.toString()))
+                val camera = OnvifSavedCamera(existing?.id ?: UUID.randomUUID().toString(), name.text.toString().trim(), endpoint,
+                    OnvifCredentials(username.text.toString(), password.text.toString().ifEmpty { existing?.credentials?.password.orEmpty() }),
+                    existing?.profileToken)
                 password.text.clear(); dialog.dismiss(); connect(camera, adding = true)
             }
         }
@@ -121,7 +135,8 @@ class OnvifActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun connect(camera: OnvifSavedCamera, adding: Boolean = false) {
+    private fun connect(camera: OnvifSavedCamera, adding: Boolean = false, autoProfile: Boolean = false) {
+        if (appLock.locked) { pendingCamera = camera; list(); return }
         job?.cancel(true); client.cancel()
         player?.release(); player = null; playingCamera = null
         val root = root(camera.name) { list() }
@@ -135,9 +150,10 @@ class OnvifActivity : AppCompatActivity() {
                 if (request != generation || isFinishing || isDestroyed) return@runOnUiThread
                 result.onSuccess { connection ->
                     if (adding) {
-                        try { store.save(saved + camera); saved = saved + camera } catch (_: Exception) { error(R.string.onvif_storage_error); list(); return@onSuccess }
+                        try { saved = store.load().filterNot { it.id == camera.id } + camera; store.save(saved) } catch (_: Exception) { error(R.string.onvif_storage_error); list(); return@onSuccess }
                     }
-                    choose(camera, connection)
+                    if (fullscreen || autoProfile) stream(camera, connection, preferredOnvifProfile(connection.profiles, camera.profileToken))
+                    else choose(camera, connection)
                 }.onFailure { error(R.string.onvif_connection_failed); list() }
             }
         }
@@ -146,22 +162,33 @@ class OnvifActivity : AppCompatActivity() {
     private fun choose(camera: OnvifSavedCamera, connection: OnvifConnection) {
         dialog = AlertDialog.Builder(this).setTitle(R.string.onvif_profile)
             .setItems(connection.profiles.map { "${it.name} · ${it.encoding}" }.toTypedArray()) { _, index ->
-                val request = ++generation
-                job = worker.submit {
-                    val result = runCatching { client.stream(connection, connection.profiles[index], camera.credentials) }
-                    runOnUiThread {
-                        if (request != generation || isFinishing || isDestroyed) return@runOnUiThread
-                        result.onSuccess { play(camera, it.toString()) }.onFailure { error(R.string.onvif_connection_failed); list() }
-                    }
-                }
+                stream(camera, connection, connection.profiles[index])
             }.setOnCancelListener { list() }.show()
+    }
+
+    private fun stream(camera: OnvifSavedCamera, connection: OnvifConnection, profile: OnvifProfile) {
+        val request = ++generation
+        job = worker.submit {
+            val result = runCatching { client.stream(connection, profile, camera.credentials) }
+            runOnUiThread {
+                if (request != generation || isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { uri ->
+                    val updated = OnvifSavedCamera(camera.id, camera.name, camera.endpoint, camera.credentials, profile.token)
+                    try { saved = store.load().map { if (it.id == camera.id) updated else it }; store.save(saved) }
+                    catch (_: Exception) { error(R.string.onvif_storage_error); list(); return@onSuccess }
+                    play(updated, uri.toString())
+                }.onFailure { error(R.string.onvif_connection_failed); list() }
+            }
+        }
     }
 
     private fun play(camera: OnvifSavedCamera, uri: String) {
         player?.release()
         playingCamera = camera
         val root = root(camera.name) { list() }
-        val view = PlayerView(this).apply { useController = false; keepScreenOn = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING) }
+        val view = (layoutInflater.inflate(R.layout.onvif_live_preview, root, false) as PlayerView).apply {
+            keepScreenOn = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+        }
         root.addView(view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val sound = icon(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume, getString(R.string.playback_sound)) {
             muted = !muted; player?.volume = if (muted) 0f else 1f
@@ -171,7 +198,25 @@ class OnvifActivity : AppCompatActivity() {
             addView(sound)
             addView(icon(R.drawable.ic_refresh, getString(R.string.retry)) { connect(camera) })
         })
-        setContentView(root)
+        if (fullscreen) {
+            val full = FrameLayout(this).apply {
+                setBackgroundColor(android.graphics.Color.BLACK)
+                (view.parent as ViewGroup).removeView(view)
+                addView(view, FrameLayout.LayoutParams(-1, -1))
+                addView(icon(R.drawable.ic_arrow_back, getString(R.string.onvif_back)) { finish() }.apply { setColorFilter(android.graphics.Color.WHITE) },
+                    FrameLayout.LayoutParams(dp(48), dp(52), Gravity.TOP or Gravity.START).apply { topMargin = dp(24); leftMargin = dp(16) })
+                addView(icon(R.drawable.ic_refresh, getString(R.string.retry)) { connect(camera, autoProfile = true) }.apply { setColorFilter(android.graphics.Color.WHITE) },
+                    FrameLayout.LayoutParams(dp(48), dp(52), Gravity.TOP or Gravity.END).apply { topMargin = dp(24); rightMargin = dp(16) })
+                (sound.parent as ViewGroup).removeView(sound)
+                sound.setColorFilter(android.graphics.Color.WHITE)
+                addView(sound, FrameLayout.LayoutParams(dp(48), dp(52), Gravity.BOTTOM or Gravity.END).apply { bottomMargin = dp(24); rightMargin = dp(16) })
+            }
+            setContentView(full)
+            androidx.core.view.WindowCompat.getInsetsController(window, full).apply {
+                hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else setContentView(root)
         val current = ExoPlayer.Builder(this).build()
         player = current; view.player = current
         current.volume = if (muted) 0f else 1f
@@ -197,7 +242,10 @@ class OnvifActivity : AppCompatActivity() {
         if (::appLock.isInitialized) appLock.protectContent()
     }
     override fun onStop() {
-        resumedPlayback = player?.playWhenReady == true; player?.pause()
+        stopped = true
+        resumedPlayback = player?.playWhenReady == true
+        if (resumedPlayback) pendingCamera = playingCamera
+        player?.release(); player = null
         generation++; job?.cancel(true); client.cancel(); dialog?.dismiss(); dialog = null
         if (::appLock.isInitialized) appLock.onBackground()
         super.onStop()
@@ -205,10 +253,15 @@ class OnvifActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (::appLock.isInitialized) {
-            if (player == null && ::store.isInitialized) list()
+            if (stopped && player == null && ::store.isInitialized) list()
+            stopped = false
             appLock.onForeground()
-            if (resumedPlayback && !appLock.locked) player?.play()
+            if (!appLock.locked) resumePendingCamera()
         }
+    }
+    private fun resumePendingCamera() {
+        pendingEdit?.let { pendingEdit = null; add(it); return }
+        pendingCamera?.let { pendingCamera = null; connect(it, autoProfile = true) }
     }
     override fun onDestroy() { generation++; client.cancel(); worker.shutdownNow(); player?.release(); super.onDestroy() }
 }
