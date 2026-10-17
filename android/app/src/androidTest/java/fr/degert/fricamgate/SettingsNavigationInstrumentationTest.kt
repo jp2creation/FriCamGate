@@ -78,6 +78,37 @@ class SettingsNavigationInstrumentationTest {
         fail("Fixture dashboard did not load")
     }
 
+    @Test fun activityBriefingStylesHaveOneEntryAndRespectHiddenPreference() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                val preferences = context.getSharedPreferences("camgate-settings", 0)
+                ActivityBriefingStyle.values().forEach { style ->
+                    preferences.edit().putString("activityBriefingStyle", style.preference).putBoolean("showActivityBriefing", true).commit()
+                    MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java)
+                        .apply { isAccessible = true }.invoke(activity, null)
+                    val entries = views(root(activity)).filter { it.tag == "activity-briefing-entry" }
+                    assertEquals(if (style == ActivityBriefingStyle.Bell) 0 else 1, entries.size)
+                    entries.firstOrNull()?.let { entry ->
+                        if (style == ActivityBriefingStyle.Floating) assertTrue(entry.layoutParams is android.widget.FrameLayout.LayoutParams)
+                        else assertTrue(entry.layoutParams is android.widget.LinearLayout.LayoutParams)
+                        entry.performClick()
+                        val sheet = MainActivity::class.java.getDeclaredField("activityBriefingSheet")
+                            .apply { isAccessible = true }.get(activity) as ActivityBriefingSheet
+                        assertTrue(sheet.isShowing)
+                        sheet.dismiss()
+                    }
+                    preferences.edit().putBoolean("showActivityBriefing", false).commit()
+                    MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java)
+                        .apply { isAccessible = true }.invoke(activity, null)
+                    assertNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
+                }
+                render(activity, "renderAppearanceSettings")
+                assertNotNull(root(activity).findViewWithTag<View>("appearance-activityBriefingStyle"))
+            }
+        }
+    }
+
     @Test fun activityBriefingFloatsAboveNavigationAndRemainsAvailableWhenRead() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

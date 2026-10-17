@@ -631,6 +631,9 @@ class MainActivity : AppCompatActivity() {
         if (session != null && !activitySidebar) {
             column.addView(eventStrip())
         }
+        if (activityBriefingStyle() == ActivityBriefingStyle.Banner) recentActivitySummary()?.let {
+            column.addView(it, LinearLayout.LayoutParams(-1, -2))
+        }
         column.addView(homeTitleRow(message))
 
         val dashboardError = dashboardErrorMessage
@@ -666,7 +669,7 @@ class MainActivity : AppCompatActivity() {
                     addView(tabletActivitySidebar(), LinearLayout.LayoutParams(dp(tablet.activityWidthDp), -1))
                 }
             }, FrameLayout.LayoutParams(-1, -1))
-            if (!activitySidebar) recentActivitySummary()?.let { entry ->
+            if (activityBriefingStyle() == ActivityBriefingStyle.Floating) recentActivitySummary()?.let { entry ->
                 addView(entry, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END).apply {
                     marginEnd = dp(16); bottomMargin = dp(16)
                 })
@@ -2436,6 +2439,8 @@ class MainActivity : AppCompatActivity() {
         EventFacts(event.objectLabel, event.subLabel, event.description),
         cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' '), event.startTime)
 
+    private fun activityBriefingStyle() = ActivityBriefingStyle.fromPreference(appearancePrefs.getString("activityBriefingStyle", null))
+
     private fun recentActivitySummary(): View? {
         if (!getSharedPreferences("camgate-settings", MODE_PRIVATE).getBoolean("showActivityBriefing", true)) return null
         val activeSession = session ?: return null
@@ -2459,15 +2464,32 @@ class MainActivity : AppCompatActivity() {
             isClickable = true
             contentDescription = getString(R.string.recent_activity) + ", " + resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size)
             androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
-            addView(FrameLayout(context).apply {
-                background = rounded(Palette.card, 28, Palette.border, 1)
-                elevation = dp(6).toFloat()
+            val style = activityBriefingStyle()
+            if (style == ActivityBriefingStyle.Banner) {
+                minimumHeight = dp(48)
+                addView(horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    addView(ImageView(context).apply {
+                        setImageResource(R.drawable.ic_activity_wave); setColorFilter(Palette.accent)
+                    }, LinearLayout.LayoutParams(dp(22), dp(22)))
+                    addView(label(getString(R.string.recent_activity) + " · " +
+                        resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 12, Palette.text).apply {
+                        maxLines = 2
+                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10); marginEnd = dp(8) })
+                    addView(label("›", 22, Palette.muted), LinearLayout.LayoutParams(dp(20), -2))
+                }, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL))
+            } else addView(FrameLayout(context).apply {
+                if (style == ActivityBriefingStyle.Floating) {
+                    background = rounded(Palette.card, 28, Palette.border, 1)
+                    elevation = dp(6).toFloat()
+                }
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.ic_activity_wave); setColorFilter(Palette.accent)
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
-            }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
-            if (unread.isNotEmpty()) addView(label(if (unread.size > 99) "99+" else unread.size.toString(), 10, Color.WHITE).apply {
+            }, FrameLayout.LayoutParams(dp(if (style == ActivityBriefingStyle.Floating) 56 else 44), dp(if (style == ActivityBriefingStyle.Floating) 56 else 44), Gravity.CENTER))
+            if (unread.isNotEmpty() && style != ActivityBriefingStyle.Banner) addView(label(if (unread.size > 99) "99+" else unread.size.toString(), 10, Color.WHITE).apply {
                 tag = "activity-briefing-badge"
                 elevation = dp(8).toFloat()
                 gravity = Gravity.CENTER
@@ -2744,7 +2766,14 @@ class MainActivity : AppCompatActivity() {
                     rightMargin = dp(2)
                 })
             }
-            setOnClickListener { showAlertsPopup(it) }
+            setOnClickListener { anchor ->
+                val briefing = if (activityBriefingStyle() == ActivityBriefingStyle.Bell) recentActivitySummary() else null
+                if (briefing == null) showAlertsPopup(anchor)
+                else showHomeViewMenu(anchor, listOf(
+                    homeMenuRow(R.drawable.ic_bell_header, getString(R.string.notifications), false) { showAlertsPopup(anchor) },
+                    homeMenuRow(R.drawable.ic_activity_wave, getString(R.string.recent_activity), false) { briefing.performClick() }
+                ))
+            }
         }
     }
 
@@ -2781,6 +2810,9 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             val layout = homeCameraLayout()
+            if (activityBriefingStyle() == ActivityBriefingStyle.Icon) recentActivitySummary()?.let {
+                addView(it, LinearLayout.LayoutParams(dp(48), dp(48)))
+            }
             addView(toolbarIcon(R.drawable.ic_layout_selector, tint = Palette.muted) { anchor -> showCameraLayoutMenu(anchor) }.apply {
                 val description = getString(R.string.camera_layout)
                 contentDescription = description
@@ -3601,8 +3633,10 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
         column.addView(sectionHeading(getString(R.string.appearance_details)))
+        column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating",
+            ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
         column.addView(settingsGroup(choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
-        column.addView(preferenceToggleRow(getString(R.string.activity_show_button), getString(R.string.activity_show_button_detail), SwitchCompat(this).apply {
+        column.addView(preferenceToggleRow(getString(R.string.activity_show_button), getString(R.string.activity_shortcut_detail), SwitchCompat(this).apply {
             tag = "show-activity-briefing"
             contentDescription = getString(R.string.activity_show_button)
             isChecked = appearancePrefs.getBoolean("showActivityBriefing", true)
@@ -3626,7 +3660,7 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val edit = appearancePrefs.edit()
-                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "reducedMotion").forEach { edit.remove(it) }
+                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
                 }.show()

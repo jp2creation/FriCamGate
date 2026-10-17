@@ -1,0 +1,8 @@
+<resources>
+    <string name="activity_style">Zugang zur Aktivitätsübersicht</string>
+    <string name="activity_style_icon">Eigenes Symbol</string>
+    <string name="activity_style_bell">Unter der Glocke</string>
+    <string name="activity_style_banner">Dezente Leiste</string>
+    <string name="activity_style_floating">Schwebende Schaltfläche</string>
+    <string name="activity_shortcut_detail">Verknüpfung zur Aktivitätsübersicht anzeigen</string>
+</resources>

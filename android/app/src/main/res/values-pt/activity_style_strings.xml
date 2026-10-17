@@ -1,0 +1,8 @@
+<resources>
+    <string name="activity_style">Acesso ao resumo de atividade</string>
+    <string name="activity_style_icon">Ícone dedicado</string>
+    <string name="activity_style_bell">Sob o sino</string>
+    <string name="activity_style_banner">Faixa discreta</string>
+    <string name="activity_style_floating">Botão flutuante</string>
+    <string name="activity_shortcut_detail">Mostrar o atalho do resumo de atividade</string>
+</resources>

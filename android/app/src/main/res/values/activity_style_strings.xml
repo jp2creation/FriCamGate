@@ -1,0 +1,8 @@
+<resources>
+    <string name="activity_style">Activity summary shortcut</string>
+    <string name="activity_style_icon">Dedicated icon</string>
+    <string name="activity_style_bell">Under the bell</string>
+    <string name="activity_style_banner">Discreet banner</string>
+    <string name="activity_style_floating">Floating button</string>
+    <string name="activity_shortcut_detail">Show the activity summary shortcut</string>
+</resources>

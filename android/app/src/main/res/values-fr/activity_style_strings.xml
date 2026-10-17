@@ -1,0 +1,8 @@
+<resources>
+    <string name="activity_style">Accès au résumé d’activité</string>
+    <string name="activity_style_icon">Icône dédiée</string>
+    <string name="activity_style_bell">Sous la cloche</string>
+    <string name="activity_style_banner">Bandeau discret</string>
+    <string name="activity_style_floating">Bouton flottant</string>
+    <string name="activity_shortcut_detail">Afficher le raccourci du résumé d’activité</string>
+</resources>
