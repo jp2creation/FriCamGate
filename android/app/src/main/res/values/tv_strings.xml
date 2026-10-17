@@ -1,0 +1,21 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="tv_share_title">Configure a TV</string>
+    <string name="tv_transfer_detail">Local transfer by QR code</string>
+    <string name="tv_share_intro">Open Camnory on the TV and choose Configure with my phone. Both devices must be on the same local network.</string>
+    <string name="tv_scan">Scan the TV QR code</string>
+    <string name="tv_pair_code">Verification code: %1$s</string>
+    <string name="tv_share_consent">Only continue if this code matches your TV. Your Frigate access tokens, ONVIF passwords and Home Assistant token will be shared with that TV. They grant the same access as this phone. Only pair a TV you trust.</string>
+    <string name="tv_send">Share my configuration</string>
+    <string name="tv_sending">Transfer in progress…</string>
+    <string name="tv_sent">Configuration sent. Accept it on the TV to finish. This is an initial copy, not continuous synchronization.</string>
+    <string name="tv_pair_failed">Transfer failed. Check the network and scan a new TV QR code.</string>
+    <string name="tv_pair">Configure with my phone</string>
+    <string name="tv_welcome">Camnory TV Preview</string>
+    <string name="tv_pair_expired">Pairing invitation expired. Generate a new QR code.</string>
+    <string name="tv_pair_instructions">On the phone: Settings → Connections → Configure a TV. Scan this QR code and compare the verification code. Valid for two minutes.</string>
+    <string name="tv_network_required">A private local IPv4 network is required. Connect the TV and phone to the same network.</string>
+    <string name="tv_import_title">Received configuration</string>
+    <string name="tv_config_summary">Frigate servers: %1$d · ONVIF cameras: %2$d · Home Assistant cameras: %3$d</string>
+    <string name="tv_import_warning">Accept only if the verification code matches your phone. This replaces the TV configuration. The phone stays unchanged. Automatic synchronization is not enabled.</string>
+    <string name="tv_import_accept">Accept on this TV</string>
+</resources>

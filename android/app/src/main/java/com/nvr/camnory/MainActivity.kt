@@ -3498,6 +3498,9 @@ class MainActivity : AppCompatActivity() {
             settingsNavRow(getString(R.string.ha_cameras), getString(R.string.settings_ha_detail), { openHomeAssistantManager() }, icon = R.drawable.ic_source_home_assistant, key = "ha")
         ))
         column.addView(sectionHeading(getString(R.string.actions)))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.tv_share_title), getString(R.string.tv_transfer_detail), {
+            if (!appLock.locked) startActivity(Intent(this, TvTransferActivity::class.java))
+        }, icon = R.drawable.ic_settings_link, key = "tv-transfer")))
         column.addView(settingsGroup(settingsNavRow(getString(R.string.reload), getString(R.string.reload_detail), {
             restoredSettingsPage = "connections"
             loadDashboard(getString(R.string.reloaded))

@@ -1,0 +1,21 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="tv_share_title">Configurer une TV</string>
+    <string name="tv_transfer_detail">Transfert local par QR code</string>
+    <string name="tv_share_intro">Ouvre Camnory sur la TV puis choisis Configurer avec mon téléphone. Les deux appareils doivent être sur le même réseau local.</string>
+    <string name="tv_scan">Scanner le QR code de la TV</string>
+    <string name="tv_pair_code">Code de vérification : %1$s</string>
+    <string name="tv_share_consent">Continue uniquement si ce code correspond à celui de ta TV. Les jetons Frigate, mots de passe ONVIF et le jeton Home Assistant seront transmis à cette TV. Ils donnent les mêmes accès que ce téléphone. Associe uniquement une TV de confiance.</string>
+    <string name="tv_send">Partager ma configuration</string>
+    <string name="tv_sending">Transfert en cours…</string>
+    <string name="tv_sent">Configuration envoyée. Accepte-la sur la TV pour terminer. Il s’agit d’une copie initiale, pas d’une synchronisation continue.</string>
+    <string name="tv_pair_failed">Transfert impossible. Vérifie le réseau et scanne un nouveau QR code sur la TV.</string>
+    <string name="tv_pair">Configurer avec mon téléphone</string>
+    <string name="tv_welcome">Camnory TV · Version découverte</string>
+    <string name="tv_pair_expired">Invitation expirée. Génère un nouveau QR code.</string>
+    <string name="tv_pair_instructions">Sur le téléphone : Paramètres → Connexions → Configurer une TV. Scanne ce QR code et compare le code de vérification. Valable deux minutes.</string>
+    <string name="tv_network_required">Un réseau local IPv4 privé est nécessaire. Connecte la TV et le téléphone au même réseau.</string>
+    <string name="tv_import_title">Configuration reçue</string>
+    <string name="tv_config_summary">Serveurs Frigate : %1$d · Caméras ONVIF : %2$d · Caméras Home Assistant : %3$d</string>
+    <string name="tv_import_warning">Accepte uniquement si le code correspond à celui du téléphone. Cette opération remplace la configuration de la TV. Le téléphone reste inchangé. La synchronisation automatique n’est pas activée.</string>
+    <string name="tv_import_accept">Accepter sur cette TV</string>
+</resources>
