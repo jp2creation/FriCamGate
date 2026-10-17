@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="notifications_unread">
+        <item quantity="one">%d nova</item>
+        <item quantity="other">%d novas</item>
+    </plurals>
+    <string name="notifications_read_all">Marcar todas como lidas</string>
+    <string name="notifications_all">Todas</string>
+    <string name="notifications_people">Pessoas</string>
+    <string name="notifications_vehicles">Veículos</string>
+    <string name="notifications_animals">Animais</string>
+    <string name="notifications_today">HOJE</string>
+    <string name="notifications_empty">Sem notificações para este filtro.</string>
+    <string name="notifications_history">Ver todo o histórico</string>
+    <string name="notifications_person_detected">Pessoa detetada</string>
+    <string name="notifications_vehicle_detected">Veículo detetado</string>
+    <string name="notifications_animal_detected">Animal detetado</string>
+    <string name="notifications_other_detected">Atividade detetada</string>
+</resources>

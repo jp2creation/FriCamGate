@@ -112,7 +112,7 @@ class MainActivity : AppCompatActivity() {
     private var timelineFrameGeneration = 0
     private var cameraPickerPopup: PopupWindow? = null
     private var cameraPickerSheet: SelectionBottomSheet? = null
-    private var alertsPopup: PopupWindow? = null
+    private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
     private var updateChecking = false
@@ -312,6 +312,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        dismissAlertsPopup()
         dismissCameraPicker()
         appearanceChoiceSheet?.dismiss()
         notificationHandler.removeCallbacks(notificationPoll)
@@ -2505,6 +2506,7 @@ class MainActivity : AppCompatActivity() {
             }, FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER))
             if (alertCount > 0) {
                 addView(label(alertCount.coerceAtMost(99).toString(), 9, Palette.text).apply {
+                    tag = "alerts-badge"
                     gravity = Gravity.CENTER
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     background = rounded(Palette.accent, 9)
@@ -2825,108 +2827,49 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAlertsPopup(anchor: View) {
         dismissTransientPopups()
-        val alerts = alertEvents()
-        val card = vertical().apply {
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = rounded(Palette.card, 16, Palette.border, 1)
-        }
-        card.addView(horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_bell)
-                setColorFilter(Palette.accent)
-                alpha = 0.95f
-            }, LinearLayout.LayoutParams(dp(21), dp(21)).apply { rightMargin = dp(9) })
-            addView(vertical().apply {
-                addView(label(getString(R.string.alerts), 16, Palette.text).apply {
-                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        val recent = recentNotifications(events, visibleCameras().map { it.name }.toSet(), System.currentTimeMillis() / 1000.0)
+        val seen = seenAlertIds()
+        val cutoff = seenAlertsCutoffMillis() / 1000.0
+        val unread = recent.filter { it.id !in seen && (it.startTime == null || it.startTime > cutoff) }.map { it.id }.toSet()
+        val sheet = NotificationsSheet(this, recent, unread,
+            title = { event ->
+                if (!event.subLabel.isNullOrBlank()) eventDisplayText(event)
+                else getString(when {
+                    notificationMatchesKind(event, EventKind.Person) -> R.string.notifications_person_detected
+                    notificationMatchesKind(event, EventKind.Vehicle) -> R.string.notifications_vehicle_detected
+                    notificationMatchesKind(event, EventKind.Animal) -> R.string.notifications_animal_detected
+                    else -> R.string.notifications_other_detected
                 })
-                addView(label(if (alerts.isEmpty()) getString(R.string.no_events_short) else getString(R.string.alert_count, alerts.size), 12, Palette.muted).apply {
-                    setPadding(0, dp(3), 0, 0)
-                })
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            if (alerts.isNotEmpty()) {
-                addView(label(getString(R.string.clear), 12, Palette.accent).apply {
-                    gravity = Gravity.CENTER
-                    setPadding(dp(13), 0, dp(13), 0)
-                    background = rounded(Palette.surface, 14)
-                    setOnClickListener {
-                        markAlertsSeen(alerts, advanceCutoff = true)
-                        dismissAlertsPopup()
-                        renderHome(getString(R.string.cleared))
+            },
+            cameraName = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' ') },
+            narrative = ::eventSentence,
+            thumbnail = { event, image ->
+                val cached = event.thumbnail
+                if (cached != null) image.setImageBitmap(cached)
+                else {
+                    val activeApi = api
+                    val activeSession = session
+                    if (activeApi != null && activeSession != null) activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
+                        runOnUiThread { if (image.isAttachedToWindow && bitmap != null) image.setImageBitmap(bitmap) }
                     }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
-            }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = dp(10)
-        })
-
-        if (alerts.isEmpty()) {
-            card.addView(label(getString(R.string.no_alerts), 14, Palette.muted).apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(12), dp(28), dp(12), dp(28))
-                background = rounded(Palette.card, 12)
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        } else {
-            alerts.take(12).forEach { event ->
-                card.addView(alertRow(event).apply { minimumHeight = dp(72) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(4)
-                })
-            }
+                }
+            },
+            onReadAll = { items -> markAlertsSeen(items, advanceCutoff = true); refreshAlertsBadge() },
+            onOpen = { event -> markAlertSeen(event); renderEventDetail(event) },
+            onHistory = { eventSearch = EventSearch(); renderGlobalEvents() },
+            onSettings = { renderNotificationSettings() }
+        ).apply {
+            setOnDismissListener { if (alertsPopup === this) alertsPopup = null }
         }
-
-        val content = appScrollView().apply {
-            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(410))
-        val popupHeight = minOf(dp(520), dp(86) + maxOf(1, alerts.take(12).size) * dp(76))
-        val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
-            isOutsideTouchable = true
-            isClippingEnabled = true
-            elevation = dp(18).toFloat()
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setOnDismissListener {
-                if (alertsPopup === this) alertsPopup = null
-            }
-        }
-        alertsPopup = popup
-        popup.showAtLocation(anchor, Gravity.TOP or Gravity.END, dp(12), dp(104))
+        alertsPopup = sheet
+        sheet.show()
     }
 
-    private fun alertRow(event: NativeEvent): View {
-        return horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            background = rounded(Palette.card, 12)
-            setOnClickListener {
-                markAlertSeen(event)
-                dismissAlertsPopup()
-                renderEventDetail(event)
-            }
-            val thumb = ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                setBackgroundColor(Palette.surface)
-            }
-            addView(FrameLayout(context).apply {
-                background = rounded(Palette.surface, 8)
-                applyRoundedClip(8)
-                addView(thumb, frameMatch())
-            }, LinearLayout.LayoutParams(dp(82), dp(54)).apply { rightMargin = dp(12) })
-            loadEventPreviewAnimated(event, thumb)
-            addView(vertical().apply {
-                addView(label(eventDisplayText(event), 15, Palette.text).apply {
-                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-                })
-                addView(label(eventSentence(event), 12, Palette.muted).apply {
-                    setPadding(0, dp(4), 0, 0)
-                })
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(ImageView(context).apply {
-                setImageResource(eventObjectIcon(event))
-                setColorFilter(Palette.accent)
-                alpha = 0.95f
-            }, LinearLayout.LayoutParams(dp(22), dp(22)))
-        }
+    private fun refreshAlertsBadge() {
+        val badge = findViewById<ViewGroup>(android.R.id.content).findViewWithTag<TextView>("alerts-badge") ?: return
+        val count = alertEvents().size
+        badge.text = count.coerceAtMost(99).toString()
+        badge.visibility = if (count > 0) View.VISIBLE else View.GONE
     }
 
     private fun markAlertSeen(event: NativeEvent) {

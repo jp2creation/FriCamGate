@@ -7,7 +7,6 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -28,11 +27,14 @@ internal open class SelectionBottomSheet(
     protected fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     protected val textScale = Appearance.textScale(context.getSharedPreferences("camgate-settings", 0).getString("textSize", null))
     protected open fun createSheetContent(): View = requireNotNull(sheetContent)
+    protected open fun createSheetToolbar(): View? = null
+    protected open fun createSheetFooter(): View? = null
+    protected open fun createHeaderAccessory(): View? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val body = LinearLayout(context).apply {
+        val body = SheetDragLayout(context) { dismiss() }.apply {
             orientation = LinearLayout.VERTICAL
             tag = "selection-sheet"
             background = GradientDrawable().apply {
@@ -46,18 +48,6 @@ internal open class SelectionBottomSheet(
             }, FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER))
         }
         body.addView(handle, LinearLayout.LayoutParams(-1, dp(24)))
-        var downY = 0f
-        handle.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downY = event.rawY; true }
-                MotionEvent.ACTION_UP -> {
-                    if (event.rawY - downY > dp(32)) dismiss() else view.performClick()
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> true
-                else -> true
-            }
-        }
         val header = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), 0, dp(8), dp(8))
@@ -68,6 +58,7 @@ internal open class SelectionBottomSheet(
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 ViewCompat.setAccessibilityHeading(this, true)
             }, LinearLayout.LayoutParams(0, -2, 1f))
+            createHeaderAccessory()?.let { addView(it) }
             addView(FrameLayout(context).apply {
                 contentDescription = context.getString(android.R.string.cancel)
                 isFocusable = true
@@ -79,6 +70,7 @@ internal open class SelectionBottomSheet(
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
         body.addView(header)
+        createSheetToolbar()?.let { body.addView(it) }
         val rows = createSheetContent()
         val list = object : ScrollView(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -86,8 +78,10 @@ internal open class SelectionBottomSheet(
                 val available = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) limit else minOf(limit, MeasureSpec.getSize(heightMeasureSpec))
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST))
             }
-        }.apply { addView(rows); isFillViewport = false }
+        }.apply { tag = "sheet-scroll"; addView(rows); isFillViewport = false }
+        body.scrollView = list
         body.addView(list, LinearLayout.LayoutParams(-1, -2))
+        createSheetFooter()?.let { body.addView(it) }
         ViewCompat.setOnApplyWindowInsetsListener(body) { view, insets ->
             view.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom)
             insets

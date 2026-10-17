@@ -224,6 +224,99 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
+    private fun sheetSwipe(start: Float, end: Float) {
+        fun coordinates(fraction: Float) = androidx.test.espresso.action.CoordinatesProvider { view ->
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            floatArrayOf(location[0] + view.width * 0.6f, location[1] + view.height * fraction)
+        }
+        androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("selection-sheet" as Any)))
+            .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+            .perform(androidx.test.espresso.action.GeneralSwipeAction(androidx.test.espresso.action.Swipe.SLOW,
+                coordinates(start), coordinates(end), androidx.test.espresso.action.Press.FINGER))
+        instrumentation.waitForIdleSync()
+        Thread.sleep(200)
+    }
+
+    @Test fun dragClosesFromContentAndHeaderButRespectsListScrolling() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            lateinit var sheet: SelectionBottomSheet
+            var clicks = 0
+            fun open() {
+                scenario.onActivity { activity ->
+                    val rows = android.widget.LinearLayout(activity).apply { orientation = android.widget.LinearLayout.VERTICAL }
+                    repeat(60) { index -> rows.addView(TextView(activity).apply {
+                        text = "Camera $index"; minimumHeight = (60 * resources.displayMetrics.density).toInt()
+                        setOnClickListener { clicks++ }
+                    }) }
+                    sheet = SelectionBottomSheet(activity, "Cameras", rows)
+                    sheet.show()
+                }
+                instrumentation.waitForIdleSync()
+                Thread.sleep(500)
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("selection-sheet" as Any)))
+                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                    .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+            }
+            open()
+            sheetSwipe(0.5f, 0.53f)
+            scenario.onActivity { assertTrue("Small drags must snap back", sheet.isShowing) }
+            sheetSwipe(0.5f, 0.9f)
+            scenario.onActivity { assertFalse("Content drag must dismiss the panel", sheet.isShowing); assertEquals(0, clicks) }
+            open()
+            scenario.onActivity { activity ->
+                val scroll = views(sheet.findViewById(android.R.id.content)).filterIsInstance<ScrollView>().single()
+                scroll.scrollTo(0, (500 * activity.resources.displayMetrics.density).toInt())
+                assertTrue("The list must start scrolled for this probe", scroll.scrollY > 0)
+            }
+            sheetSwipe(0.45f, 0.60f)
+            scenario.onActivity { activity ->
+                assertTrue("Scrolling a list must not dismiss its panel", sheet.isShowing)
+                val scroll = views(sheet.findViewById(android.R.id.content)).filterIsInstance<ScrollView>().single()
+                assertTrue("List offset after downward scrolling: ${scroll.scrollY}", scroll.scrollY > 0 && scroll.scrollY < (500 * activity.resources.displayMetrics.density).toInt())
+                scroll.scrollTo(0, 0)
+            }
+            sheetSwipe(0.5f, 0.9f)
+            scenario.onActivity { assertFalse(sheet.isShowing); assertEquals(0, clicks) }
+            open()
+            sheetSwipe(0.06f, 0.5f)
+            scenario.onActivity { assertFalse("Header drag must dismiss the panel", sheet.isShowing) }
+        }
+    }
+
+    @Test fun notificationsFilterAndReadStatePersistWithoutDeletingEvents() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            lateinit var sheet: NotificationsSheet
+            scenario.onActivity { activity ->
+                val now = System.currentTimeMillis() / 1000.0
+                val events = listOf("person", "car", "cat").mapIndexed { index, type ->
+                    NativeEvent("notification-$index", "front", type, type, null, "12:00", now - 120 * (index + 1), now - 100, null)
+                }
+                MainActivity::class.java.getDeclaredField("events").apply { isAccessible = true }.set(activity, events)
+                MainActivity::class.java.getDeclaredMethod("showAlertsPopup", View::class.java).apply { isAccessible = true }.invoke(activity, root(activity))
+                sheet = MainActivity::class.java.getDeclaredField("alertsPopup").apply { isAccessible = true }.get(activity) as NotificationsSheet
+                fun content() = sheet.findViewById<ViewGroup>(android.R.id.content)
+                fun eventRows() = views(content()).filter { it.tag?.toString()?.startsWith("notification-row:") == true }
+                assertEquals(3, eventRows().size)
+                content().findViewWithTag<View>("notifications-filter-Vehicle").performClick()
+                assertEquals(listOf("notification-row:notification-1"), eventRows().map { it.tag })
+                content().findViewWithTag<View>("notifications-read-all").performClick()
+                assertTrue(sheet.isShowing)
+                assertFalse(views(content()).any { it.tag == "notification-unread" })
+                content().findViewWithTag<View>("notifications-filter-Any").performClick()
+                assertEquals(3, eventRows().size)
+                val seen = MainActivity::class.java.getDeclaredMethod("seenAlertIds").apply { isAccessible = true }.invoke(activity) as Set<*>
+                assertTrue(seen.containsAll(events.map { it.id }))
+                assertEquals("fixture-token", context.getSharedPreferences("fricamgate-native", 0).getString("token", null))
+                content().findViewWithTag<View>("notifications-history").performClick()
+                assertFalse(sheet.isShowing)
+                assertEquals("Grid", MainActivity::class.java.getDeclaredField("activeTab").apply { isAccessible = true }.get(activity).toString())
+            }
+        }
+    }
+
     @Test fun groupedMenuHasEightEntriesInApprovedOrderAndWideBlocks() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

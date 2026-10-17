@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="notifications_unread">
+        <item quantity="one">%d new</item>
+        <item quantity="other">%d new</item>
+    </plurals>
+    <string name="notifications_read_all">Mark all as read</string>
+    <string name="notifications_all">All</string>
+    <string name="notifications_people">People</string>
+    <string name="notifications_vehicles">Vehicles</string>
+    <string name="notifications_animals">Animals</string>
+    <string name="notifications_today">TODAY</string>
+    <string name="notifications_empty">No notifications for this filter.</string>
+    <string name="notifications_history">View all history</string>
+    <string name="notifications_person_detected">Person detected</string>
+    <string name="notifications_vehicle_detected">Vehicle detected</string>
+    <string name="notifications_animal_detected">Animal detected</string>
+    <string name="notifications_other_detected">Activity detected</string>
+</resources>
