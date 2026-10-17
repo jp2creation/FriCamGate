@@ -84,6 +84,7 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
     override fun onStart() {
         super.onStart()
         window?.setLayout(-1, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        window?.decorView?.let { TvRemoteSupport.install(it) }
     }
 }
 

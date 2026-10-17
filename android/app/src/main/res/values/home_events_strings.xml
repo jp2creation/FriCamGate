@@ -1,0 +1,5 @@
+<resources>
+    <string name="home_camera_toolbar">Camera title, layout and filters</string>
+    <string name="home_recent_events">Recent events strip</string>
+    <string name="home_recent_events_detail">Recent events on the home screen</string>
+</resources>

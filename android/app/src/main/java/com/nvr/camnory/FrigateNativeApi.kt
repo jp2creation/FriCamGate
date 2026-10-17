@@ -27,7 +27,8 @@ import java.util.Locale
 internal open class FrigateNativeApi(
     private val baseUrl: String,
     private val client: OkHttpClient,
-    private val localRoute: LocalServerRoute? = null
+    private val localRoute: LocalServerRoute? = null,
+    private val previewWidth: Int = 640
 ) : NvrConnector, NvrPlaybackMedia, NvrLiveFrames, NvrEventHistory {
     override fun login(username: String, password: String, callback: (Result<NativeLogin>) -> Unit) {
         postLogin(username, password, listOf("/api/login", "/login"), callback)
@@ -286,35 +287,22 @@ internal open class FrigateNativeApi(
         })
     }
 
-    open fun requestHlsUrl(token: String, streamName: String, callback: (Result<String>) -> Unit) {
-        val request = Request.Builder()
-            .url(liveWebSocketUrl(streamName))
-            .header("Authorization", "Bearer $token")
-            .header("Origin", baseUrl)
-            .build()
-        client.newWebSocket(request, object : WebSocketListener() {
+    open fun openMseStream(token: String, streamName: String, onData: (ByteArray) -> Unit, onError: () -> Unit, audioOnly: Boolean = false): WebSocket {
+        val request = Request.Builder().url(liveWebSocketUrl(streamName))
+            .header("Authorization", "Bearer $token").header("Origin", baseUrl).build()
+        return client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(JSONObject().put("type", "hls").put("value", HLS_CODECS).toString())
+                webSocket.send(JSONObject().put("type", "mse").put("value", if (audioOnly) "mp4a.40.2,mp4a.40.5,flac,opus" else MSE_CODECS).toString())
             }
-
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) = onData(bytes.toByteArray())
             override fun onMessage(webSocket: WebSocket, text: String) {
-                val json = runCatching { JSONObject(text) }.getOrNull()
-                if (json?.optString("type") == "hls") {
-                    val hlsUrl = extractHlsUrl(json.optString("value"))
-                    if (hlsUrl != null) {
-                        webSocket.close(1000, "ready")
-                        callback(Result.success(hlsUrl))
-                    }
-                }
+                if (runCatching { JSONObject(text).optString("type") }.getOrNull() == "error") onError()
             }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) = Unit
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                callback(Result.failure(IOException(t.message ?: "HLS indisponible")))
-            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = onError()
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onError()
         })
     }
+
 
     override fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
     override fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
@@ -462,14 +450,6 @@ internal open class FrigateNativeApi(
         }.getOrNull()
     }
 
-    private fun extractHlsUrl(playlist: String): String? {
-        val path = playlist.lineSequence()
-            .map { it.trim() }
-            .firstOrNull { it.contains("hls/playlist.m3u8") && !it.startsWith("#") }
-            ?: return null
-        if (path.startsWith("http://") || path.startsWith("https://")) return localRoute?.canonical(baseUrl.toHttpUrl(), path.toHttpUrl())?.toString() ?: path
-        return endpoint("/live/mse/api/${path.trimStart('/')}")
-    }
 
     private fun liveWebSocketUrl(streamName: String): String {
         val uri = Uri.parse(baseUrl)
@@ -486,7 +466,7 @@ internal open class FrigateNativeApi(
 
     private fun mjpegStreamName(streamName: String): String {
         val source = if (streamName.startsWith("ffmpeg:", ignoreCase = true)) streamName else "ffmpeg:$streamName"
-        return if (source.contains("#video=mjpeg")) source else "$source#video=mjpeg#width=640"
+        return if (source.contains("#video=mjpeg")) source else "$source#video=mjpeg#width=$previewWidth"
     }
 
     private fun isJpeg(data: ByteArray): Boolean =
@@ -567,7 +547,7 @@ internal open class FrigateNativeApi(
     }
 
     companion object {
-        private const val HLS_CODECS = "avc1.640029,avc1.64002A,avc1.640033,hvc1.1.6.L153.B0,mp4a.40.2,mp4a.40.5,flac,opus"
+        private const val MSE_CODECS = "avc1.640029,avc1.64002A,avc1.640033,hvc1.1.6.L153.B0,mp4a.40.2,mp4a.40.5,flac,opus"
         private const val MIN_MJPEG_FRAME_INTERVAL_MS = 110L
     }
 }

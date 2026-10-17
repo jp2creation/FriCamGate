@@ -153,7 +153,7 @@ class MainActivity : AppCompatActivity() {
     private var homeVisible = false
     private var reflowShell: (() -> Unit)? = null
     private fun tabletLayout(): TabletLayoutPolicy = resources.configuration.let {
-        tabletLayoutPolicy(it.screenWidthDp, it.screenHeightDp, it.smallestScreenWidthDp)
+        tabletLayoutPolicy(it.screenWidthDp, it.screenHeightDp, it.smallestScreenWidthDp, TelevisionMode.enabled(this))
     }
     private val onvifManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val returnPage = onvifSettingsReturnPage
@@ -222,6 +222,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        TelevisionMode.adoptAppearance(this)
         // Android still creates a launch window; hand it off without a second logo animation.
         installSplashScreen().setOnExitAnimationListener { it.remove() }
         delegate.localNightMode = when (appearancePrefs.getString("theme", "system")) {
@@ -230,6 +231,13 @@ class MainActivity : AppCompatActivity() {
             else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
         super.onCreate(savedInstanceState)
+        if (TelevisionMode.enabled(this)) volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+        TvRemoteSupport.start(application)
+        if (TelevisionMode.enabled(this)) onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (activeTab != Tab.Home || expandedLiveReflow != null || expandedLiveImmersive) renderHome() else finish()
+            }
+        })
         Appearance.loadPalette(appearancePrefs, resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
@@ -257,7 +265,9 @@ class MainActivity : AppCompatActivity() {
         soundEnabled = prefs.getBoolean("soundEnabled", false)
         session = loadSession()
         api = createFrigateApi()
-        if (session == null) {
+        if (TelevisionMode.enabled(this) && intent.action == "com.nvr.camnory.TV_SETTINGS") {
+            renderSettings()
+        } else if (session == null) {
             if (hasStandaloneCameras()) renderRestoredSettingsOrHome() else renderLogin()
         } else {
             loadDashboard(getString(R.string.restored, session?.username.orEmpty()))
@@ -351,6 +361,10 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (TelevisionMode.enabled(this) && intent.action == "com.nvr.camnory.TV_SETTINGS") {
+            renderSettings()
+            return
+        }
         pendingEventId = intent.getStringExtra(CameraNotifications.EVENT_ID)
         openPendingNotification()
     }
@@ -358,6 +372,7 @@ class MainActivity : AppCompatActivity() {
     override fun setContentView(view: View) {
         reflowShell = null
         super.setContentView(view)
+        TvRemoteSupport.install(window.decorView)
         if (::appLock.isInitialized) appLock.protectContent()
     }
 
@@ -624,8 +639,9 @@ class MainActivity : AppCompatActivity() {
         val sourceFilter = homeSourceFilter()
         val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) && sourceFilter.includes(homeSourceKey(it)) }
         val tablet = tabletLayout()
-        val activitySidebar = tablet.activityWidthDp > 0 && session != null
-        val content = appScrollView().apply {
+        val showHomeEvents = showHomeEvents()
+        val activitySidebar = showHomeEvents && tablet.activityWidthDp > 0 && session != null
+        val content = (if (TelevisionMode.enabled(this)) TvCameraScrollView(this) else appScrollView()).apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
             tag = "home-camera-scroll"
@@ -633,13 +649,13 @@ class MainActivity : AppCompatActivity() {
         }
         val column = vertical().apply { setPadding(dp(12), dp(10), dp(12), dp(24)) }
         content.addView(column, if (tablet.tablet) FrameLayout.LayoutParams(-1, -2) else responsiveScrollParams(720))
-        if (session != null && !activitySidebar) {
-            column.addView(eventStrip())
+        if (showHomeEvents && session != null && !activitySidebar) {
+            column.addView(eventStrip().apply { tag = "home-recent-events" })
         }
         if (activityBriefingStyle() == ActivityBriefingStyle.Banner) recentActivitySummary()?.let {
             column.addView(it, LinearLayout.LayoutParams(-1, -2))
         }
-        column.addView(homeTitleRow(message))
+        if (showHomeToolbar()) column.addView(homeTitleRow(message).apply { tag = "home-camera-toolbar" })
 
         val dashboardError = dashboardErrorMessage
         if (!dashboardError.isNullOrBlank()) {
@@ -651,7 +667,13 @@ class MainActivity : AppCompatActivity() {
             column.addView(emptyMessage(getString(if (sourceFilter.selected != null) R.string.home_source_empty else R.string.all_hidden)))
         } else {
             val layout = homeCameraLayout()
-            shownCameras.chunked(layout.columns).forEach { cameraRow ->
+            if (TelevisionMode.enabled(this)) {
+                val grid = TvCameraGrid(this, 2, shownCameras.map { item ->
+                    dashboardCameraView(item, layout).apply { tag = "dashboard-camera:${item.key}" }
+                }, onSelection = { index -> selectTelevisionCamera(index?.let { shownCameras[it] }) })
+                column.addView(grid, LinearLayout.LayoutParams(-1, -2))
+                grid.attachToViewport(content, column)
+            } else shownCameras.chunked(layout.columns).forEach { cameraRow ->
                 column.addView(horizontal().apply {
                     gravity = Gravity.TOP
                     repeat(layout.columns) { index ->
@@ -688,6 +710,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var homeRefreshGeneration = 0
+    private val tvCameraSound = mutableMapOf<String, (Boolean) -> Unit>()
+
+    private fun selectTelevisionCamera(item: DashboardCamera?) {
+        if (!homeVisible || appLock.locked) return
+        tvCameraSound.values.forEach { it(false) }
+        releaseCurrentPlayer()
+        homeAudioGeneration++
+        releaseHomeAudioWebView()
+        if (item == null) return
+        soundEnabled = true
+        tvCameraSound[item.key]?.let { it(true); return }
+        val camera = item.frigate ?: return
+        val transport = api ?: return
+        val token = session?.token ?: return
+        currentPlaybackKey = "tv-home:${item.key}"
+        val playback = buildExoPlayer(token)
+        currentPlayer = playback
+        applyPlayerVolume(playback)
+        playback.setMediaSource(frigateLiveMediaSource(transport, token, camera.tvStreamName, audioOnly = true))
+        playback.prepare(); playback.playWhenReady = true
+    }
 
     private fun refreshHomeDashboard(done: () -> Unit) {
         val refreshGeneration = ++homeRefreshGeneration
@@ -737,6 +780,7 @@ class MainActivity : AppCompatActivity() {
         camera.enabled && !cameraArrangement.hidden(camera.key) && (camera.frigate?.let { isCameraVisible(it) } ?: true)
 
     private fun dashboardCameraView(item: DashboardCamera, layout: HomeCameraLayout): View {
+        if (TelevisionMode.enabled(this)) return televisionCameraTile(item)
         val overlay = layout == HomeCameraLayout.Column || tabletLayout().tablet && layout == HomeCameraLayout.TwoColumns
         item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
@@ -761,6 +805,46 @@ class MainActivity : AppCompatActivity() {
             accessories = { showAccessories(item.key, item.name) },
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
+
+    private fun televisionCameraTile(item: DashboardCamera): View {
+        val video: View = when {
+            item.frigate != null -> return cameraCard(item.frigate)
+            item.onvif != null -> OnvifLiveCard(this, item.onvif, fullscreen = {}, manage = {}, playerOnly = true)
+                .also { card -> onvifCards.add(card); tvCameraSound[item.key] = { card.restorePlaybackSound(it) } }
+            else -> HomeAssistantCameraView(this, requireNotNull(item.haConnection), requireNotNull(item.haCamera),
+                fullscreen = {}, onAudible = { silenceOtherSources(it) }, fullscreenMode = true, playerOnly = true)
+                .also { card -> homeAssistantCards.add(card); tvCameraSound[item.key] = { enabled ->
+                    card.restorePlaybackSound(enabled)
+                    if (enabled) card.startLive()
+                } }
+        }
+        fun presentationOnly(view: View) {
+            view.isClickable = false; view.isFocusable = false
+            if (view is android.widget.ImageButton && view.visibility != View.GONE) view.visibility = View.GONE
+            if (view is ViewGroup) repeat(view.childCount) { presentationOnly(view.getChildAt(it)) }
+        }
+        presentationOnly(video)
+        video.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> presentationOnly(video) }
+        return object : FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, if (View.MeasureSpec.getMode(heightMeasureSpec) == View.MeasureSpec.EXACTLY)
+                    heightMeasureSpec else View.MeasureSpec.makeMeasureSpec(
+                    View.MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, View.MeasureSpec.EXACTLY))
+            }
+        }.apply {
+            tag = "tv-camera-tile"
+            setTag(R.id.tv_camera_tile, true)
+            contentDescription = item.name
+            background = rounded(Color.BLACK, 8); applyRoundedClip(8)
+            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            addView(video, frameMatch())
+            addView(CameraColumnOverlay(context, item.name, item.source, emptyList()), frameMatch())
+            setOnClickListener { renderExpandedLive(item, immersive = true, audible = true) }
+        }
+    }
+
+    private fun showHomeEvents() = appearancePrefs.getBoolean("showHomeEvents", !TelevisionMode.enabled(this))
+    private fun showHomeToolbar() = appearancePrefs.getBoolean("showHomeCameraToolbar", !TelevisionMode.enabled(this))
 
     private fun savedHomeAssistant(): HomeAssistantConnection? = runCatching { HomeAssistantStore(this).load() }
         .getOrElse { toast(getString(R.string.ha_storage_failed)); null }
@@ -1003,7 +1087,25 @@ class MainActivity : AppCompatActivity() {
         column.addView(label(getString(R.string.same_moment), 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        if (TelevisionMode.enabled(this)) {
+            body.removeView(playerFrame)
+            body.removeView(controls)
+            body.removeView(scroll)
+            body.orientation = LinearLayout.HORIZONTAL
+            val playback = vertical().apply {
+                addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(controls, LinearLayout.LayoutParams(-1, -2))
+            }
+            body.addView(playback, LinearLayout.LayoutParams(0, -1, 2.3f))
+            column.setPadding(dp(16), dp(16), dp(16), dp(24))
+            body.addView(scroll, LinearLayout.LayoutParams(0, -1, 1f))
+        }
         setShell(body, Tab.Events)
+        if (TelevisionMode.enabled(this)) {
+            expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() { renderTvEvents() }
+            }.also { onBackPressedDispatcher.addCallback(this, it) }
+        }
         scroll.post { scroll.scrollTo(0, previousScrollY) }
         eventPlaybackControls = controls
         if (showingEventCamera || displayedCamera == null) {
@@ -1082,7 +1184,11 @@ class MainActivity : AppCompatActivity() {
             DefaultRenderersFactory(this).setEnableDecoderFallback(true)
         )
             .setMediaSourceFactory(DefaultMediaSourceFactory(authDataSource(token)))
-            .build()
+            .build().also { playback ->
+                if (TelevisionMode.enabled(this)) playback.setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            }
 
     private fun startTimelineEventPlayer(
         api: NvrRecordedMedia,
@@ -1285,6 +1391,10 @@ class MainActivity : AppCompatActivity() {
         val generation = homeStreamGeneration
         fun connect(attempt: Int) {
             if (generation != homeStreamGeneration || streamsSuspended) return
+            if (TelevisionMode.enabled(this) && !image.isShown) {
+                mainHandler.postDelayed({ connect(attempt) }, 1000L)
+                return
+            }
             lateinit var stream: WebSocket
             var receivedFrame = false
             var lastFrameAt = android.os.SystemClock.elapsedRealtime()
@@ -1300,6 +1410,7 @@ class MainActivity : AppCompatActivity() {
             watchdog = object : Runnable {
                 override fun run() {
                     if (generation != homeStreamGeneration || !homeStreams.contains(stream)) return
+                    if (TelevisionMode.enabled(this@MainActivity) && !image.isShown) { recover(); return }
                     val limit = if (receivedFrame) 15_000L else HOME_MJPEG_STARTUP_TIMEOUT_MS
                     if (android.os.SystemClock.elapsedRealtime() - lastFrameAt >= limit) recover()
                     else mainHandler.postDelayed(this, 1000L)
@@ -1307,7 +1418,7 @@ class MainActivity : AppCompatActivity() {
             }
             stream = api.openMjpegStream(
                 token = token,
-                streamName = camera.streamName,
+                streamName = if (TelevisionMode.enabled(this)) camera.tvStreamName else camera.streamName,
                 onFrame = { bitmap ->
                     runOnUiThread {
                         if (!homeStreams.contains(stream) || generation != homeStreamGeneration) return@runOnUiThread
@@ -1594,7 +1705,8 @@ class MainActivity : AppCompatActivity() {
     private fun cameraCard(camera: NativeCamera): View {
         val card = object : FrameLayout(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                super.onMeasure(widthMeasureSpec, if (tabletLayout().tablet)
+                super.onMeasure(widthMeasureSpec, if (TelevisionMode.enabled(this@MainActivity) && View.MeasureSpec.getMode(heightMeasureSpec) == View.MeasureSpec.EXACTLY)
+                    heightMeasureSpec else if (tabletLayout().tablet)
                     View.MeasureSpec.makeMeasureSpec(View.MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, View.MeasureSpec.EXACTLY) else heightMeasureSpec)
             }
         }.apply {
@@ -1605,6 +1717,11 @@ class MainActivity : AppCompatActivity() {
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Palette.surface)
+        }
+        if (TelevisionMode.enabled(this)) {
+            image.scaleType = ImageView.ScaleType.FIT_CENTER
+            image.setBackgroundColor(Color.BLACK)
+            card.setBackgroundColor(Color.BLACK)
         }
         card.addView(image, frameMatch())
         val live = liveBadge()
@@ -1620,6 +1737,14 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(10)
             topMargin = dp(10)
         })
+        if (TelevisionMode.enabled(this)) {
+            card.tag = "tv-camera-tile"
+            card.setTag(R.id.tv_camera_tile, true)
+            card.contentDescription = camera.friendlyName
+            card.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            card.addView(CameraColumnOverlay(this, camera.friendlyName, CameraSource.Frigate, emptyList()), frameMatch())
+            return card
+        }
         val controls = mutableListOf<View>().apply {
             add(homeSoundBubble(camera).cameraButton(CameraButton.Sound))
             if (camera.audioEnabled == true) {
@@ -1711,12 +1836,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderCameraFullscreen(camera: NativeCamera) {
         renderExpandedLive(DashboardCamera(frigateCameraKey(camera.name), camera.friendlyName,
-            CameraSource.Frigate, frigate = camera))
+            CameraSource.Frigate, frigate = camera), immersive = TelevisionMode.enabled(this), audible = TelevisionMode.enabled(this))
     }
 
     private fun renderExpandedLive(item: DashboardCamera, immersive: Boolean = false, audible: Boolean = false) {
         if (appLock.locked) return
         releasePlayer()
+        if (TelevisionMode.enabled(this) && audible) soundEnabled = true
         val frame = ExpandedVideoFrame(this).apply { tag = "live-player-frame" }
         var readSound: () -> Boolean = { soundEnabled }
         var start: () -> Unit = {}
@@ -1732,10 +1858,59 @@ class MainActivity : AppCompatActivity() {
                 frame.addView(live, FrameLayout.LayoutParams(-2, dp(24), Gravity.TOP or Gravity.END).apply {
                     topMargin = dp(12); marginEnd = dp(12)
                 })
-                sound = homeSoundBubble(camera)
-                start = {
-                    startMjpegStream(activeApi, token, camera, image, live)
-                    ensureLiveAudio(camera)
+                if (TelevisionMode.enabled(this)) {
+                    sound = iconBubble(if (soundEnabled) R.drawable.ic_volume else R.drawable.ic_volume_off) { button ->
+                        val enabled = toggleSound()
+                        ((button as ViewGroup).getChildAt(0) as ImageView).setImageResource(
+                            if (enabled) R.drawable.ic_volume else R.drawable.ic_volume_off)
+                    }.apply { contentDescription = getString(R.string.playback_sound) }
+                    start = {
+                        val key = "tv-live:${camera.name}"
+                        currentPlaybackKey = key
+                        startMjpegStream(activeApi, token, camera, image, live)
+                        val stream = camera.tvStreamName
+                        var fallbackRunning = true
+                        val video = (layoutInflater.inflate(R.layout.tv_live_player, frame, false) as PlayerView)
+                            .apply { visibility = View.GONE }
+                        frame.addView(video, 1, frameMatch())
+                        val playback = buildExoPlayer(token)
+                        currentPlayer = playback
+                        video.player = playback
+                        applyPlayerVolume(playback)
+                        playback.addListener(object : Player.Listener {
+                            override fun onPlaybackStateChanged(playbackState: Int) {
+                                if (currentPlayer === playback && playbackState == Player.STATE_READY) {
+                                    homeStreamGeneration++
+                                    homeStreams.forEach { it.cancel() }
+                                    homeStreams.clear()
+                                    streamRestarts.remove(image)
+                                    fallbackRunning = false
+                                    video.visibility = View.VISIBLE
+                                    image.visibility = View.GONE
+                                }
+                            }
+                            override fun onPlayerError(error: PlaybackException) {
+                                if (currentPlayer === playback) {
+                                    video.visibility = View.GONE
+                                    image.visibility = View.VISIBLE
+                                    if (!fallbackRunning) {
+                                        startMjpegStream(activeApi, token, camera, image, live)
+                                        fallbackRunning = true
+                                    }
+                                    toast(getString(R.string.tv_preview_quality))
+                                }
+                            }
+                        })
+                        playback.setMediaSource(frigateLiveMediaSource(activeApi, token, stream))
+                        playback.prepare()
+                        playback.playWhenReady = true
+                    }
+                } else {
+                    sound = homeSoundBubble(camera)
+                    start = {
+                        startMjpegStream(activeApi, token, camera, image, live)
+                        ensureLiveAudio(camera)
+                    }
                 }
             }
             item.onvif != null -> {
@@ -1760,11 +1935,28 @@ class MainActivity : AppCompatActivity() {
                 expandedLiveResume = { card.startLive() }
             }
         }
-        frame.addPlaybackActions(sound, iconBubble(R.drawable.ic_fullscreen) {
-            renderExpandedLive(item, !immersive, readSound())
-        }.apply { contentDescription = getString(R.string.camera_fullscreen) }, "live-player-actions")
+        frame.addPlaybackActions(sound, iconBubble(if (TelevisionMode.enabled(this)) R.drawable.ic_arrow_back else R.drawable.ic_fullscreen) {
+            if (TelevisionMode.enabled(this)) renderHome() else renderExpandedLive(item, !immersive, readSound())
+        }.apply { contentDescription = getString(if (TelevisionMode.enabled(this@MainActivity)) R.string.onvif_back else R.string.camera_fullscreen) }, "live-player-actions")
+        if (TelevisionMode.enabled(this)) {
+            frame.findViewWithTag<LinearLayout>("live-player-actions").addView(iconBubble(R.drawable.ic_settings) {
+                dismissTransientPopups()
+                val sheet = CameraControlsSheet(this, cameraControlTarget(item),
+                    allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) },
+                    respectAppearance = false)
+                accessorySheet = sheet
+                sheet.setOnDismissListener { if (accessorySheet === sheet) accessorySheet = null }
+                sheet.show()
+            }.apply {
+                tag = "tv-live-camera-options"
+                contentDescription = getString(R.string.camera_all_settings)
+            }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(6) })
+        }
         if (immersive) {
             setContentView(frame)
+            if (TelevisionMode.enabled(this)) frame.post {
+                frame.findViewWithTag<LinearLayout>("live-player-actions")?.getChildAt(0)?.requestFocus()
+            }
             expandedLiveImmersive = true
             androidx.core.view.WindowCompat.getInsetsController(window, frame).apply {
                 hide(WindowInsetsCompat.Type.systemBars())
@@ -1789,7 +1981,7 @@ class MainActivity : AppCompatActivity() {
         }
         expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (immersive) renderExpandedLive(item, false, readSound()) else renderHome()
+                if (immersive && !TelevisionMode.enabled(this@MainActivity)) renderExpandedLive(item, false, readSound()) else renderHome()
             }
         }.also { onBackPressedDispatcher.addCallback(this, it) }
         expandedLiveReflow = { renderExpandedLive(item, immersive, readSound()) }
@@ -1890,6 +2082,68 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
+    private fun renderTvEvents() {
+        releasePlayer()
+        val body = vertical().apply { setPadding(dp(16), dp(8), dp(16), dp(12)); tag = "tv-events-browser" }
+        body.addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(label(getString(R.string.events_tab), 24, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconBubble(R.drawable.ic_event_filters) {
+                EventFilterSheet(this@MainActivity, eventSearch, visibleCameras().map { it.name to it.friendlyName }) { next ->
+                    eventSearch = next
+                    globalQueryGeneration++
+                    globalLoading = false
+                    globalResults = null
+                    renderTvEvents()
+                }.show()
+            }.apply { contentDescription = getString(R.string.event_filters_title) })
+        })
+        val source = (globalResults ?: events).filter { event -> visibleCameras().any { it.name == event.camera } }
+        val tiles = source.map { event ->
+            vertical().apply {
+                tag = "tv-event:${event.id}"
+                setTag(R.id.tv_camera_tile, true)
+                background = rounded(Palette.card, 8)
+                isClickable = true
+                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                addView(ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setBackgroundColor(Color.BLACK)
+                    event.thumbnail?.let { setImageBitmap(it) }
+                    if (event.thumbnail == null) {
+                        val image = this
+                        var requested = false
+                        viewTreeObserver.addOnGlobalLayoutListener {
+                            if (image.isShown && !requested) {
+                                requested = true
+                                session?.let { active -> api?.let { transport ->
+                                    transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
+                                        runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
+                                    }
+                                } }
+                            }
+                        }
+                    }
+                }, LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(label(eventDisplayText(event), 14, Palette.text).apply { maxLines = 1; setPadding(dp(10), dp(4), dp(10), 0) })
+                val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera
+                addView(label("$camera · ${event.time}", 12, Palette.muted).apply { maxLines = 1; setPadding(dp(10), 0, dp(10), dp(6)) })
+                setOnClickListener { renderEventDetail(event) }
+            }
+        }
+        if (tiles.isEmpty()) body.addView(emptyMessage(getString(if (globalLoading) R.string.filter_loading else R.string.no_notifications)))
+        else {
+            val grid = TvCameraGrid(this, 3, tiles)
+            body.addView(grid, LinearLayout.LayoutParams(-1, 0, 1f))
+            grid.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> grid.fitViewport(grid.height) }
+        }
+        if (globalError || globalHasMore) body.addView(secondaryButton(getString(if (globalError) R.string.filter_retry else R.string.filter_more)).apply {
+            setOnClickListener { loadGlobalEventPage(reset = globalError && globalResults.isNullOrEmpty()) }
+        })
+        setShell(body, Tab.Events)
+        if (globalResults == null && !globalLoading) loadGlobalEventPage(reset = true)
+    }
+
     private fun renderGlobalEvents() {
         releasePlayer()
         setShell(PullRefreshLayout(this, globalEventList(globalResults.orEmpty()),
@@ -1923,6 +2177,8 @@ class MainActivity : AppCompatActivity() {
                     globalHasMore = page.size >= 100
                 }.onFailure { globalError = true }
                 if (activeTab == Tab.Grid) refreshGlobalEventResults()
+                else if (activeTab == Tab.Events && findViewById<ViewGroup>(android.R.id.content)
+                    .findViewWithTag<View>("tv-events-browser") != null) renderTvEvents()
             }
         }
     }
@@ -2720,7 +2976,7 @@ class MainActivity : AppCompatActivity() {
         val navigation = bottomNav(activeTab, rail)
         if (rail) root.addView(horizontal().apply {
             tag = "tablet-landscape-shell"
-            addView(navigation, LinearLayout.LayoutParams(dp(88), -1))
+            addView(navigation, LinearLayout.LayoutParams(dp(if (TelevisionMode.enabled(this@MainActivity)) 104 else 88), -1))
             addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
             addView(content, LinearLayout.LayoutParams(0, -1, 1f))
         }, LinearLayout.LayoutParams(-1, 0, 1f)) else {
@@ -2729,6 +2985,9 @@ class MainActivity : AppCompatActivity() {
         }
         keepAboveSystemNavigation(root, if (content is NativeChatView) navigation else null)
         setContentView(root)
+        if (TelevisionMode.enabled(this)) root.post {
+            navigation.findViewWithTag<View>("navigation-${activeTab.name}")?.requestFocus()
+        }
         reflowShell = {
             (content.parent as? ViewGroup)?.removeView(content)
             setShell(content, activeTab, showHeader)
@@ -2844,6 +3103,11 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             val layout = homeCameraLayout()
+            if (TelevisionMode.enabled(this@MainActivity)) {
+                addView(toolbarIcon(R.drawable.ic_refresh, tint = Palette.muted) { loadDashboard() }.apply {
+                    contentDescription = getString(R.string.reload)
+                }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            }
             if (activityBriefingStyle() == ActivityBriefingStyle.Icon) recentActivitySummary()?.let {
                 addView(it, LinearLayout.LayoutParams(dp(48), dp(48)))
             }
@@ -2994,8 +3258,10 @@ class MainActivity : AppCompatActivity() {
             background = rounded(Palette.black, 0)
         }
         Tab.values().forEach { tab ->
+            if (TelevisionMode.enabled(this) && tab == Tab.Cameras) return@forEach
             if (session == null && tab in listOf(Tab.Grid, Tab.Events)) return@forEach
             val item = FrameLayout(this).apply {
+                tag = "navigation-${tab.name}"
                 isClickable = true
                 contentDescription = getString(when (tab) {
                     Tab.Home -> R.string.home
@@ -3010,7 +3276,7 @@ class MainActivity : AppCompatActivity() {
                     Tab.Home -> renderHome()
                     Tab.Cameras -> showCameraPickerPopup(item)
                     Tab.Grid -> renderGlobalEvents()
-                    Tab.Events -> events.firstOrNull()?.let { renderEventDetail(it) } ?: renderHome()
+                    Tab.Events -> if (TelevisionMode.enabled(this)) renderTvEvents() else events.firstOrNull()?.let { renderEventDetail(it) } ?: renderHome()
                     Tab.Settings -> renderSettings()
                 }
             }
@@ -3025,11 +3291,11 @@ class MainActivity : AppCompatActivity() {
             if (tablet) item.addView(vertical().apply {
                 gravity = Gravity.CENTER
                 addView(iconHolder, LinearLayout.LayoutParams(dp(48), dp(38)))
-                addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), 10, if (tab == activeTab) Palette.accent else Palette.muted).apply {
+                addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), if (TelevisionMode.enabled(this@MainActivity)) 12 else 10, if (tab == activeTab) Palette.accent else Palette.muted).apply {
                     maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(-1, -2))
             }, frameMatch()) else item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
-            row.addView(item, if (rail) LinearLayout.LayoutParams(-1, dp(76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(item, if (rail) LinearLayout.LayoutParams(-1, dp(if (TelevisionMode.enabled(this)) 82 else 76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
     }
@@ -3501,8 +3767,8 @@ class MainActivity : AppCompatActivity() {
             settingsNavRow(getString(R.string.ha_cameras), getString(R.string.settings_ha_detail), { openHomeAssistantManager() }, icon = R.drawable.ic_source_home_assistant, key = "ha")
         ))
         column.addView(sectionHeading(getString(R.string.actions)))
-        column.addView(settingsGroup(settingsNavRow(getString(R.string.tv_share_title), getString(R.string.tv_transfer_detail), {
-            if (!appLock.locked) startActivity(Intent(this, TvTransferActivity::class.java))
+        column.addView(settingsGroup(settingsNavRow(getString(if (TelevisionMode.enabled(this)) R.string.tv_pair else R.string.tv_share_title), getString(R.string.tv_transfer_detail), {
+            if (!appLock.locked) startActivity(if (TelevisionMode.enabled(this)) Intent(this, TvActivity::class.java).setAction("com.nvr.camnory.TV_PAIR") else Intent(this, TvTransferActivity::class.java))
         }, icon = R.drawable.ic_settings_link, key = "tv-transfer")))
         column.addView(settingsGroup(settingsNavRow(getString(R.string.reload), getString(R.string.reload_detail), {
             restoredSettingsPage = "connections"
@@ -3681,6 +3947,22 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
         column.addView(sectionHeading(getString(R.string.appearance_details)))
+        column.addView(preferenceToggleRow(getString(R.string.home_recent_events), getString(R.string.home_recent_events_detail), SwitchCompat(this).apply {
+            tag = "appearance-home-events"
+            contentDescription = getString(R.string.home_recent_events)
+            isChecked = showHomeEvents()
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("showHomeEvents", checked).apply()
+            }
+        }))
+        column.addView(preferenceToggleRow(getString(R.string.home_camera_toolbar), "", SwitchCompat(this).apply {
+            tag = "appearance-home-camera-toolbar"
+            contentDescription = getString(R.string.home_camera_toolbar)
+            isChecked = showHomeToolbar()
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("showHomeCameraToolbar", checked).apply()
+            }
+        }))
         column.addView(settingsGroup(settingsNavRow(getString(R.string.camera_buttons_title),
             getString(R.string.playback_sound) + " · " + getString(R.string.camera_fullscreen), {
                 dismissTransientPopups()
@@ -3707,7 +3989,7 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.appearance_reset_confirm)) {
                     val edit = appearancePrefs.edit()
                     CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
-                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion").forEach { edit.remove(it) }
+                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion", "showHomeEvents", "showHomeCameraToolbar").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
                 }
@@ -3936,6 +4218,8 @@ class MainActivity : AppCompatActivity() {
             setImageResource(when (toggle.tag) {
                 "appearance-oled-black" -> R.drawable.ic_image
                 "appearance-reduced-motion" -> R.drawable.ic_pause_outline
+                "appearance-home-events" -> R.drawable.ic_image
+                "appearance-home-camera-toolbar" -> R.drawable.ic_server_filter
                 "show-camera-source-icons" -> R.drawable.ic_settings_link
                 else -> R.drawable.ic_settings
             })
@@ -4522,6 +4806,7 @@ class MainActivity : AppCompatActivity() {
         homeAssistantFullscreen?.dismiss()
         homeAssistantCards.forEach { it.setActive(false) }
         homeAssistantCards.clear()
+        tvCameraSound.clear()
         onvifCards.forEach { it.setActive(false) }
         onvifCards.clear()
         eventPlaybackControls?.player = null
@@ -4654,7 +4939,8 @@ class MainActivity : AppCompatActivity() {
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             val keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             chatNavigation?.visibility = if (keyboardVisible) View.GONE else View.VISIBLE
-            view.setPadding(0, 0, 0, if (chatNavigation != null) maxOf(bars.bottom, ime.bottom) else bars.bottom)
+            val safe = if (TelevisionMode.enabled(this)) dp(18) else 0
+            view.setPadding(safe, safe, safe, safe + if (chatNavigation != null) maxOf(bars.bottom, ime.bottom) else bars.bottom)
             insets
         }
     }

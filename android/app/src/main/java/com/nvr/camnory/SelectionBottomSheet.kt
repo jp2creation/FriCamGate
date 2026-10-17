@@ -112,5 +112,6 @@ internal open class SelectionBottomSheet(
     override fun onStart() {
         super.onStart()
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        window?.decorView?.let { TvRemoteSupport.install(it) }
     }
 }

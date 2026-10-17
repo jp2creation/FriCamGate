@@ -1,0 +1,5 @@
+<resources>
+    <string name="home_camera_toolbar">Kameratitel, Anordnung und Filter</string>
+    <string name="home_recent_events">Leiste mit letzten Ereignissen</string>
+    <string name="home_recent_events_detail">Letzte Ereignisse auf der Startseite</string>
+</resources>

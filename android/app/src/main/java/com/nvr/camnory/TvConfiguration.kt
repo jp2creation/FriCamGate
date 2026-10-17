@@ -71,6 +71,7 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
             return TvConfiguration(servers, cameras, ha, strings(root, "order"), strings(root, "hidden").toSet())
         }
         fun fromPhone(context: Context): TvConfiguration {
+            TvProviderStorage.read(context)?.let { return it }
             val servers = FrigateServerStore(context).load()
             val settings = context.getSharedPreferences("camgate-settings", 0)
             val legacyPrefs = context.getSharedPreferences("fricamgate-native", 0)
@@ -95,15 +96,15 @@ internal class TvConfigurationStore(context: Context, storageName: String = "tv-
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun load(): TvConfiguration? {
-        if (!file.baseFile.exists()) return null
+    fun load(): TvConfiguration? = synchronized(LOCK) {
+        if (!file.baseFile.exists()) return@synchronized null
         require(file.baseFile.length() in 29..TvConfiguration.MAX_BYTES.toLong() + 28)
         val data = file.readFully()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(0, 12)))
-        return TvConfiguration.decode(cipher.doFinal(data.copyOfRange(12, data.size)))
+        TvConfiguration.decode(cipher.doFinal(data.copyOfRange(12, data.size)))
     }
-    fun save(config: TvConfiguration) {
+    fun save(config: TvConfiguration) = synchronized(LOCK) {
         val bytes = config.encode()
         TvConfiguration.decode(bytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -112,4 +113,8 @@ internal class TvConfigurationStore(context: Context, storageName: String = "tv-
         catch (e: Exception) { file.failWrite(stream); throw e }
         finally { bytes.fill(0) }
     }
+    fun update(change: (TvConfiguration) -> TvConfiguration) = synchronized(LOCK) {
+        save(change(load() ?: TvConfiguration(emptyList(), emptyList(), null, emptyList(), emptySet())))
+    }
+    companion object { private val LOCK = Any() }
 }

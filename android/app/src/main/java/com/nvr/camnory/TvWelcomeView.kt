@@ -61,9 +61,8 @@ internal class TvWelcomeView(context: Context, message: String?, onPhone: () -> 
         setCompoundDrawablesRelative(drawable, null, null, null)
         compoundDrawablePadding = dp(12)
         fun border(selected: Boolean) = GradientDrawable().apply {
-            setColor(if (selected) 0xff17171b.toInt() else 0xff101014.toInt())
+            setColor(if (selected) 0xff29292f.toInt() else 0xff101014.toInt())
             cornerRadius = dp(6).toFloat()
-            setStroke(dp(if (selected) 2 else 1), if (selected) Palette.accent else 0xff33333b.toInt())
         }
         background = StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), border(true))

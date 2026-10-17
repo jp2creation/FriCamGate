@@ -19,22 +19,30 @@ internal object CameraArrangement {
     }
 }
 
-internal class CameraArrangementStore(context: Context) {
+internal class CameraArrangementStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("camgate-settings", Context.MODE_PRIVATE)
     val showSourceIcons get() = prefs.getBoolean("showCameraSourceIcons", true)
-    fun savedOrder(): List<String> = runCatching {
+    fun savedOrder(): List<String> = TvProviderStorage.read(context)?.order ?: runCatching {
         val array = JSONArray(prefs.getString("cameraDisplayOrder", "[]"))
         (0 until array.length()).map { array.getString(it) }.distinct()
     }.getOrDefault(emptyList())
 
     fun saveOrder(order: List<String>) {
+        if (TvProviderStorage.update(context) { config ->
+            TvConfiguration(config.frigate, config.onvif, config.ha, (order + config.order.filter { it !in order }).distinct(), config.hidden)
+        }) return
         // Keep absent cameras so a temporary disconnect does not reset their position.
         val retained = savedOrder().filter { it !in order }
         prefs.edit().putString("cameraDisplayOrder", JSONArray((order + retained).distinct()).toString()).apply()
     }
 
-    fun hidden(key: String): Boolean = prefs.getStringSet("hiddenSourceCameras", emptySet()).orEmpty().contains(key)
+    fun hidden(key: String): Boolean = TvProviderStorage.read(context)?.let { key in it.hidden }
+        ?: prefs.getStringSet("hiddenSourceCameras", emptySet()).orEmpty().contains(key)
     fun setHidden(key: String, hidden: Boolean) {
+        if (TvProviderStorage.update(context) { config ->
+            val keys = config.hidden.toMutableSet().apply { if (hidden) add(key) else remove(key) }
+            TvConfiguration(config.frigate, config.onvif, config.ha, config.order, keys)
+        }) return
         val keys = prefs.getStringSet("hiddenSourceCameras", emptySet()).orEmpty().toMutableSet()
         if (hidden) keys.add(key) else keys.remove(key)
         prefs.edit().putStringSet("hiddenSourceCameras", keys).apply()

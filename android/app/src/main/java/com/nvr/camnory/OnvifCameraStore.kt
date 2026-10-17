@@ -18,7 +18,7 @@ internal class OnvifSavedCamera(val id: String, val name: String, val endpoint: 
     override fun toString() = "OnvifSavedCamera([redacted])"
 }
 
-internal class OnvifCameraStore(context: Context, storageName: String = "onvif-cameras.enc") {
+internal class OnvifCameraStore(private val context: Context, private val storageName: String = "onvif-cameras.enc") {
     private val file = AtomicFile(File(context.noBackupFilesDir, storageName))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -28,6 +28,7 @@ internal class OnvifCameraStore(context: Context, storageName: String = "onvif-c
         }.generateKey()
     }
     fun load(): List<OnvifSavedCamera> {
+        if (storageName == "onvif-cameras.enc") TvProviderStorage.read(context)?.let { return it.onvif }
         if (!file.baseFile.exists()) return emptyList()
         val bytes = file.readFully()
         require(bytes.size in 29..1_048_576)
@@ -42,6 +43,7 @@ internal class OnvifCameraStore(context: Context, storageName: String = "onvif-c
         }
     }
     fun save(cameras: List<OnvifSavedCamera>) {
+        if (storageName == "onvif-cameras.enc" && TvProviderStorage.update(context) { TvConfiguration(it.frigate, cameras, it.ha, it.order, it.hidden) }) return
         val array = JSONArray()
         cameras.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("endpoint", it.endpoint)
             .put("username", it.credentials.username).put("password", it.credentials.password)

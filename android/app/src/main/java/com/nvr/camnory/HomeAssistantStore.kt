@@ -13,7 +13,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal class HomeAssistantStore(context: Context) {
+internal class HomeAssistantStore(private val context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "home-assistant.enc"))
     private fun key(): SecretKey {
         val alias = "com.nvr.camnory.homeassistant.v1"
@@ -24,6 +24,7 @@ internal class HomeAssistantStore(context: Context) {
         }.generateKey()
     }
     fun load(): HomeAssistantConnection? {
+        TvProviderStorage.read(context)?.let { return it.ha }
         if (!file.baseFile.exists()) return null
         require(file.baseFile.length() in 29..1_048_576)
         val bytes = file.readFully(); require(bytes.size in 29..1_048_576)
@@ -38,6 +39,7 @@ internal class HomeAssistantStore(context: Context) {
             }, LocalServerRoute.decode(value.optJSONObject("localRoute")))
     }
     fun save(connection: HomeAssistantConnection?) {
+        if (TvProviderStorage.update(context) { TvConfiguration(it.frigate, it.onvif, connection, it.order, it.hidden) }) return
         if (connection == null) { file.delete(); return }
         require(connection.cameras.size <= 200 && connection.cameras.all { validHomeAssistantCamera(it.entityId) })
         val cameras = JSONArray()

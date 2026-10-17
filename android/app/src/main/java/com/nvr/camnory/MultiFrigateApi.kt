@@ -16,7 +16,7 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
                 if (it.localRoute != null) retryOnConnectionFailure(false)
                 addInterceptor(LocalRouteInterceptor.create(context, it.baseUrl, it.localRoute, it.token, "/api/version"))
             }
-        }.build(), it.localRoute) }
+        }.build(), it.localRoute, if (context != null && TelevisionMode.enabled(context)) 960 else 640) }
     @Volatile var unavailable: Set<String> = emptySet()
         private set
     fun serverFor(value: String): FrigateServer = if (value.startsWith("@")) {
@@ -92,8 +92,8 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
     override fun liveMseWebSocketUrl(streamName: String) = serverFor(streamName).let { api(it).liveMseWebSocketUrl(nativeName(streamName)) }
     override fun openMjpegStream(token: String, streamName: String, onFrame: (Bitmap) -> Unit, onError: () -> Unit): WebSocket =
         serverFor(streamName).let { api(it).openMjpegStream(it.token, nativeName(streamName), onFrame, onError) }
-    override fun requestHlsUrl(token: String, streamName: String, callback: (Result<String>) -> Unit) =
-        serverFor(streamName).let { api(it).requestHlsUrl(it.token, nativeName(streamName), callback) }
+    override fun openMseStream(token: String, streamName: String, onData: (ByteArray) -> Unit, onError: () -> Unit, audioOnly: Boolean) =
+        serverFor(streamName).let { api(it).openMseStream(it.token, nativeName(streamName), onData, onError, audioOnly) }
     override fun setCameraFeature(token: String, cameraName: String, feature: String, enabled: Boolean, callback: (Result<Unit>) -> Unit) =
         serverFor(cameraName).let { api(it).setCameraFeature(it.token, nativeName(cameraName), feature, enabled, callback) }
 }

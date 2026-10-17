@@ -1,0 +1,6 @@
+<resources>
+    <item name="tv_remote_root" type="id" />
+    <item name="tv_remote_action" type="id" />
+    <item name="tv_remote_text" type="id" />
+    <item name="tv_camera_tile" type="id" />
+</resources>

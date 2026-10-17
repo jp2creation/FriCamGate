@@ -1,0 +1,5 @@
+<resources>
+    <string name="home_camera_toolbar">Barra de cámaras, diseño y filtros</string>
+    <string name="home_recent_events">Franja de eventos recientes</string>
+    <string name="home_recent_events_detail">Eventos recientes en la pantalla de inicio</string>
+</resources>

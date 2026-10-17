@@ -35,7 +35,18 @@ internal class CameraColumnOverlay(context: Context, name: String, source: Camer
                 addView(button, LinearLayout.LayoutParams(dp(if (tablet) 44 else 40), dp(if (tablet) 48 else 40)).apply { marginStart = dp(if (tablet) 0 else 6) })
             }
         }
-        if (tablet) {
+        if (TelevisionMode.enabled(context) && buttons.isEmpty()) {
+            nameText.setTextColor(android.graphics.Color.WHITE)
+            (nameChip.getChildAt(0) as? android.widget.ImageView)?.setColorFilter(android.graphics.Color.WHITE)
+            nameChip.background = GradientDrawable().apply { setColor(0x99000000.toInt()); cornerRadius = dp(4).toFloat() }
+            addView(nameChip, LayoutParams(-2, dp(28), Gravity.START or Gravity.BOTTOM).apply {
+                marginStart = dp(10); bottomMargin = dp(10)
+            })
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val maximum = (width - dp(64)).coerceAtLeast(dp(24))
+                if (nameText.maxWidth != maximum) nameText.maxWidth = maximum
+            }
+        } else if (tablet) {
             nameText.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
             addView(LinearLayout(context).apply {
                 tag = "tablet-camera-overlay"; gravity = Gravity.CENTER_VERTICAL

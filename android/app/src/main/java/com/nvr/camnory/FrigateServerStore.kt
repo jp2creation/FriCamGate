@@ -27,7 +27,7 @@ internal fun frigateServerUrl(value: String): String {
     return url.toString().trimEnd('/')
 }
 
-internal class FrigateServerStore(context: Context) {
+internal class FrigateServerStore(private val context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "frigate-servers.enc"))
     private val prefs = context.getSharedPreferences("fricamgate-native", Context.MODE_PRIVATE)
     private fun key(): SecretKey {
@@ -39,6 +39,7 @@ internal class FrigateServerStore(context: Context) {
         }.generateKey()
     }
     fun load(): List<FrigateServer> = synchronized(LOCK) {
+        TvProviderStorage.read(context)?.let { return@synchronized it.frigate }
         if (!file.baseFile.exists()) {
             val url = prefs.getString("baseUrl", null) ?: return@synchronized emptyList()
             val token = prefs.getString("token", null) ?: return@synchronized emptyList()
@@ -58,6 +59,7 @@ internal class FrigateServerStore(context: Context) {
     }
     fun save(servers: List<FrigateServer>) = synchronized(LOCK) {
         validate(servers)
+        if (TvProviderStorage.update(context) { TvConfiguration(servers, it.onvif, it.ha, it.order, it.hidden) }) return@synchronized
         val array = JSONArray()
         servers.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("baseUrl", frigateServerUrl(it.baseUrl))
             .put("username", it.username).put("token", it.token).put("legacy", it.legacy).put("localRoute", it.localRoute?.json())) }
