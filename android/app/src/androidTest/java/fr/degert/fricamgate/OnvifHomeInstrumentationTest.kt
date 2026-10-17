@@ -58,6 +58,52 @@ class OnvifHomeInstrumentationTest {
         assertFalse(prefs("fricamgate-native").contains("token"))
     }
 
+    @Test fun scrollRetainsTheSameMutedPlayerAndNavigationReleasesIt() {
+        OnvifCameraStore(context).save(emptyList())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var card: OnvifLiveCard
+            lateinit var scroll: android.widget.ScrollView
+            lateinit var retained: ExoPlayer
+            scenario.onActivity { activity ->
+                card = OnvifLiveCard(activity, OnvifSavedCamera("scroll-test", "ONVIF test", "http://127.0.0.1:1/onvif/device_service",
+                    OnvifCredentials("test", "test")), {}, {}, columnMode = true)
+                scroll = android.widget.ScrollView(activity).apply {
+                    addView(android.widget.LinearLayout(activity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        addView(card, android.widget.LinearLayout.LayoutParams(-1, -2))
+                        addView(View(activity), android.widget.LinearLayout.LayoutParams(1, (3000 * resources.displayMetrics.density).toInt()))
+                    })
+                }
+                activity.setContentView(scroll)
+            }
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val status = card.findViewWithTag<android.widget.TextView>("onvif-camera-status")
+                assertEquals(activity.getString(R.string.onvif_connecting), status.text)
+                retained = ExoPlayer.Builder(activity).build()
+                OnvifLiveCard::class.java.getDeclaredField("player").apply { isAccessible = true }.set(card, retained)
+                card.setActive(true)
+                assertTrue(retained.playWhenReady)
+                scroll.scrollTo(0, scroll.getChildAt(0).height)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity {
+                assertSame("Scrolling must not release the prepared player", retained, player(card))
+                assertFalse(retained.playWhenReady)
+                assertEquals(0f, retained.volume, 0f)
+                scroll.scrollTo(0, 0)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity {
+                assertSame("Returning must reuse the same session", retained, player(card))
+                assertTrue(retained.playWhenReady)
+                card.setActive(false)
+                assertNull(player(card))
+            }
+        }
+    }
+
     @Test fun profileSelectionSurvivesEncryptedRoundTripAndOldRecords() {
         val credentials = OnvifCredentials("camera-user", "camera-secret")
         val store = OnvifCameraStore(context)

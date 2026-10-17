@@ -21,7 +21,7 @@ import androidx.media3.ui.PlayerView
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
 
-/** Direct live video only. Hidden/background cards never retain a player or audio. */
+/** Keep offscreen cards paused and muted; navigation/background releases their sessions. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class OnvifLiveCard(
     context: Context,
@@ -64,7 +64,8 @@ internal class OnvifLiveCard(
         preview = LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
         status = TextView(context).apply {
-            text = context.getString(R.string.connecting); setTextColor(Color.WHITE); textSize = 12f
+            text = context.getString(R.string.onvif_connecting); setTextColor(Color.WHITE); textSize = 12f
+            tag = "onvif-camera-status"
             gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         frame.addView(status, FrameLayout.LayoutParams(-1, -1))
@@ -180,7 +181,7 @@ internal class OnvifLiveCard(
             androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
         }
     }
-    fun cachedPreview(): android.graphics.Bitmap? = if (player != null && liveBadge.visibility == View.VISIBLE)
+    fun cachedPreview(): android.graphics.Bitmap? = if (player != null && status.visibility == View.GONE)
         (preview.videoSurfaceView as? android.view.TextureView)?.takeIf { it.isAvailable }?.getBitmap(dp(72), dp(44)) else null
 
     fun cameraId(): String = camera.id
@@ -191,14 +192,33 @@ internal class OnvifLiveCard(
         active = value
         if (!value) { menu?.dismiss(); mute(); stop() } else syncVisibility()
     }
-    private fun visible() = active && isAttachedToWindow && isShown && getGlobalVisibleRect(Rect())
+    private fun playbackVisibility() = onvifPlaybackVisibility(active, isAttachedToWindow, isShown, getGlobalVisibleRect(Rect()))
+    private fun visible() = playbackVisibility() == OnvifPlaybackVisibility.Play
     private fun syncVisibility() {
-        if (!visible()) {
-            if (connecting || player != null) { mute(); stop() }
-        } else if (!connecting && player == null && !failed) start()
+        when (playbackVisibility()) {
+            OnvifPlaybackVisibility.Release -> if (connecting || player != null) { mute(); stop() }
+            OnvifPlaybackVisibility.Pause -> {
+                menu?.dismiss(); mute()
+                player?.playWhenReady = false
+                handler.removeCallbacks(bufferingTimeout)
+                liveBadge.visibility = View.GONE
+            }
+            OnvifPlaybackVisibility.Play -> {
+                val current = player
+                if (current != null) {
+                    val resuming = !current.playWhenReady
+                    current.playWhenReady = true
+                    if (resuming && current.playbackState == Player.STATE_BUFFERING) {
+                        handler.removeCallbacks(bufferingTimeout)
+                        handler.postDelayed(bufferingTimeout, 25_000)
+                    }
+                }
+                else if (!connecting && !failed) start()
+            }
+        }
     }
     private fun start() {
-        connecting = true; status.visibility = View.VISIBLE; status.text = context.getString(R.string.connecting)
+        connecting = true; status.visibility = View.VISIBLE; status.text = context.getString(R.string.onvif_connecting)
         val request = ++generation
         val executor = worker ?: Executors.newSingleThreadExecutor().also { worker = it }
         executor.submit {
@@ -208,7 +228,7 @@ internal class OnvifLiveCard(
                 connected to client.stream(connected, profile, camera.credentials).toString()
             }
             handler.post {
-                if (request != generation || !visible()) return@post
+                if (request != generation || playbackVisibility() == OnvifPlaybackVisibility.Release) return@post
                 connecting = false
                 result.onSuccess { (connected, uri) ->
                     connection = connected
@@ -229,10 +249,18 @@ internal class OnvifLiveCard(
             override fun onPlaybackStateChanged(state: Int) {
                 if (player !== current) return
                 handler.removeCallbacks(bufferingTimeout)
-                if (state == Player.STATE_BUFFERING) handler.postDelayed(bufferingTimeout, 25_000)
+                if (state == Player.STATE_BUFFERING && visible()) handler.postDelayed(bufferingTimeout, 25_000)
             }
             override fun onRenderedFirstFrame() {
-                if (player === current) { status.visibility = View.GONE; liveBadge.visibility = View.VISIBLE; retries = 0 }
+                if (player === current) {
+                    status.visibility = View.GONE
+                    liveBadge.visibility = if (visible() && current.isPlaying) View.VISIBLE else View.GONE
+                    retries = 0
+                }
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (player === current) liveBadge.visibility =
+                    if (isPlaying && visible() && status.visibility == View.GONE) View.VISIBLE else View.GONE
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (player === current) fail(error.errorCode in listOf(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
@@ -240,15 +268,21 @@ internal class OnvifLiveCard(
             }
         })
         current.setMediaSource(RtspMediaSource.Factory().setForceUseRtpTcp(true).createMediaSource(MediaItem.fromUri(uri)))
-        current.prepare(); current.playWhenReady = true
+        current.prepare(); current.playWhenReady = visible()
     }
     private fun fail(retryable: Boolean = true) {
         stop(); status.visibility = View.VISIBLE; status.text = context.getString(R.string.onvif_connection_failed)
         failed = true
-        if (retryable && retries < 3 && visible()) {
+        if (retryable && retries < 3) {
+            if (!visible()) { failed = false; return }
             val delay = longArrayOf(2000, 5000, 10000)[retries++]
             val request = generation
-            handler.postDelayed({ if (request == generation && visible()) { failed = false; syncVisibility() } }, delay)
+            handler.postDelayed({
+                if (request == generation) {
+                    failed = false
+                    if (visible()) syncVisibility()
+                }
+            }, delay)
         }
     }
     private fun showProfiles(anchor: View) {

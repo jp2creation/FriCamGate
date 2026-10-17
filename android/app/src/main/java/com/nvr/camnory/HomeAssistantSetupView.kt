@@ -35,6 +35,21 @@ internal class HomeAssistantSetupView(
 
     fun showForm() {
         cancel(); choosing = false; removeAllViews()
+        connection?.takeIf { allowDisconnect && it.cameras.isNotEmpty() }?.let { stored ->
+            addView(ui.text(context.getString(R.string.ha_selected_count, stored.cameras.size), 14, Palette.text).apply {
+                tag = "connection-ha-saved-count"
+                setPadding(0, ui.dp(12), 0, ui.dp(4))
+            })
+            addView(ui.text(stored.cameras.joinToString(" · ") { it.name }, 13).apply {
+                maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            addView(ui.action(context.getString(R.string.ha_view_saved_cameras)) {
+                if (canInteract() && !busy) showSelection(stored)
+            }.apply { tag = "connection-ha-saved-cameras" })
+            addView(ui.text(context.getString(R.string.connection_heading), 14, Palette.text).apply {
+                setPadding(0, ui.dp(28), 0, 0)
+            })
+        }
         val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", addressDraft, key = "connection-ha-server")
         val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (connection == null) R.string.ha_token_hint else R.string.ha_keep_token),
             tokenDraft, secret = true, key = "connection-ha-token")

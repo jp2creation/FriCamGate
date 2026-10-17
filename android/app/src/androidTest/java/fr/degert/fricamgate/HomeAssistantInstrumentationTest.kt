@@ -350,6 +350,32 @@ class HomeAssistantInstrumentationTest {
         }
     }
 
+    @Test fun savedCamerasAreAccessibleWithoutReenteringTokenOrMakingRequests() {
+        val saved = connection()
+        store.save(saved)
+        val before = File(context.noBackupFilesDir, "home-assistant.enc").readBytes()
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val button = root.findViewWithTag<View>("connection-ha-saved-cameras")
+                assertNotNull("Saved cameras need a direct, visible entry point", button)
+                assertEquals(View.VISIBLE, button.visibility)
+                assertTrue(views(root).filterIsInstance<EditText>().single { it.tag == "connection-ha-token" }.text.isEmpty())
+                button.performClick()
+                val selection = views(root).filterIsInstance<CheckBox>().single { it.text == "Ring test" }
+                assertTrue(selection.isChecked)
+                activity.onBackPressedDispatcher.onBackPressed()
+                assertNotNull(root.findViewWithTag<View>("connection-ha-saved-cameras"))
+            }
+        }
+        assertEquals(0, server.requestCount)
+        assertArrayEquals(before, File(context.noBackupFilesDir, "home-assistant.enc").readBytes())
+        val retained = requireNotNull(store.load())
+        assertEquals(saved.baseUrl, retained.baseUrl)
+        assertEquals(saved.token, retained.token)
+        assertEquals(saved.cameras.map { it.entityId }, retained.cameras.map { it.entityId })
+    }
+
     @Test fun connectionSelectsOnlyCamerasWithoutSendingServices() {
         val address = server.url("/").toString()
         ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
