@@ -59,11 +59,15 @@ internal class OnvifLiveCard(
         clipToOutline = true
         val frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(if (columnMode) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }
         preview = (LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
+        if (resources.configuration.tabletLayoutPolicy().tablet) {
+            frame.setOnClickListener { fullscreen() }
+            preview.setOnClickListener { fullscreen() }
+        }
         status = TextView(context).apply {
             text = context.getString(R.string.onvif_connecting); setTextColor(Color.WHITE); textSize = 12f
             tag = "onvif-camera-status"

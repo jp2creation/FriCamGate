@@ -75,7 +75,7 @@ internal class HomeAssistantCameraView(
         frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 super.onMeasure(widthMeasureSpec, if (fullscreenMode) heightMeasureSpec else
-                    MeasureSpec.makeMeasureSpec(if (columnMode) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
+                    MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }.apply { setBackgroundColor(Color.BLACK) }
         image = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
@@ -137,7 +137,10 @@ internal class HomeAssistantCameraView(
             addView(play); addView(sound); addView(retry)
             addView(icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() })
         }, LayoutParams(-1, dp(44)))
-        image.setOnClickListener { if (!live) { stopLive(); loaded = false; loadImage() } }
+        image.setOnClickListener {
+            if (resources.configuration.tabletLayoutPolicy().tablet && !fullscreenMode) fullscreen()
+            else if (!live) { stopLive(); loaded = false; loadImage() }
+        }
     }
     fun cachedPreview(): Bitmap? = (image.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
 

@@ -149,6 +149,10 @@ class MainActivity : AppCompatActivity() {
     private val homeAssistantCards = mutableListOf<HomeAssistantCameraView>()
     private var homeAssistantFullscreen: android.app.Dialog? = null
     private var homeVisible = false
+    private var reflowShell: (() -> Unit)? = null
+    private fun tabletLayout(): TabletLayoutPolicy = resources.configuration.let {
+        tabletLayoutPolicy(it.screenWidthDp, it.screenHeightDp, it.smallestScreenWidthDp)
+    }
     private val onvifManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val returnPage = onvifSettingsReturnPage
         onvifSettingsReturnPage = null
@@ -290,8 +294,10 @@ class MainActivity : AppCompatActivity() {
             if (Palette.dark != systemDark) {
                 Appearance.loadPalette(appearancePrefs, systemDark)
                 recreate()
+                return
             }
         }
+        if (homeVisible) renderHome() else reflowShell?.invoke()
     }
 
     override fun onPause() {
@@ -341,6 +347,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun setContentView(view: View) {
+        reflowShell = null
         super.setContentView(view)
         if (::appLock.isInitialized) appLock.protectContent()
     }
@@ -606,14 +613,17 @@ class MainActivity : AppCompatActivity() {
         val dashboardCameras = dashboardCameras()
         val sourceFilter = homeSourceFilter()
         val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) && sourceFilter.includes(homeSourceKey(it)) }
+        val tablet = tabletLayout()
+        val activitySidebar = tablet.activityWidthDp > 0 && session != null
         val content = appScrollView().apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
-            setPadding(0, 0, 0, dp(78))
+            tag = "home-camera-scroll"
+            setPadding(0, 0, 0, dp(if (tablet.tablet) 12 else 78))
         }
         val column = vertical().apply { setPadding(dp(12), dp(10), dp(12), dp(24)) }
-        content.addView(column, responsiveScrollParams(720))
-        if (session != null) {
+        content.addView(column, if (tablet.tablet) FrameLayout.LayoutParams(-1, -2) else responsiveScrollParams(720))
+        if (session != null && !activitySidebar) {
             column.addView(eventStrip())
         }
         column.addView(homeTitleRow(message))
@@ -635,7 +645,7 @@ class MainActivity : AppCompatActivity() {
                         val item = cameraRow.getOrNull(index)
                         val tile = item?.let { dashboardCameraView(it, layout) } ?: View(context)
                         tile.tag = item?.let { "dashboard-camera:${it.key}" }
-                        val height = if (layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
+                        val height = if (layout == HomeCameraLayout.Column && !tablet.tablet) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
                         addView(tile, LinearLayout.LayoutParams(0, height, 1f).apply {
                             if (index > 0) leftMargin = dp(8)
                         })
@@ -644,8 +654,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val homeContent = FrameLayout(this).apply {
-            addView(content, FrameLayout.LayoutParams(-1, -1))
-            recentActivitySummary()?.let { entry ->
+            addView(horizontal().apply {
+                addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+                if (activitySidebar) {
+                    addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
+                    addView(tabletActivitySidebar(), LinearLayout.LayoutParams(dp(tablet.activityWidthDp), -1))
+                }
+            }, FrameLayout.LayoutParams(-1, -1))
+            if (!activitySidebar) recentActivitySummary()?.let { entry ->
                 addView(entry, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END).apply {
                     marginEnd = dp(16); bottomMargin = dp(16)
                 })
@@ -684,12 +700,13 @@ class MainActivity : AppCompatActivity() {
         camera.enabled && !cameraArrangement.hidden(camera.key) && (camera.frigate?.let { isCameraVisible(it) } ?: true)
 
     private fun dashboardCameraView(item: DashboardCamera, layout: HomeCameraLayout): View {
-        item.frigate?.let { return if (layout == HomeCameraLayout.Column) cameraCard(it) else cameraGridTile(it) }
+        val overlay = layout == HomeCameraLayout.Column || tabletLayout().tablet && layout == HomeCameraLayout.TwoColumns
+        item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
             return OnvifLiveCard(this, camera,
                 fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
                 manage = { openOnvifManager(camera.id, manage = true) },
-                columnMode = layout == HomeCameraLayout.Column,
+                columnMode = overlay,
                 accessories = { showAccessories(item.key, item.name) },
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
@@ -703,7 +720,7 @@ class MainActivity : AppCompatActivity() {
         val camera = requireNotNull(item.haCamera)
         return HomeAssistantCameraView(this, connection, camera,
             fullscreen = { openHomeAssistantCamera(connection, camera) },
-            columnMode = layout == HomeCameraLayout.Column,
+            columnMode = overlay,
             accessories = { showAccessories(item.key, item.name) },
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
@@ -1519,10 +1536,62 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
+    private fun tabletActivitySidebar(): View = vertical().apply {
+        tag = "tablet-activity-sidebar"
+        setPadding(dp(16), dp(10), dp(16), dp(16))
+        addView(horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(label(getString(R.string.recent_activity), 16, Palette.text).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(toolbarIcon(R.drawable.ic_chevron_right, Palette.accent) { renderGlobalEvents() }.apply {
+                contentDescription = getString(R.string.notifications_history)
+            }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        })
+        val rows = vertical()
+        if (events.isEmpty()) rows.addView(emptyMessage(getString(R.string.no_recent_events)))
+        events.take(20).forEach { event ->
+            rows.addView(horizontal().apply {
+                tag = "tablet-activity:${event.id}"
+                gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(88)
+                setPadding(0, dp(10), 0, dp(10)); isFocusable = true
+                setOnClickListener { renderEventDetail(event) }
+                val image = ImageView(context).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = rounded(Palette.surface, 6); applyRoundedClip(6)
+                }
+                addView(image, LinearLayout.LayoutParams(dp(76), dp(50)).apply { marginEnd = dp(12) })
+                if (event.thumbnail != null) image.setImageBitmap(event.thumbnail)
+                else session?.let { activeSession -> api?.let { activeApi ->
+                    activeApi.loadBitmap(activeSession.token, activeApi.eventSnapshotUrl(event.id)) { bitmap ->
+                        runOnUiThread { if (image.isAttachedToWindow && bitmap != null) image.setImageBitmap(bitmap) }
+                    }
+                } }
+                addView(vertical().apply {
+                    addView(label(eventDisplayText(event), 13, Palette.text).apply {
+                        maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(label(cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera, 12, Palette.muted).apply {
+                        maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(label(event.time, 12, Palette.muted))
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+            })
+            rows.addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(-1, dp(1)))
+        }
+        addView(appScrollView().apply { addView(rows, FrameLayout.LayoutParams(-1, -2)) }, LinearLayout.LayoutParams(-1, 0, 1f))
+    }
+
     private fun cameraCard(camera: NativeCamera): View {
-        val card = FrameLayout(this).apply {
+        val card = object : FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, if (tabletLayout().tablet)
+                    View.MeasureSpec.makeMeasureSpec(View.MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, View.MeasureSpec.EXACTLY) else heightMeasureSpec)
+            }
+        }.apply {
             background = rounded(Palette.card, 8)
             applyRoundedClip(8)
+            if (tabletLayout().tablet) setOnClickListener { renderCameraFullscreen(camera) }
         }
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -2575,11 +2644,23 @@ class MainActivity : AppCompatActivity() {
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         if (showHeader) root.addView(appHeader())
-        root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val navigation = bottomNav(activeTab)
-        root.addView(navigation, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
+        val rail = tabletLayout().navigationRail
+        val navigation = bottomNav(activeTab, rail)
+        if (rail) root.addView(horizontal().apply {
+            tag = "tablet-landscape-shell"
+            addView(navigation, LinearLayout.LayoutParams(dp(88), -1))
+            addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
+            addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+        }, LinearLayout.LayoutParams(-1, 0, 1f)) else {
+            root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+            root.addView(navigation, LinearLayout.LayoutParams(-1, dp(72)))
+        }
         keepAboveSystemNavigation(root, if (content is NativeChatView) navigation else null)
         setContentView(root)
+        reflowShell = {
+            (content.parent as? ViewGroup)?.removeView(content)
+            setShell(content, activeTab, showHeader)
+        }
         ViewCompat.requestApplyInsets(root)
         if (animateIn) {
             root.alpha = 0f
@@ -2588,6 +2669,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appHeader(): View {
+        if (tabletLayout().tablet) return FrameLayout(this).apply {
+            tag = "tablet-header"
+            setBackgroundColor(Palette.background)
+            addView(brandWordmark(160), FrameLayout.LayoutParams(dp(160), dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(16) })
+            addView(label(java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG).format(java.util.Date()), 12, Palette.muted).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_VERTICAL
+            }, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(196); marginEnd = dp(126) })
+            addView(alertsButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(14) })
+            addView(chatButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(64) })
+        }.also { it.layoutParams = LinearLayout.LayoutParams(-1, dp(64)) }
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
             addView(horizontal().apply {
@@ -2691,9 +2782,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun homeCameraLayout(): HomeCameraLayout = HomeCameraLayout.fromPreference(
-        getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("homeCameraLayout", null)
-    )
+    private fun homeLayoutPreference() = if (tabletLayout().tablet) "tabletCameraLayout" else "homeCameraLayout"
+    private fun homeCameraLayout(): HomeCameraLayout = getSharedPreferences("camgate-settings", MODE_PRIVATE).let {
+        effectiveCameraLayout(it.getString("homeCameraLayout", null), it.getString("tabletCameraLayout", null), tabletLayout().tablet)
+    }
 
     private fun homeSourceKey(camera: DashboardCamera): String = when (camera.source) {
         CameraSource.Frigate -> "frigate:${camera.frigate?.let { (api as? MultiFrigateApi)?.serverFor(it.name)?.id } ?: "legacy"}"
@@ -2734,7 +2826,7 @@ class MainActivity : AppCompatActivity() {
         showHomeViewMenu(anchor, HomeCameraLayout.values().map { layout ->
             homeMenuRow(layout.iconRes, getString(layout.titleRes), selected == layout) {
                 getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
-                    .putString("homeCameraLayout", layout.preference).apply()
+                    .putString(homeLayoutPreference(), layout.preference).apply()
                 if (selected != layout) renderHome()
             }
         })
@@ -2812,9 +2904,11 @@ class MainActivity : AppCompatActivity() {
         scaleType = ImageView.ScaleType.FIT_CENTER
     }.also { it.layoutParams = LinearLayout.LayoutParams(dp(104), dp(104)) }
 
-    private fun bottomNav(activeTab: Tab): View {
-        val row = horizontal().apply {
-            gravity = Gravity.CENTER
+    private fun bottomNav(activeTab: Tab, rail: Boolean = false): View {
+        val tablet = tabletLayout().tablet
+        val row = (if (rail) vertical() else horizontal()).apply {
+            tag = if (rail) "tablet-navigation-rail" else "bottom-navigation"
+            gravity = if (rail) Gravity.TOP else Gravity.CENTER
             background = rounded(Palette.black, 0)
         }
         Tab.values().forEach { tab ->
@@ -2846,8 +2940,14 @@ class MainActivity : AppCompatActivity() {
                 setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
                 alpha = if (tab == activeTab) 1f else 0.86f
             }, FrameLayout.LayoutParams(dp(25), dp(25), Gravity.CENTER))
-            item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
-            row.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            if (tablet) item.addView(vertical().apply {
+                gravity = Gravity.CENTER
+                addView(iconHolder, LinearLayout.LayoutParams(dp(48), dp(38)))
+                addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), 10, if (tab == activeTab) Palette.accent else Palette.muted).apply {
+                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(-1, -2))
+            }, frameMatch()) else item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
+            row.addView(item, if (rail) LinearLayout.LayoutParams(-1, dp(76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
     }
@@ -3485,7 +3585,7 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
         column.addView(sectionHeading(getString(R.string.appearance_details)))
-        column.addView(settingsGroup(choice(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
+        column.addView(settingsGroup(choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
         column.addView(preferenceToggleRow(getString(R.string.activity_show_button), getString(R.string.activity_show_button_detail), SwitchCompat(this).apply {
             tag = "show-activity-briefing"
             contentDescription = getString(R.string.activity_show_button)
