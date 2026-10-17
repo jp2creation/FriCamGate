@@ -14,7 +14,9 @@ internal class HomeAssistantSetupView(
     private val canInteract: () -> Boolean,
     private val onSaved: () -> Unit,
     private val onBusy: (Boolean) -> Unit = {},
-    private val allowDisconnect: Boolean = false
+    private val allowDisconnect: Boolean = false,
+    private val connectionOnly: Boolean = false,
+    private val registeredCameras: Boolean = false
 ) : LinearLayout(context) {
     private val ui = ConnectionFormUi(context)
     private var client: HomeAssistantClient? = null
@@ -22,38 +24,32 @@ internal class HomeAssistantSetupView(
     private var generation = 0
     private var busy = false
     private var status: TextView? = null
-    private var connect: Button? = null
+    private var connect: View? = null
     private var dialog: AlertDialog? = null
     private var connection = saved
     private var addressDraft = saved?.baseUrl.orEmpty()
-    private var tokenDraft = ""
+    private var tokenDraft = if (connectionOnly) saved?.token.orEmpty() else ""
+    private var selectionDraft: Set<String>? = null
+    private var selectionBase: String? = null
     private var allowHttpDraft = saved?.baseUrl?.startsWith("http://") == true
     var choosing = false
         private set
 
-    init { orientation = VERTICAL; tag = "connection-ha-form"; showForm() }
+    init {
+        orientation = VERTICAL; tag = "connection-ha-form"
+        if (registeredCameras && saved != null) showSelection(saved) else showForm()
+    }
 
     fun showForm() {
-        cancel(); choosing = false; removeAllViews()
-        connection?.takeIf { allowDisconnect && it.cameras.isNotEmpty() }?.let { stored ->
-            addView(ui.text(context.getString(R.string.ha_selected_count, stored.cameras.size), 14, Palette.text).apply {
-                tag = "connection-ha-saved-count"
-                setPadding(0, ui.dp(12), 0, ui.dp(4))
-            })
-            addView(ui.text(stored.cameras.joinToString(" · ") { it.name }, 13).apply {
-                maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            addView(ui.action(context.getString(R.string.ha_view_saved_cameras)) {
-                if (canInteract() && !busy) showSelection(stored)
-            }.apply { tag = "connection-ha-saved-cameras" })
-            addView(ui.text(context.getString(R.string.connection_heading), 14, Palette.text).apply {
-                setPadding(0, ui.dp(28), 0, 0)
-            })
-        }
+        cancel(); choosing = false; selectionDraft = null; selectionBase = null; removeAllViews()
         val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", addressDraft, key = "connection-ha-server")
         val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (connection == null) R.string.ha_token_hint else R.string.ha_keep_token),
             tokenDraft, secret = true, key = "connection-ha-token")
-        address.doAfterTextChanged { addressDraft = it.toString() }
+        address.doAfterTextChanged {
+            addressDraft = it.toString()
+            if (connectionOnly && connection != null && token.text.toString() == connection?.token &&
+                runCatching { homeAssistantBaseUrl(addressDraft) }.getOrNull() != connection?.baseUrl) token.text.clear()
+        }
         token.doAfterTextChanged { tokenDraft = it.toString() }
         addView(ui.action(context.getString(R.string.connection_token_help), false) {
             dialog = AlertDialog.Builder(context).setTitle(R.string.ha_token).setMessage(R.string.ha_token_help)
@@ -76,7 +72,7 @@ internal class HomeAssistantSetupView(
         })
         val message = ui.text("").apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
         status = message
-        val button = ui.action(context.getString(R.string.ha_select_cameras)) {}
+        val button = ui.action(context.getString(if (connectionOnly) R.string.ha_save_server else R.string.ha_select_cameras)) {}
         connect = button
         button.setOnClickListener {
             if (!canInteract() || busy) return@setOnClickListener
@@ -90,33 +86,36 @@ internal class HomeAssistantSetupView(
             if (secret.isBlank()) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
             val api = runCatching { HomeAssistantClient(base, secret) }.getOrNull()
             if (api == null) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
-            cancel(); busy = true; client = api; button.isEnabled = false; onBusy(true)
-            message.text = context.getString(R.string.connecting)
-            val request = generation
-            val executor = Executors.newSingleThreadExecutor().also { worker = it }
-            executor.submit {
-                val result = runCatching { api.cameras() }
-                post {
-                    if (request != generation || !isAttachedToWindow || !isShown || !canInteract()) return@post
-                    busy = false; button.isEnabled = true; onBusy(false)
-                    result.onSuccess { cameras ->
-                        val previous = connection?.takeIf { it.baseUrl == base }?.cameras.orEmpty()
-                        val validated = HomeAssistantConnection(base, secret, previous)
-                        runCatching {
-                            if (connection == null || connection?.baseUrl == base) {
-                                HomeAssistantStore(context).save(validated)
-                                connection = validated
-                            }
-                        }.onSuccess {
-                            showSelection(HomeAssistantConnection(base, secret, cameras))
-                        }.onFailure { message.text = context.getString(R.string.ha_storage_failed) }
-                    }
-                        .onFailure { message.text = context.getString(if (it is HomeAssistantAuthException) R.string.ha_auth_failed else R.string.ha_connection_failed) }
-                    api.close()
-                }
-            }
+            discover(base, secret, api, button, message)
         }
         ui.spacer(this); addView(button); addView(message)
+    }
+
+    private fun discover(base: String, secret: String, api: HomeAssistantClient, button: View, message: TextView) {
+        cancel(); busy = true; client = api; button.isEnabled = false; onBusy(true)
+        message.text = context.getString(R.string.ha_loading_cameras)
+        val request = generation
+        val executor = Executors.newSingleThreadExecutor().also { worker = it }
+        executor.submit {
+            val result = runCatching { api.cameras() }
+            post {
+                if (request != generation || !isAttachedToWindow || !isShown || !canInteract()) return@post
+                busy = false; button.isEnabled = true; onBusy(false)
+                result.onSuccess { cameras ->
+                    val previous = connection?.takeIf { it.baseUrl == base }?.cameras.orEmpty()
+                    val validated = HomeAssistantConnection(base, secret, previous)
+                    runCatching {
+                        if (connectionOnly || connection == null || connection?.baseUrl == base) {
+                            HomeAssistantStore(context).save(validated)
+                            connection = validated
+                        }
+                    }.onSuccess {
+                        if (connectionOnly) onSaved() else showSelection(HomeAssistantConnection(base, secret, cameras))
+                    }.onFailure { message.text = context.getString(R.string.ha_storage_failed) }
+                }.onFailure { message.text = context.getString(if (it is HomeAssistantAuthException) R.string.ha_auth_failed else R.string.ha_connection_failed) }
+                api.close()
+            }
+        }
     }
 
     private fun showSelection(connection: HomeAssistantConnection) {
@@ -133,7 +132,25 @@ internal class HomeAssistantSetupView(
                 setOnClickListener { showForm() }
             }, LayoutParams(ui.dp(44), ui.dp(48)))
             addView(ui.text(context.getString(R.string.ha_select_cameras), 18, Palette.text), LayoutParams(0, -2, 1f))
+            if (registeredCameras) addView(ImageButton(context).apply {
+                tag = "ha-refresh-cameras"
+                setImageResource(R.drawable.ic_refresh); setColorFilter(Palette.muted)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                contentDescription = context.getString(R.string.reload)
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+                connect = this
+                setOnClickListener {
+                    val stored = this@HomeAssistantSetupView.connection
+                    val message = status
+                    if (stored != null && message != null && canInteract() && !busy) {
+                        discover(stored.baseUrl, stored.token, HomeAssistantClient(stored.baseUrl, stored.token), this, message)
+                    }
+                }
+            }, LayoutParams(ui.dp(48), ui.dp(48)))
         }, LayoutParams(-1, -2).apply { topMargin = ui.dp(12) })
+        if (registeredCameras) addView(ui.text("").apply {
+            status = this; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        })
         val search = EditText(context).apply {
             tag = "ha-camera-search"; hint = context.getString(R.string.ha_search_cameras)
             contentDescription = hint; isSingleLine = true; textSize = 14f * ui.textScale
@@ -151,8 +168,11 @@ internal class HomeAssistantSetupView(
             addView(search, FrameLayout.LayoutParams(-1, -1))
         }, LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(16); bottomMargin = ui.dp(12) })
         val availableIds = connection.cameras.map { it.entityId }.toSet()
-        val selected = if (this.connection?.baseUrl == connection.baseUrl)
+        val selected = if (selectionBase == connection.baseUrl && selectionDraft != null)
+            selectionDraft!!.filter { it in availableIds }.toMutableSet()
+        else if (this.connection?.baseUrl == connection.baseUrl)
             this.connection!!.cameras.map { it.entityId }.filter { it in availableIds }.toMutableSet() else mutableSetOf()
+        selectionBase = connection.baseUrl; selectionDraft = selected.toSet()
         var saveButton: Button? = null
         val count = ui.text("", 12).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         addView(LinearLayout(context).apply {
@@ -207,6 +227,7 @@ internal class HomeAssistantSetupView(
             highlight(checkbox.isChecked)
             checkbox.setOnCheckedChangeListener { _, checked ->
                 if (checked) selected.add(camera.entityId) else selected.remove(camera.entityId)
+                selectionDraft = selected.toSet()
                 highlight(checked); refresh()
             }
             val item = LinearLayout(context).apply {
@@ -271,6 +292,10 @@ internal class HomeAssistantSetupView(
         generation++; client?.close(); client = null; worker?.shutdownNow(); worker = null
         busy = false; connect?.isEnabled = true; onBusy(false)
         status?.text = ""; dialog?.dismiss(); dialog = null
+    }
+    fun hideSecrets() {
+        val input = findViewWithTag<EditText>("connection-ha-token") ?: return
+        if (input.transformationMethod == null) findViewWithTag<View>("connection-ha-token-eye")?.performClick()
     }
     override fun onDetachedFromWindow() { cancel(); super.onDetachedFromWindow() }
 }

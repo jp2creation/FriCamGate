@@ -357,15 +357,17 @@ class HomeAssistantInstrumentationTest {
         ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val root = activity.findViewById<ViewGroup>(android.R.id.content)
-                val button = root.findViewWithTag<View>("connection-ha-saved-cameras")
+                val button = root.findViewWithTag<View>("ha-manage-cameras")
                 assertNotNull("Saved cameras need a direct, visible entry point", button)
                 assertEquals(View.VISIBLE, button.visibility)
-                assertTrue(views(root).filterIsInstance<EditText>().single { it.tag == "connection-ha-token" }.text.isEmpty())
+                assertNotNull(root.findViewWithTag<View>("ha-server-card"))
+                assertNotNull(root.findViewWithTag<View>("ha-saved-camera:camera.ring_test"))
+                assertTrue("Connection fields must not clutter the overview", views(root).filterIsInstance<EditText>().isEmpty())
                 button.performClick()
                 val selection = views(root).filterIsInstance<CheckBox>().single { it.text == "Ring test" }
                 assertTrue(selection.isChecked)
                 activity.onBackPressedDispatcher.onBackPressed()
-                assertNotNull(root.findViewWithTag<View>("connection-ha-saved-cameras"))
+                assertNotNull(root.findViewWithTag<View>("ha-server-card"))
             }
         }
         assertEquals(0, server.requestCount)
@@ -374,6 +376,76 @@ class HomeAssistantInstrumentationTest {
         assertEquals(saved.baseUrl, retained.baseUrl)
         assertEquals(saved.token, retained.token)
         assertEquals(saved.cameras.map { it.entityId }, retained.cameras.map { it.entityId })
+    }
+
+    @Test fun serverCardShowsTheRealSavedTokenMaskedAndBackRestoresCameras() {
+        val saved = connection(); store.save(saved)
+        val before = File(context.noBackupFilesDir, "home-assistant.enc").readBytes()
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<View>("ha-server-card").performClick()
+                val token = root.findViewWithTag<EditText>("connection-ha-token")
+                assertEquals(saved.token, token.text.toString())
+                assertNotNull(token.transformationMethod)
+                assertFalse(token.isSaveEnabled)
+                root.findViewWithTag<View>("connection-ha-token-eye").performClick()
+                assertNull(token.transformationMethod)
+                assertEquals(saved.token, token.text.toString())
+                activity.onBackPressedDispatcher.onBackPressed()
+                assertNotNull(root.findViewWithTag<View>("ha-server-card"))
+                assertNotNull(root.findViewWithTag<View>("ha-saved-camera:camera.ring_test"))
+                assertNull(root.findViewWithTag<View>("connection-ha-token"))
+                root.findViewWithTag<View>("ha-server-card").performClick()
+                assertNotNull(root.findViewWithTag<EditText>("connection-ha-token").transformationMethod)
+                root.findViewWithTag<EditText>("connection-ha-server").setText("https://another.example.test")
+                assertTrue("Do not silently send the stored token to a different server", root.findViewWithTag<EditText>("connection-ha-token").text.isEmpty())
+            }
+        }
+        assertEquals(0, server.requestCount)
+        assertArrayEquals(before, File(context.noBackupFilesDir, "home-assistant.enc").readBytes())
+    }
+
+    @Test fun savingServerDetailsPreservesSelectedCamerasAndReturnsToOverview() {
+        store.save(connection())
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<View>("ha-server-card").performClick()
+                root.findViewWithTag<EditText>("connection-ha-token").setText("updated-token")
+                views(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.ha_save_server) }.performClick()
+            }
+            waitFor {
+                var ready = false
+                scenario.onActivity { activity -> ready = activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("ha-server-card") != null }
+                ready
+            }
+            assertEquals("updated-token", store.load()!!.token)
+            assertEquals(listOf("camera.ring_test"), store.load()!!.cameras.map { it.entityId })
+            assertFalse(scenario.state == Lifecycle.State.DESTROYED)
+        }
+        val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+        assertEquals("GET", request.method)
+        assertEquals("/api/states", request.path)
+        assertEquals("Bearer updated-token", request.getHeader("Authorization"))
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun revealedServerTokenIsMaskedAgainWhenTheAppLeavesTheForeground() {
+        store.save(connection())
+        ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
+            lateinit var token: EditText
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<View>("ha-server-card").performClick()
+                token = root.findViewWithTag("connection-ha-token")
+                root.findViewWithTag<View>("connection-ha-token-eye").performClick()
+                assertNull(token.transformationMethod)
+            }
+            scenario.moveToState(Lifecycle.State.CREATED)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { assertNotNull(token.transformationMethod) }
+        }
+        assertEquals(0, server.requestCount)
     }
 
     @Test fun connectionSelectsOnlyCamerasWithoutSendingServices() {
@@ -545,8 +617,11 @@ class HomeAssistantInstrumentationTest {
                 }
             }
             ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
-                scenario.onActivity { activity -> views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
-                    .single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick() }
+                scenario.onActivity { activity ->
+                    val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                    root.findViewWithTag<View>("ha-manage-cameras").performClick()
+                    root.findViewWithTag<View>("ha-refresh-cameras").performClick()
+                }
                 waitFor {
                     var ready = false
                     scenario.onActivity { activity -> ready = activity.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<EditText>("ha-camera-search") != null }
@@ -607,8 +682,9 @@ class HomeAssistantInstrumentationTest {
         }
         ActivityScenario.launch(HomeAssistantActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                views(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
-                    .single { it.text == activity.getString(R.string.ha_select_cameras) }.performClick()
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                root.findViewWithTag<View>("ha-manage-cameras").performClick()
+                root.findViewWithTag<View>("ha-refresh-cameras").performClick()
             }
             waitFor {
                 var empty = false

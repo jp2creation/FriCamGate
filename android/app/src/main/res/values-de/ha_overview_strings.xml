@@ -1,0 +1,5 @@
+<resources>
+    <string name="ha_overview_title">Home Assistant</string>
+    <string name="ha_save_server">Verbindung speichern</string>
+    <string name="ha_loading_cameras">Kameras werden geladen…</string>
+</resources>
