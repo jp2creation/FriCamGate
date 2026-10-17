@@ -51,3 +51,14 @@
 
 Mobile data is unchanged. TV can retain its previous configuration or pair again. The preceding APK
 remains available; Android normally requires uninstalling before a versionCode downgrade.
+
+## 0.3.1 Welcome Screen
+
+- Centered brand, heading, primary phone pairing action and secondary manual connection entry.
+- No reload or camera controls before configuration. Phone pairing receives initial remote focus.
+- Manual entry opens the existing Frigate, ONVIF and HA setup activities; on return, their saved
+  configuration is copied to the atomic TV configuration without touching another device.
+- On the connected Smart TV Pro, the empty-install instrumentation test passed. Screenshot inspection
+  confirmed the selected primary action; DPAD down/center opened all three manual source choices and
+  Back returned to the welcome screen. No credentials were entered and no camera was opened.
+- Authentication and actual video playback remain outside this UI-only device validation.

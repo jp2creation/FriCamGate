@@ -1,4 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="tv_setup_heading">Set up your TV</string>
+    <string name="tv_setup_subtitle">Your cameras on the big screen</string>
+    <string name="tv_setup_phone">With my phone</string>
+    <string name="tv_setup_manual">Manual connection</string>
     <string name="tv_share_title">Configure a TV</string>
     <string name="tv_transfer_detail">Local transfer by QR code</string>
     <string name="tv_share_intro">Open Camnory on the TV and choose Configure with my phone. Both devices must be on the same local network.</string>

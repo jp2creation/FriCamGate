@@ -10,7 +10,8 @@ import android.graphics.RectF
 import android.view.View
 
 /** Keeps the supplied logo and lettering together at their original proportions. */
-internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int, portrait: Boolean = false) : View(context) {
+internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int, portrait: Boolean = false,
+    private val darkBackground: Boolean? = null) : View(context) {
     private val source = BitmapFactory.decodeResource(resources,
         if (portrait) R.drawable.camnory_brand_portrait else R.drawable.camnory_brand_horizontal)
     private val crop = if (portrait) Rect(60, 230, 670, 1010) else Rect(110, 190, 1180, 520)
@@ -49,7 +50,7 @@ internal class BrandWordmarkView(context: Context, private val maxWidthDp: Int, 
         val scale = minOf(width.toFloat() / crop.width(), height.toFloat() / crop.height())
         val drawnWidth = crop.width() * scale
         val drawnHeight = crop.height() * scale
-        canvas.drawBitmap(artwork[if (Palette.dark) 1 else 0], null, RectF((width - drawnWidth) / 2f, (height - drawnHeight) / 2f,
+        canvas.drawBitmap(artwork[if (darkBackground ?: Palette.dark) 1 else 0], null, RectF((width - drawnWidth) / 2f, (height - drawnHeight) / 2f,
             (width + drawnWidth) / 2f, (height + drawnHeight) / 2f), paint)
     }
 }

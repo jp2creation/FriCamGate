@@ -23,6 +23,14 @@ class TvEntryInstrumentationTest {
                 assertNotNull(pair)
                 assertTrue(pair.isFocusable)
                 assertTrue(pair.isClickable)
+                assertTrue("Phone setup must be selected on entry", pair.hasFocus())
+                assertNotNull(root.findViewWithTag<View>("tv-welcome"))
+                val manual = root.findViewWithTag<View>("tv-manual")
+                assertTrue(manual.isFocusable)
+                assertEquals(manual.id, pair.nextFocusDownId)
+                assertEquals(pair.id, manual.nextFocusUpId)
+                manual.performClick()
+                repeat(3) { assertNotNull(root.findViewWithTag<View>("tv-manual-source-$it")) }
             }
         }
     }

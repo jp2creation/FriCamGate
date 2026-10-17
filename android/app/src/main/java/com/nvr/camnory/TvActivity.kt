@@ -1,6 +1,7 @@
 package com.nvr.camnory
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +14,7 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.doOnLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -49,6 +51,16 @@ class TvActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var mode = "home"
+    private val manualSetup = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val imported = runCatching {
+            TvConfiguration.fromPhone(this).takeIf { it.frigate.isNotEmpty() || it.onvif.isNotEmpty() || it.ha != null }
+                ?.also { TvConfigurationStore(this).save(it) }
+        }
+        if (imported.isSuccess) {
+            configuration = imported.getOrNull() ?: configuration
+            showHome()
+        } else showHome(getString(R.string.tv_pair_failed))
+    }
     private data class Item(val key: String, val name: String, val source: CameraSource,
         val frigate: NativeCamera? = null, val onvif: OnvifSavedCamera? = null, val ha: HomeAssistantCamera? = null)
 
@@ -83,7 +95,7 @@ class TvActivity : AppCompatActivity() {
         }
         body.addView(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(BrandWordmarkView(this@TvActivity, 180), LinearLayout.LayoutParams(dp(180), dp(60)))
+            addView(BrandWordmarkView(this@TvActivity, 180, darkBackground = true), LinearLayout.LayoutParams(dp(180), dp(60)))
             addView(text(title, 22), LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(24) })
         })
         setContentView(body)
@@ -112,18 +124,17 @@ class TvActivity : AppCompatActivity() {
         clear(); mode = "home"
         api = null
         window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val config = configuration
+        if (config == null) {
+            setContentView(TvWelcomeView(this, message, ::startPairing, ::showManualSources))
+            return
+        }
         val body = root(getString(R.string.cameras))
         body.addView(LinearLayout(this).apply {
             addView(action(getString(R.string.tv_pair)) { startPairing() }.apply { tag = "tv-pair" })
             addView(action(getString(R.string.reload)) { showHome() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
         })
         message?.let { body.addView(text(it)) }
-        val config = configuration
-        if (config == null) {
-            body.addView(text(getString(R.string.tv_welcome), 20).apply { setPadding(0, dp(28), 0, dp(28)) })
-            body.findViewWithTag<View>("tv-pair").requestFocus()
-            return
-        }
         val scroll = ScrollView(this)
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(grid); body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -141,6 +152,20 @@ class TvActivity : AppCompatActivity() {
             } }
         }
         body.findViewWithTag<View>("tv-pair").requestFocus()
+    }
+    private fun showManualSources() {
+        clear(); mode = "manual"
+        val body = root(getString(R.string.tv_setup_manual))
+        body.gravity = Gravity.CENTER_HORIZONTAL
+        listOf("Frigate" to FrigateServersActivity::class.java, "ONVIF" to OnvifActivity::class.java,
+            "Home Assistant" to HomeAssistantActivity::class.java).forEachIndexed { index, (label, activity) ->
+            body.addView(action(label) { manualSetup.launch(Intent(this, activity)) }.apply {
+                tag = "tv-manual-source-$index"
+                if (index == 0) requestFocus()
+            }, LinearLayout.LayoutParams(dp(380), dp(54)).apply { topMargin = dp(14) })
+        }
+        body.addView(action(getString(R.string.onvif_back)) { showHome() },
+            LinearLayout.LayoutParams(dp(380), dp(50)).apply { topMargin = dp(14) })
     }
     private fun populate(grid: LinearLayout, all: List<Item>) {
         onvifCards.forEach { it.setActive(false) }; onvifCards.clear()
