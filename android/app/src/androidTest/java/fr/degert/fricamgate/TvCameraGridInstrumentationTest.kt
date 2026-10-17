@@ -15,6 +15,70 @@ import org.junit.Test
 
 /** Uses the real shared shell/tiles with fixture photographs, without connecting cameras. */
 class TvCameraGridInstrumentationTest {
+    @Test fun everyGridFitsAndUpReachesTheMenu() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        assumeTrue(TelevisionMode.enabled(context))
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java).apply {
+            action = "com.nvr.camnory.TV_SETTINGS"
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }).use { scenario ->
+            for (layout in TvGridLayout.values()) {
+                lateinit var grid: TvCameraGrid
+                lateinit var tiles: List<View>
+                scenario.onActivity { activity ->
+                    tiles = (0 until layout.columns * layout.rows * 2).map { index ->
+                        ImageView(activity).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            val asset = listOf("driveway", "entrance", "terrace", "workshop")[index % 4]
+                            instrumentation.context.assets.open("ha-previews/$asset.jpg").use { setImageBitmap(BitmapFactory.decodeStream(it)) }
+                        }
+                    }
+                    val scroll = TvCameraScrollView(activity)
+                    val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+                    grid = TvCameraGrid(activity, layout.columns, tiles, rowsPerPage = layout.rows)
+                    column.addView(grid)
+                    scroll.addView(column)
+                    grid.attachToViewport(scroll, column)
+                    val shell = MainActivity::class.java.declaredMethods.first { it.name == "setShell" && it.parameterCount == 4 }.apply { isAccessible = true }
+                    shell.invoke(activity, scroll, shell.parameterTypes[1].enumConstants!!.first { it.toString() == "Home" }, true, false)
+                }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity ->
+                    val pageSize = layout.columns * layout.rows
+                    tiles.take(pageSize).forEach { tile ->
+                        val visible = Rect()
+                        assertTrue("${layout.preference} tile visible", tile.getGlobalVisibleRect(visible))
+                        assertEquals(tile.height, visible.height())
+                        assertEquals(tile.width, visible.width())
+                    }
+                    tiles[0].requestFocus()
+                    assertTrue(tiles[0].dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP)))
+                    assertTrue(activity.window.decorView.findViewWithTag<View>("navigation-Home").hasFocus())
+                    tiles[0].requestFocus()
+                    repeat(layout.rows) {
+                        activity.currentFocus!!.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
+                    }
+                    assertEquals(1, grid.currentPage)
+                    assertTrue(tiles[pageSize].hasFocus())
+                }
+                instrumentation.waitForIdleSync()
+                val drawn = java.util.concurrent.CountDownLatch(1)
+                scenario.onActivity { activity -> activity.window.decorView.postOnAnimation {
+                    activity.window.decorView.postOnAnimation { drawn.countDown() }
+                } }
+                assertTrue(drawn.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                scenario.onActivity { activity ->
+                    assertTrue("Next page must have laid-out images", tiles[layout.columns * layout.rows].height > 0)
+                    val bitmap = android.graphics.Bitmap.createBitmap(activity.window.decorView.width, activity.window.decorView.height, android.graphics.Bitmap.Config.ARGB_8888)
+                    activity.window.decorView.draw(android.graphics.Canvas(bitmap))
+                    java.io.File(context.cacheDir, "tv-grid-${layout.preference}.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    bitmap.recycle()
+                }
+            }
+        }
+    }
+
     @Test fun focusHasVisibleAccentEdgeAndGentleFalloffInBothThemes() {
         val dark = Palette.dark
         try {

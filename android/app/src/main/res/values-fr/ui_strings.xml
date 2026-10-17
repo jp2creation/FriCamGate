@@ -66,7 +66,7 @@
     <string name="required_login">Serveur, utilisateur et mot de passe obligatoires.</string>
     <string name="connecting">Connexion…</string>
     <string name="loading_cameras">Chargement des caméras…</string>
-    <string name="connecting_nvr">Connexion au NVR…</string>
+    <string name="connecting_nvr">Recherche de vos caméras…</string>
     <string name="preparing_live">Préparation du live…</string>
     <string name="login_failed">Connexion impossible</string>
     <string name="frigate_unavailable">Frigate indisponible.</string>

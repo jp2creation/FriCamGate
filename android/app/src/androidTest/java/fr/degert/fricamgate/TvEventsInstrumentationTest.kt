@@ -13,6 +13,55 @@ import org.junit.Test
 
 /** The TV event browser is exercised with photographs, not real event playback. */
 class TvEventsInstrumentationTest {
+    @Test fun historyLoadsAutomaticallyWithoutMoreButtonsOrRepeatedPages() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        assumeTrue(TelevisionMode.enabled(context))
+        for (inbox in listOf(false, true)) {
+            val requests = java.util.concurrent.atomic.AtomicInteger()
+            ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java).apply {
+                action = "com.nvr.camnory.TV_SETTINGS"
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }).use { scenario ->
+                scenario.onActivity { activity ->
+                    fun field(name: String) = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
+                    val fixtures = (0 until 100).map { index ->
+                        NativeEvent("auto-$index", "fixture", "Personne", "person", null, "12:00",
+                            System.currentTimeMillis() / 1000.0 - 1200 - index, null, null)
+                    }
+                    field("cameras").set(activity, listOf(NativeCamera("fixture", "Fixture", true, "fixture", null, null, null, null, null, null, null)))
+                    field("events").set(activity, fixtures)
+                    field("globalResults").set(activity, fixtures)
+                    field("globalHasMore").setBoolean(activity, true)
+                    field("globalLoading").setBoolean(activity, false)
+                    field("globalError").setBoolean(activity, false)
+                    val session = field("session")
+                    session.set(activity, session.type.getDeclaredConstructor(String::class.java, String::class.java, String::class.java)
+                        .apply { isAccessible = true }.newInstance("https://fixture.invalid", "fixture", "fixture"))
+                    field("api").set(activity, object : FrigateNativeApi("https://fixture.invalid", okhttp3.OkHttpClient()) {
+                        override fun loadBitmap(token: String, url: String, callback: (android.graphics.Bitmap?) -> Unit) { callback(null) }
+                        override fun searchEvents(token: String, search: EventSearch, now: Double, before: Double?, callback: (Result<List<NativeEvent>>) -> Unit) {
+                            requests.incrementAndGet()
+                            callback(Result.success(fixtures))
+                        }
+                    })
+                    MainActivity::class.java.getDeclaredMethod(if (inbox) "renderGlobalEvents" else "renderTvEvents").apply { isAccessible = true }.invoke(activity)
+                }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity -> activity.window.decorView.findViewWithTag<TvHistoryView>("tv-history-pages").focusSelection("auto-95") }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity ->
+                    assertEquals("The final loaded page triggers one automatic request", 1, requests.get())
+                    val more = context.getString(R.string.filter_more)
+                    fun containsMore(view: View): Boolean = (view is android.widget.TextView && view.text.toString() == more) ||
+                        (view is ViewGroup && (0 until view.childCount).any { containsMore(view.getChildAt(it)) })
+                    assertFalse("No load-more button on TV", containsMore(activity.window.decorView))
+                    assertFalse("A repeated server page terminates pagination", MainActivity::class.java.getDeclaredField("globalHasMore").apply { isAccessible = true }.getBoolean(activity))
+                }
+            }
+        }
+    }
+
     @Test fun cinemaFilmstripAndInboxHaveContextualPlayback() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

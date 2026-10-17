@@ -82,10 +82,10 @@ class UrlNormalizationTest {
 
     @Test
     fun cyclesStartupLoadingMessages() {
-        assertEquals("Connexion au NVR...", loadingStageMessage(0))
+        assertEquals("Recherche de vos caméras…", loadingStageMessage(0))
         assertEquals("Chargement des cameras...", loadingStageMessage(1))
         assertEquals("Preparation du live...", loadingStageMessage(2))
-        assertEquals("Connexion au NVR...", loadingStageMessage(3))
+        assertEquals("Recherche de vos caméras…", loadingStageMessage(3))
     }
 
     @Test

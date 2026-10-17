@@ -679,9 +679,10 @@ class MainActivity : AppCompatActivity() {
         } else {
             val layout = homeCameraLayout()
             if (TelevisionMode.enabled(this)) {
-                val grid = TvCameraGrid(this, 2, shownCameras.map { item ->
+                val tvLayout = TvGridLayout.fromPreference(getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("tvCameraLayout", null))
+                val grid = TvCameraGrid(this, tvLayout.columns, shownCameras.map { item ->
                     dashboardCameraView(item, layout).apply { tag = "dashboard-camera:${item.key}" }
-                }, onSelection = { index -> selectTelevisionCamera(index?.let { shownCameras[it] }) })
+                }, onSelection = { index -> selectTelevisionCamera(index?.let { shownCameras[it] }) }, rowsPerPage = tvLayout.rows)
                 column.addView(grid, LinearLayout.LayoutParams(-1, -2))
                 grid.attachToViewport(content, column)
             } else shownCameras.chunked(layout.columns).forEach { cameraRow ->
@@ -2236,6 +2237,11 @@ class MainActivity : AppCompatActivity() {
             onSelect = { id ->
                 if (inbox) tvNotificationSelectedId = id else tvEventSelectedId = id
                 filtered.firstOrNull { it.id == id }?.let { preview.select(it) }
+                body.post {
+                    if (body.isAttachedToWindow && (if (inbox) tvNotificationSelectedId else tvEventSelectedId) == id &&
+                        tvShouldLoadHistory(filtered.indexOfFirst { it.id == id }, filtered.size, globalHasMore, globalLoading, globalError))
+                        loadGlobalEventPage(reset = false)
+                }
             },
             onOpen = { event ->
                 preview.select(event); preview.play()
@@ -2251,7 +2257,7 @@ class MainActivity : AppCompatActivity() {
         (filtered.firstOrNull { it.id == selected } ?: filtered.firstOrNull())?.let { preview.select(it) }
         preview.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
         if (globalLoading) body.addView(label(getString(R.string.filter_loading), 12, Palette.muted))
-        if (globalError || globalHasMore) body.addView(secondaryButton(getString(if (globalError) R.string.filter_retry else R.string.filter_more)).apply {
+        if (globalError) body.addView(secondaryButton(getString(R.string.filter_retry)).apply {
             isEnabled = !globalLoading
             setOnClickListener { loadGlobalEventPage(reset = globalError && globalResults.isNullOrEmpty()) }
         })
@@ -2298,8 +2304,9 @@ class MainActivity : AppCompatActivity() {
                 if (generation != globalQueryGeneration || session?.token != activeSession.token || search != eventSearch) return@runOnUiThread
                 globalLoading = false
                 result.onSuccess { page ->
+                    val previousCount = globalResults.orEmpty().size
                     globalResults = (globalResults.orEmpty() + page).distinctBy { it.id }.sortedByDescending { it.startTime ?: 0.0 }
-                    globalHasMore = page.size >= 100
+                    globalHasMore = page.size >= 100 && globalResults.orEmpty().size > previousCount
                 }.onFailure { globalError = true }
                 if (activeTab == Tab.Grid) refreshGlobalEventResults()
                 else if (activeTab == Tab.Events && findViewById<ViewGroup>(android.R.id.content)
@@ -3320,6 +3327,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showCameraLayoutMenu(anchor: View) {
+        if (TelevisionMode.enabled(this)) {
+            val prefs = getSharedPreferences("camgate-settings", MODE_PRIVATE)
+            val selected = TvGridLayout.fromPreference(prefs.getString("tvCameraLayout", null))
+            showHomeViewMenu(anchor, TvGridLayout.values().map { layout ->
+                homeMenuRow(R.drawable.ic_layout_selector, getString(layout.titleRes), selected == layout) {
+                    prefs.edit().putString("tvCameraLayout", layout.preference).apply()
+                    if (selected != layout) renderHome()
+                }
+            })
+            return
+        }
         val selected = homeCameraLayout()
         showHomeViewMenu(anchor, HomeCameraLayout.values().map { layout ->
             homeMenuRow(layout.iconRes, getString(layout.titleRes), selected == layout) {
@@ -4058,7 +4076,7 @@ class MainActivity : AppCompatActivity() {
                 "backgroundStyle" -> R.drawable.ic_image
                 "textSize" -> R.drawable.ic_text_size
                 "activityBriefingStyle" -> R.drawable.ic_activity_wave
-                "homeCameraLayout", "tabletCameraLayout" -> R.drawable.ic_layout_selector
+                "homeCameraLayout", "tabletCameraLayout", "tvCameraLayout" -> R.drawable.ic_layout_selector
                 else -> R.drawable.ic_settings
             }).apply { tag = "appearance-$key" }
         }
@@ -4152,7 +4170,9 @@ class MainActivity : AppCompatActivity() {
             }, icon = R.drawable.ic_videocam).apply { tag = "appearance-camera-buttons" }))
         column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating",
             ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
-        column.addView(settingsGroup(choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
+        column.addView(settingsGroup(if (TelevisionMode.enabled(this))
+            choice(R.string.camera_layout, "tvCameraLayout", "2x2", TvGridLayout.values().map { it.preference to it.titleRes })
+        else choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
         column.addView(preferenceToggleRow(getString(R.string.camera_source_icons), getString(R.string.camera_source_icons_detail), SwitchCompat(this).apply {
             tag = "show-camera-source-icons"
             contentDescription = getString(R.string.camera_source_icons)
@@ -5474,7 +5494,7 @@ internal fun sameMomentCameraNames(
 
 fun loadingStageMessage(index: Int): String =
     when (((index % LOADING_STAGE_COUNT) + LOADING_STAGE_COUNT) % LOADING_STAGE_COUNT) {
-        0 -> "Connexion au NVR..."
+        0 -> "Recherche de vos caméras…"
         1 -> "Chargement des cameras..."
         else -> "Preparation du live..."
     }

@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TvHistoryPagesTest {
+    @Test fun historyPrefetchesOnlyNearTheEndWithoutRetryLoops() {
+        assertTrue(tvShouldLoadHistory(95, 100, true, false, false))
+        assertFalse(tvShouldLoadHistory(94, 100, true, false, false))
+        assertFalse(tvShouldLoadHistory(-1, 100, true, false, false))
+        assertFalse(tvShouldLoadHistory(0, 0, true, false, false))
+        assertFalse(tvShouldLoadHistory(99, 100, false, false, false))
+        assertFalse(tvShouldLoadHistory(99, 100, true, true, false))
+        assertFalse(tvShouldLoadHistory(99, 100, true, false, true))
+    }
+
+    @Test fun allTvGridsFitTheirRequestedRowsAndHaveIndependentPreferences() {
+        assertEquals(listOf(1, 2, 4, 9, 16), TvGridLayout.values().map { it.columns * it.rows })
+        for (layout in TvGridLayout.values()) {
+            assertEquals(layout, TvGridLayout.fromPreference(layout.preference))
+            val height = tvCameraTileHeight(800, 8, layout.columns, 32, layout.rows)
+            assertTrue(height * layout.rows + 8 * (layout.rows - 1) <= 800)
+        }
+        assertEquals(TvGridLayout.Four, TvGridLayout.fromPreference(null))
+        assertEquals(TvGridLayout.Four, TvGridLayout.fromPreference("invalid"))
+    }
     @Test fun cinemaUsesOneFilmstripAndInboxUsesFiveRows() {
         assertEquals(5, tvHistoryColumns(false))
         assertEquals(1, tvHistoryColumns(true))

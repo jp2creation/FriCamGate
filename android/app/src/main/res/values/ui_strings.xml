@@ -66,7 +66,7 @@
     <string name="required_login">Server, username and password are required.</string>
     <string name="connecting">Connecting…</string>
     <string name="loading_cameras">Loading cameras…</string>
-    <string name="connecting_nvr">Connecting to the NVR…</string>
+    <string name="connecting_nvr">Searching for your cameras…</string>
     <string name="preparing_live">Preparing live view…</string>
     <string name="login_failed">Could not connect</string>
     <string name="frigate_unavailable">Frigate unavailable.</string>

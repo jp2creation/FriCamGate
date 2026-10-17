@@ -9,9 +9,9 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 
-internal fun tvCameraTileHeight(viewport: Int, gap: Int, columns: Int, count: Int): Int {
+internal fun tvCameraTileHeight(viewport: Int, gap: Int, columns: Int, count: Int, pageRows: Int = if (columns == 1) 1 else 2): Int {
     val rows = ((count + columns - 1) / columns).coerceAtLeast(1)
-    val visibleRows = minOf(rows, if (columns == 1) 1 else 2)
+    val visibleRows = minOf(rows, pageRows)
     return ((viewport - gap * (visibleRows - 1)) / visibleRows).coerceAtLeast(1)
 }
 
@@ -21,9 +21,8 @@ internal class TvCameraScrollView(context: Context) : ScrollView(context) {
 
 /** Fixed pages: no following row can peek into the visible page. */
 internal class TvCameraGrid(context: Context, private val columns: Int, private val tiles: List<View>,
-    private val onSelection: (Int?) -> Unit = {}) : LinearLayout(context) {
+    private val onSelection: (Int?) -> Unit = {}, private val rowsPerPage: Int = if (columns == 1) 1 else 2) : LinearLayout(context) {
     private val gap = dp(8)
-    private val rowsPerPage = if (columns == 1) 1 else 2
     private val pageSize = columns * rowsPerPage
     private val pageCount = ((tiles.size + pageSize - 1) / pageSize).coerceAtLeast(1)
     private val body = LinearLayout(context).apply { orientation = VERTICAL }
@@ -59,6 +58,9 @@ internal class TvCameraGrid(context: Context, private val columns: Int, private 
             tile.isFocusable = true
             tile.setOnKeyListener { _, key, event ->
                 if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                if (key == KeyEvent.KEYCODE_DPAD_UP && index < columns) {
+                    return@setOnKeyListener rootView.findViewWithTag<View>("navigation-Home")?.requestFocus() ?: false
+                }
                 val next = when (key) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> if (index / columns < (tiles.size - 1) / columns) minOf(index + columns, tiles.lastIndex) else index
                     KeyEvent.KEYCODE_DPAD_UP -> (index - columns).coerceAtLeast(index % columns)
@@ -103,7 +105,7 @@ internal class TvCameraGrid(context: Context, private val columns: Int, private 
     fun fitViewport(height: Int) {
         val available = height.coerceAtLeast(1)
         if (minimumHeight != available) minimumHeight = available
-        val next = tvCameraTileHeight(available, gap, columns, tiles.size)
+        val next = tvCameraTileHeight(available, gap, columns, tiles.size, rowsPerPage)
         if (cellHeight == next) return
         cellHeight = next
         repeat(body.childCount) { row -> body.getChildAt(row).layoutParams = body.getChildAt(row).layoutParams.apply { this.height = next } }

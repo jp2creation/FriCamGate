@@ -26,6 +26,7 @@ internal class TvEventPreview(
     onFullscreen: (NativeEvent) -> Unit
 ) : LinearLayout(context) {
     private var selected: NativeEvent? = null
+    private var pendingThumbnail: Runnable? = null
     private val heading = label("", 20, Palette.text)
     private val cameraName = label("", 14, Palette.text)
     private val time = label("", 12, Palette.muted)
@@ -93,7 +94,10 @@ internal class TvEventPreview(
             controls.setBackgroundColor(0xaa000000.toInt())
             frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) = Unit
-                override fun onViewDetachedFromWindow(view: View) { frame.removeCallbacks(hideChrome) }
+                override fun onViewDetachedFromWindow(view: View) {
+                    frame.removeCallbacks(hideChrome)
+                    pendingThumbnail?.let { image.removeCallbacks(it) }
+                }
             })
         }
         addView(playback, if (inbox) LayoutParams(-1, -1) else LayoutParams(0, -1, 2f))
@@ -129,7 +133,11 @@ internal class TvEventPreview(
             String.format(java.util.Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
         } }.orEmpty()
         image.setImageBitmap(event.thumbnail)
-        thumbnail(event, image) { selected?.id == event.id && image.isAttachedToWindow }
+        pendingThumbnail?.let { image.removeCallbacks(it) }
+        pendingThumbnail = Runnable {
+            if (selected?.id == event.id && image.isAttachedToWindow)
+                thumbnail(event, image) { selected?.id == event.id && image.isAttachedToWindow }
+        }.also { image.postDelayed(it, 180) }
     }
 
     fun play() {

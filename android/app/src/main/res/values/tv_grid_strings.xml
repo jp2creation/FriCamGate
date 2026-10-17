@@ -1,0 +1,7 @@
+<resources>
+    <string name="tv_grid_1x1" translatable="false">1 × 1</string>
+    <string name="tv_grid_2x1" translatable="false">2 × 1</string>
+    <string name="tv_grid_2x2" translatable="false">2 × 2</string>
+    <string name="tv_grid_3x3" translatable="false">3 × 3</string>
+    <string name="tv_grid_4x4" translatable="false">4 × 4</string>
+</resources>
