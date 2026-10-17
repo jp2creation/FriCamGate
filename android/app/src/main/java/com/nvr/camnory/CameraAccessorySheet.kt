@@ -40,6 +40,12 @@ internal class CameraAccessorySheet(context: Context, private val cameraKey: Str
         val links = OnvifCameraLinks(context, cameraKey)
         val linked = nativeCamera ?: links.resolve(nativeCameras)
         linked?.let { camera ->
+            rows.addView(ui.action(context.getString(R.string.camera_all_settings), false) {
+                if (!closed && allowed()) {
+                    context.startActivity(android.content.Intent(context, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.id))
+                    dismiss()
+                }
+            }.apply { tag = "camera-all-settings" })
             rows.addView(ui.action(context.getString(R.string.camera_native_controls), false) {
                 if (!closed && allowed()) {
                     nativeSheet?.dismiss()

@@ -16,6 +16,7 @@
 
         <activity android:name=".OnvifActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar"
             android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity android:name=".OnvifCameraSettingsActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar" />
         <activity android:name=".HomeAssistantActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar" />
         <activity android:name=".FrigateServersActivity" android:exported="false" android:theme="@style/AppTheme.NoActionBar" />
 

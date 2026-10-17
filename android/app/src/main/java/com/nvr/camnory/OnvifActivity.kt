@@ -16,7 +16,7 @@ import androidx.media3.ui.PlayerView
 import java.util.UUID
 import java.util.concurrent.Executors
 
-/** Camera-only screen: no Frigate API, camera configuration or alarm controls. */
+/** Connection and playback screen; physical-device settings open in their dedicated activity. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class OnvifActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -101,7 +101,9 @@ class OnvifActivity : AppCompatActivity() {
             rows.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(text(camera.name, 17).apply { setOnClickListener { connect(camera) } }, LinearLayout.LayoutParams(0, dp(68), 1f))
-                addView(icon(R.drawable.ic_settings, getString(R.string.settings)) { add(camera) })
+                addView(icon(R.drawable.ic_settings, getString(R.string.settings)) {
+                    startActivity(android.content.Intent(this@OnvifActivity, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.id))
+                })
                 addView(icon(R.drawable.ic_delete, getString(R.string.onvif_delete)) {
                     AlertDialog.Builder(this@OnvifActivity).setMessage(getString(R.string.onvif_delete_question, camera.name))
                         .setNegativeButton(android.R.string.cancel, null).setPositiveButton(android.R.string.ok) { _, _ ->

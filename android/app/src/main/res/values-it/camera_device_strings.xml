@@ -1,0 +1,26 @@
+<resources>
+    <string name="camera_all_settings">Impostazioni telecamera</string>
+    <string name="device_information">Informazioni dispositivo</string>
+    <string name="device_video_profiles">Profili video</string>
+    <string name="device_readonly_note">Profili in sola lettura. Le modifiche alla codifica e alla rete non sono supportate qui.</string>
+    <string name="device_image">Immagine</string>
+    <string name="device_no_image">Nessuna impostazione immagine compatibile dichiarata.</string>
+    <string name="device_services">Servizi disponibili</string>
+    <string name="device_advanced_note">Solo i comandi ONVIF implementati sono modificabili. Audio, visione notturna, rete e opzioni del produttore possono richiedere la sua app. Le funzioni non elencate possono comunque esistere.</string>
+    <string name="device_connect_settings">Impostazioni connessione</string>
+    <string name="device_apply">Applica</string>
+    <string name="device_image_confirm">Salvare questo valore (%2$s) sulla telecamera «%1$s»?</string>
+    <string-array name="device_info_names">
+        <item>Produttore</item>
+        <item>Modello</item>
+        <item>Numero di serie</item>
+        <item>Firmware</item>
+        <item>Identificatore hardware</item>
+    </string-array>
+    <string-array name="device_image_names">
+        <item>Luminosità</item>
+        <item>Contrasto</item>
+        <item>Saturazione</item>
+        <item>Nitidezza</item>
+    </string-array>
+</resources>

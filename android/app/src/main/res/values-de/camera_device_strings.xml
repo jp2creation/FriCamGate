@@ -1,0 +1,26 @@
+<resources>
+    <string name="camera_all_settings">Kameraeinstellungen</string>
+    <string name="device_information">Geräteinformationen</string>
+    <string name="device_video_profiles">Videoprofile</string>
+    <string name="device_readonly_note">Profile sind schreibgeschützt. Kodierungs- und Netzwerkänderungen werden hier nicht unterstützt.</string>
+    <string name="device_image">Bild</string>
+    <string name="device_no_image">Keine kompatiblen Bildeinstellungen gemeldet.</string>
+    <string name="device_services">Verfügbare Dienste</string>
+    <string name="device_advanced_note">Nur implementierte ONVIF-Steuerungen sind bearbeitbar. Audio, Nachtsicht, Netzwerk und herstellerspezifische Optionen können die Hersteller-App erfordern. Nicht aufgeführte Funktionen können dennoch existieren.</string>
+    <string name="device_connect_settings">Verbindungseinstellungen</string>
+    <string name="device_apply">Anwenden</string>
+    <string name="device_image_confirm">Diesen Wert (%2$s) auf Kamera „%1$s“ speichern?</string>
+    <string-array name="device_info_names">
+        <item>Hersteller</item>
+        <item>Modell</item>
+        <item>Seriennummer</item>
+        <item>Firmware</item>
+        <item>Hardwarekennung</item>
+    </string-array>
+    <string-array name="device_image_names">
+        <item>Helligkeit</item>
+        <item>Kontrast</item>
+        <item>Sättigung</item>
+        <item>Schärfe</item>
+    </string-array>
+</resources>

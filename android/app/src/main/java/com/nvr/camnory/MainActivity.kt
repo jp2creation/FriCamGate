@@ -3081,13 +3081,9 @@ class MainActivity : AppCompatActivity() {
         val activeSession = session ?: return renderLogin()
         val activeApi = api ?: return renderLogin()
         val card = vertical().apply {
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = rounded(Palette.card, 16, Palette.border, 1)
+            tag = "camera-options-content"
+            setPadding(dp(16), 0, dp(16), dp(20))
         }
-        card.addView(label(camera.friendlyName, 16, Palette.text).apply {
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(6), dp(2), dp(6), dp(4))
-        })
         card.addView(localSoundRow())
         listOf(
             CameraFeatureControl(getString(R.string.detection), getString(R.string.object_analysis), "detect", camera.detectEnabled),
@@ -3098,6 +3094,10 @@ class MainActivity : AppCompatActivity() {
             CameraFeatureControl(getString(R.string.transcription), getString(R.string.audio_transcription), "audio_transcription", camera.audioTranscriptionEnabled),
             CameraFeatureControl(getString(R.string.notifications), getString(R.string.camera_notifications), "notifications", camera.notificationsEnabled)
         ).forEach { control ->
+            if (control.feature in setOf("detect", "recordings", "audio", "notifications")) {
+                card.addView(View(this).apply { setBackgroundColor(Palette.border) },
+                    LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(8); bottomMargin = dp(8) })
+            }
             card.addView(cameraFeatureToggleRow(activeApi, activeSession.token, camera, control))
         }
         card.addView(disabledCameraOptionRow(getString(R.string.microphone), getString(R.string.api_unavailable)))
@@ -3105,22 +3105,10 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { showAccessories(frigateCameraKey(camera.name), camera.friendlyName) }
         })
 
-        val content = appScrollView().apply {
-            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        val popupWidth = minOf(resources.displayMetrics.widthPixels - dp(28), dp(390))
-        val popupHeight = minOf(dp(540), dp(72) + dp(58) * 10)
-        val popup = PopupWindow(content, popupWidth, popupHeight, true).apply {
-            isOutsideTouchable = true
-            isClippingEnabled = true
-            elevation = dp(18).toFloat()
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setOnDismissListener {
-                if (cameraPickerPopup === this) cameraPickerPopup = null
-            }
-        }
-        cameraPickerPopup = popup
-        popup.showAtLocation(anchor, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, dp(86))
+        val sheet = SelectionBottomSheet(this, camera.friendlyName, card)
+        cameraPickerSheet = sheet
+        sheet.setOnDismissListener { if (cameraPickerSheet === sheet) cameraPickerSheet = null }
+        sheet.show()
     }
 
     private fun localSoundRow(): View {
@@ -3794,7 +3782,7 @@ class MainActivity : AppCompatActivity() {
                 all.firstOrNull { it.key == key }?.let { camera ->
                     when {
                         camera.frigate != null -> showCameraOptionsPopup(camera.frigate, anchor)
-                        camera.onvif != null -> openOnvifManager(camera.onvif.id, manage = true)
+                        camera.onvif != null -> startActivity(Intent(this, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.onvif.id))
                         else -> androidx.appcompat.app.AlertDialog.Builder(this).setTitle(camera.name)
                             .setMessage("Home Assistant\n${camera.haCamera?.entityId.orEmpty()}")
                             .setPositiveButton(android.R.string.ok, null).show()

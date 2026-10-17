@@ -22,7 +22,8 @@ internal class OnvifCredentials(val username: String, val password: String) {
     override fun toString() = "OnvifCredentials([redacted])"
 }
 internal data class OnvifProfile(val token: String, val name: String, val encoding: String,
-    val ptzConfiguration: String? = null, val ptzNode: String? = null)
+    val ptzConfiguration: String? = null, val ptzNode: String? = null, val videoSource: String? = null,
+    val resolution: String? = null)
 internal data class OnvifConnection(val deviceEndpoint: String, val mediaEndpoint: String, val profiles: List<OnvifProfile>, val clockOffsetMs: Long)
 internal class OnvifHttpException(val statusCode: Int) : IOException("ONVIF HTTP $statusCode")
 
@@ -56,14 +57,18 @@ internal enum class OnvifSoapOperation(val method: String, val namespace: String
     PtzPresets("GetPresets", "http://www.onvif.org/ver20/ptz/wsdl"),
     PtzMove("RelativeMove", "http://www.onvif.org/ver20/ptz/wsdl"),
     PtzStop("Stop", "http://www.onvif.org/ver20/ptz/wsdl"),
-    PtzPreset("GotoPreset", "http://www.onvif.org/ver20/ptz/wsdl")
+    PtzPreset("GotoPreset", "http://www.onvif.org/ver20/ptz/wsdl"),
+    DeviceInfo("GetDeviceInformation", "http://www.onvif.org/ver10/device/wsdl"),
+    ImageSettings("GetImagingSettings", "http://www.onvif.org/ver20/imaging/wsdl"),
+    ImageOptions("GetOptions", "http://www.onvif.org/ver20/imaging/wsdl"),
+    SetImage("SetImagingSettings", "http://www.onvif.org/ver20/imaging/wsdl")
 }
 
 /** Closed, read-only SOAP surface. No generic operation or mutation API is exposed. */
 internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient.Builder()
     .followRedirects(false).followSslRedirects(false).callTimeout(10, TimeUnit.SECONDS).build()) {
 
-    fun connect(endpoint: String, credentials: OnvifCredentials): OnvifConnection {
+    fun connect(endpoint: String, credentials: OnvifCredentials, supportedOnly: Boolean = true): OnvifConnection {
         val address = onvifEndpoint(endpoint).toASCIIString()
         val offset = runCatching {
             val clock = request(address, address, credentials, OnvifSoapOperation.Clock, 0).descendant("UTCDateTime")!!
@@ -80,8 +85,10 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
             val encoding = it.descendant("VideoEncoderConfiguration")?.child("Encoding")?.text ?: return@mapNotNull null
             val ptz = it.child("PTZConfiguration")
             OnvifProfile(token, it.child("Name")?.text ?: token, encoding,
-                ptz?.attributes?.get("token"), ptz?.child("NodeToken")?.text)
-        }.filter { it.encoding.equals("H264", true) }
+                ptz?.attributes?.get("token"), ptz?.child("NodeToken")?.text,
+                it.child("VideoSourceConfiguration")?.child("SourceToken")?.text,
+                it.descendant("Resolution")?.let { size -> "${size.child("Width")?.text.orEmpty()} × ${size.child("Height")?.text.orEmpty()}" })
+        }.filter { !supportedOnly || it.encoding.equals("H264", true) }
         if (profiles.isEmpty()) throw IOException("No supported video profile")
         return OnvifConnection(address, media, profiles, offset)
     }
@@ -117,7 +124,8 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
 internal class OnvifSoapTransport(private val http: OkHttpClient) {
     fun request(origin: String, endpoint: String, credentials: OnvifCredentials,
         operation: OnvifSoapOperation, offsetMs: Long, token: String? = null, relayActive: Boolean? = null,
-        ptzMove: OnvifPtzTranslation? = null, presetToken: String? = null): OnvifXmlNode {
+        ptzMove: OnvifPtzTranslation? = null, presetToken: String? = null,
+        imageChange: Pair<String, Double>? = null): OnvifXmlNode {
         if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException()
         val target = onvifEndpoint(endpoint)
         require(target.host.equals(URI(origin).host, true)) { "Camera service host mismatch" }
@@ -177,6 +185,15 @@ internal class OnvifSoapTransport(private val http: OkHttpClient) {
             text(operation.namespace, "PanTilt", "true"); text(operation.namespace, "Zoom", "true")
         }
         if (operation == OnvifSoapOperation.PtzPreset) text(operation.namespace, "PresetToken", requireNotNull(presetToken))
+        if (operation in setOf(OnvifSoapOperation.ImageSettings, OnvifSoapOperation.ImageOptions, OnvifSoapOperation.SetImage)) {
+            text(operation.namespace, "VideoSourceToken", requireNotNull(token))
+        }
+        if (operation == OnvifSoapOperation.SetImage) {
+            val (key, value) = requireNotNull(imageChange)
+            require(key in ONVIF_IMAGE_FIELDS && value.isFinite())
+            start(operation.namespace, "ImagingSettings"); text(SCHEMA, key, value.toString()); end(operation.namespace, "ImagingSettings")
+            text(operation.namespace, "ForcePersistence", "true")
+        }
         end(operation.namespace, operation.method); end(SOAP, "Body"); end(SOAP, "Envelope"); xml.flush()
         val body = out.toString().toRequestBody("application/soap+xml; charset=utf-8; action=\"${operation.namespace}/${operation.method}\"".toMediaType())
         http.newCall(Request.Builder().url(target.toASCIIString()).post(body)

@@ -1,0 +1,26 @@
+<resources>
+    <string name="camera_all_settings">Ajustes de la cámara</string>
+    <string name="device_information">Información del dispositivo</string>
+    <string name="device_video_profiles">Perfiles de vídeo</string>
+    <string name="device_readonly_note">Perfiles de solo lectura. Los cambios de codificación y red no están disponibles aquí.</string>
+    <string name="device_image">Imagen</string>
+    <string name="device_no_image">No se declaran ajustes de imagen compatibles.</string>
+    <string name="device_services">Servicios disponibles</string>
+    <string name="device_advanced_note">Solo se pueden editar los controles ONVIF implementados. Audio, visión nocturna, red y opciones del fabricante pueden requerir su aplicación. Las funciones no listadas pueden existir.</string>
+    <string name="device_connect_settings">Ajustes de conexión</string>
+    <string name="device_apply">Aplicar</string>
+    <string name="device_image_confirm">¿Guardar este valor (%2$s) en la cámara «%1$s»?</string>
+    <string-array name="device_info_names">
+        <item>Fabricante</item>
+        <item>Modelo</item>
+        <item>Número de serie</item>
+        <item>Firmware</item>
+        <item>Identificador de hardware</item>
+    </string-array>
+    <string-array name="device_image_names">
+        <item>Brillo</item>
+        <item>Contraste</item>
+        <item>Saturación</item>
+        <item>Nitidez</item>
+    </string-array>
+</resources>
