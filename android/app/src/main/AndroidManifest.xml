@@ -19,7 +19,7 @@
         android:localeConfig="@xml/locales_config"
         android:theme="@style/AppTheme">
         <activity android:name=".TvActivity" android:exported="true" android:theme="@style/AppTheme.NoActionBar"
-            android:banner="@drawable/tv_launcher_banner" android:icon="@drawable/tv_launcher_banner"
+            android:banner="@drawable/tv_launcher_banner" android:icon="@drawable/tv_launcher_icon"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

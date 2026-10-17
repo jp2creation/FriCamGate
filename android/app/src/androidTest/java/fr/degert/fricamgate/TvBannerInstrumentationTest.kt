@@ -24,6 +24,8 @@ class TvBannerInstrumentationTest {
         }
         assertTrue("Brand red/pink missing", pink > 1500)
         assertTrue("Banner must have a black background", black > 30000)
+        val icon = info.loadIcon(context.packageManager)
+        assertEquals("Round launcher must receive square artwork", icon.intrinsicWidth, icon.intrinsicHeight)
         bitmap.recycle()
     }
 }
