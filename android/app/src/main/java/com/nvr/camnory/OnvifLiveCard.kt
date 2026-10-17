@@ -29,7 +29,8 @@ internal class OnvifLiveCard(
     private val fullscreen: () -> Unit,
     private val manage: () -> Unit,
     private val onAudible: (OnvifLiveCard) -> Unit = {},
-    private val columnMode: Boolean = false
+    private val columnMode: Boolean = false,
+    private val accessories: (() -> Unit)? = null
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService? = null
@@ -93,7 +94,7 @@ internal class OnvifLiveCard(
             frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.Onvif, listOf(
                 requireNotNull(overlaySound),
                 action(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
-                action(R.drawable.ic_settings, R.string.settings) { manage() },
+                action(R.drawable.ic_settings, R.string.settings) { (accessories ?: manage)() },
                 action(R.drawable.ic_list, R.string.settings) { showMenu(it) }.apply {
                     tag = "onvif-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
                 }
@@ -123,14 +124,14 @@ internal class OnvifLiveCard(
 
     private fun showMenu(anchor: View) {
         menu?.dismiss()
-        val actions: List<Triple<Int, Int, () -> Unit>> = listOf(
+        val actions: List<Triple<Int, Int, () -> Unit>> = listOf<Triple<Int, Int, () -> Unit>>(
             Triple(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume,
                 if (muted) R.string.camera_enable_audio else R.string.camera_disable_audio, { toggleSound() }),
             Triple(R.drawable.ic_list, R.string.onvif_profile, { showProfiles(anchor) }),
             Triple(R.drawable.ic_refresh, R.string.retry, { stop(); retries = 0; failed = false; syncVisibility() }),
             Triple(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
             Triple(R.drawable.ic_settings, R.string.settings, manage)
-        )
+        ) + accessories?.let { listOf(Triple(R.drawable.ic_camera_light, R.string.accessory_title, it)) }.orEmpty()
         val rows = LinearLayout(context).apply {
             orientation = VERTICAL; setPadding(dp(4), dp(6), dp(4), dp(6))
             background = GradientDrawable().apply { setColor(Palette.card); cornerRadius = dp(8).toFloat(); setStroke(dp(1), Palette.divider) }

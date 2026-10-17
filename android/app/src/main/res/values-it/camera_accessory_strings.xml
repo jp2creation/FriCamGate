@@ -1,0 +1,15 @@
+<resources>
+    <string name="accessory_title">Luci e sirene</string>
+    <string name="accessory_light">Illuminazione</string>
+    <string name="accessory_siren">Sirena</string>
+    <string name="accessory_none">Non associato</string>
+    <string name="accessory_on">Attiva</string>
+    <string name="accessory_off">Disattiva</string>
+    <string name="accessory_no_ha">Collega Home Assistant per associare una luce o sirena a questa telecamera.</string>
+    <string name="accessory_via_ha">Tramite Home Assistant. Associa solo dispositivi di questa telecamera. Nessun comando viene inviato durante la scelta.</string>
+    <string name="accessory_loading">Ricerca dei dispositivi disponibili…</string>
+    <string name="accessory_failed">Dispositivo non disponibile o comando rifiutato.</string>
+    <string name="accessory_unavailable">Non disponibile</string>
+    <string name="accessory_confirmation">Telecamera: %1$s\nEntità: %2$s\nServer: %3$s</string>
+    <string name="accessory_siren_warning">Questo comando controlla una sirena reale. Controlla il dispositivo e la scelta prima di confermare.</string>
+</resources>

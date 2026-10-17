@@ -132,6 +132,7 @@ class MainActivity : AppCompatActivity() {
     private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
     private var chatDialog: NativeChatDialog? = null
+    private var accessorySheet: CameraAccessorySheet? = null
     private var chatServerSheet: SelectionBottomSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
@@ -254,6 +255,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
         chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
@@ -350,6 +352,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
         chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
@@ -629,7 +632,7 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.TOP
                     repeat(layout.columns) { index ->
                         val item = cameraRow.getOrNull(index)
-                        val tile = item?.let { dashboardCameraView(it, layout) } ?: View(context)
+                        val tile = item?.let { accessoryShortcut(it, dashboardCameraView(it, layout), layout) } ?: View(context)
                         tile.tag = item?.let { "dashboard-camera:${it.key}" }
                         val height = if (layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
                         addView(tile, LinearLayout.LayoutParams(0, height, 1f).apply {
@@ -686,6 +689,7 @@ class MainActivity : AppCompatActivity() {
                 fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
                 manage = { openOnvifManager(camera.id, manage = true) },
                 columnMode = layout == HomeCameraLayout.Column,
+                accessories = { showAccessories(item.key, item.name) },
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
                     onvifCards.filter { it !== selected }.forEach { it.mute() }
@@ -699,11 +703,39 @@ class MainActivity : AppCompatActivity() {
         return HomeAssistantCameraView(this, connection, camera,
             fullscreen = { openHomeAssistantCamera(connection, camera) },
             columnMode = layout == HomeCameraLayout.Column,
+            accessories = { showAccessories(item.key, item.name) },
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
 
     private fun savedHomeAssistant(): HomeAssistantConnection? = runCatching { HomeAssistantStore(this).load() }
         .getOrElse { toast(getString(R.string.ha_storage_failed)); null }
+
+    private fun accessoryShortcut(camera: DashboardCamera, content: View, layout: HomeCameraLayout): View = FrameLayout(this).apply {
+        addView(content, FrameLayout.LayoutParams(-1, if (layout == HomeCameraLayout.Column) -1 else -2))
+        addView(android.widget.ImageButton(context).apply {
+            tag = "camera-light:${camera.key}"
+            setImageResource(R.drawable.ic_camera_light); setColorFilter(Palette.text)
+            background = rounded(Palette.overlay, 22)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            contentDescription = getString(R.string.accessory_light)
+            visibility = if (savedHomeAssistant()?.let { CameraAccessoryBindings(context, camera.key, it.baseUrl).get("light") } != null) View.VISIBLE else View.GONE
+            setOnClickListener { showAccessories(camera.key, camera.name) }
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { marginStart = dp(8); topMargin = dp(8) })
+    }
+
+    private fun showAccessories(key: String, name: String) {
+        if (appLock.locked) return
+        dismissTransientPopups()
+        val connection = savedHomeAssistant()
+        val sheet = CameraAccessorySheet(this, key, name, connection,
+            allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) }) {
+            window.decorView.findViewWithTag<View>("camera-light:$key")?.visibility =
+                if (connection != null && CameraAccessoryBindings(this, key, connection.baseUrl).get("light") != null) View.VISIBLE else View.GONE
+        }
+        accessorySheet = sheet
+        sheet.setOnDismissListener { if (accessorySheet === sheet) accessorySheet = null }
+        sheet.show()
+    }
 
     private fun hasStandaloneCameras() = savedOnvifCameras().isNotEmpty() || savedHomeAssistant()?.cameras?.isNotEmpty() == true
 
@@ -2944,6 +2976,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
         chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
@@ -3063,7 +3096,9 @@ class MainActivity : AppCompatActivity() {
             card.addView(cameraFeatureToggleRow(activeApi, activeSession.token, camera, control))
         }
         card.addView(disabledCameraOptionRow(getString(R.string.microphone), getString(R.string.api_unavailable)))
-        card.addView(disabledCameraOptionRow(getString(R.string.alarm), getString(R.string.api_unavailable)))
+        card.addView(secondaryButton(getString(R.string.accessory_title)).apply {
+            setOnClickListener { showAccessories(frigateCameraKey(camera.name), camera.friendlyName) }
+        })
 
         val content = appScrollView().apply {
             addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -3761,6 +3796,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }))
+        }
+        if (all.isNotEmpty()) {
+            column.addView(sectionHeading(getString(R.string.accessory_title)))
+            all.forEach { camera -> column.addView(settingsNavRow(camera.name, camera.source.title,
+                { showAccessories(camera.key, camera.name) }, icon = R.drawable.ic_camera_light)) }
         }
         setShell(scroll, Tab.Settings)
     }

@@ -1,0 +1,15 @@
+<resources>
+    <string name="accessory_title">Lights and sirens</string>
+    <string name="accessory_light">Light</string>
+    <string name="accessory_siren">Siren</string>
+    <string name="accessory_none">Not linked</string>
+    <string name="accessory_on">Enable</string>
+    <string name="accessory_off">Disable</string>
+    <string name="accessory_no_ha">Connect Home Assistant to link a camera light or siren.</string>
+    <string name="accessory_via_ha">Via Home Assistant. Link only equipment belonging to this camera. Linking does not trigger a command.</string>
+    <string name="accessory_loading">Loading available equipment…</string>
+    <string name="accessory_failed">Equipment unavailable or command refused.</string>
+    <string name="accessory_unavailable">Unavailable</string>
+    <string name="accessory_confirmation">Camera: %1$s\nEntity: %2$s\nServer: %3$s</string>
+    <string name="accessory_siren_warning">This command controls a real siren. Check the equipment and the selected action before confirming.</string>
+</resources>

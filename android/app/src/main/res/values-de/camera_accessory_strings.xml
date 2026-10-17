@@ -1,0 +1,15 @@
+<resources>
+    <string name="accessory_title">Beleuchtung und Sirenen</string>
+    <string name="accessory_light">Beleuchtung</string>
+    <string name="accessory_siren">Sirene</string>
+    <string name="accessory_none">Nicht verknüpft</string>
+    <string name="accessory_on">Aktivieren</string>
+    <string name="accessory_off">Deaktivieren</string>
+    <string name="accessory_no_ha">Verbinden Sie Home Assistant, um Licht oder Sirene dieser Kamera zuzuordnen.</string>
+    <string name="accessory_via_ha">Über Home Assistant. Ordnen Sie nur Geräte dieser Kamera zu. Die Zuordnung löst keinen Befehl aus.</string>
+    <string name="accessory_loading">Verfügbare Geräte werden gesucht…</string>
+    <string name="accessory_failed">Gerät nicht verfügbar oder Befehl abgelehnt.</string>
+    <string name="accessory_unavailable">Nicht verfügbar</string>
+    <string name="accessory_confirmation">Kamera: %1$s\nEntität: %2$s\nServer: %3$s</string>
+    <string name="accessory_siren_warning">Dieser Befehl steuert eine echte Sirene. Prüfen Sie Gerät und Aktion vor der Bestätigung.</string>
+</resources>

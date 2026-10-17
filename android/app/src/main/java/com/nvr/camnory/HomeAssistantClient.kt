@@ -4,6 +4,8 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -38,7 +40,7 @@ internal fun homeAssistantBaseUrl(value: String): String {
     return url.toString().trimEnd('/')
 }
 
-/** The only remote operations are reading states/images and negotiating camera playback. */
+/** Camera reads/playback plus strictly allowlisted, explicitly requested light/siren commands. */
 internal class HomeAssistantClient(baseUrl: String, private val token: String) : Closeable {
     private val base = (homeAssistantBaseUrl(baseUrl) + "/").toHttpUrl()
     private val sockets = java.util.concurrent.CopyOnWriteArrayList<HomeAssistantSocket>()
@@ -75,6 +77,21 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
     fun image(entity: String): ByteArray {
         require(validHomeAssistantCamera(entity))
         return get(endpoint("api/camera_proxy/$entity").newBuilder().addQueryParameter("width", "640").build(), 8 * 1024 * 1024)
+    }
+    fun accessories(): List<CameraAccessory> = parseCameraAccessories(JSONArray(String(get(endpoint("api/states"), 4 * 1024 * 1024), Charsets.UTF_8)))
+
+    fun setAccessory(entity: String, enabled: Boolean) {
+        require(validCameraAccessory(entity))
+        val accessory = accessories().firstOrNull { it.entityId == entity } ?: throw IOException("Unavailable accessory")
+        require(if (enabled) accessory.enabled != null && accessory.canOn else accessory.canOff)
+        val action = if (enabled) "turn_on" else "turn_off"
+        val body = JSONObject().put("entity_id", entity).toString().toRequestBody("application/json".toMediaType())
+        // No toggle, script, broadcast target, generic service, automatic retry or alarm-panel access.
+        http.newBuilder().retryOnConnectionFailure(false).build().newCall(Request.Builder()
+            .url(endpoint("api/services/${accessory.domain}/$action")).post(body).build()).execute().use {
+            if (it.code in setOf(401, 403)) throw HomeAssistantAuthException()
+            if (!it.isSuccessful) throw IOException("Accessory command refused")
+        }
     }
     private fun get(url: HttpUrl, limit: Int): ByteArray {
         http.newCall(Request.Builder().url(url).build()).execute().use { response ->

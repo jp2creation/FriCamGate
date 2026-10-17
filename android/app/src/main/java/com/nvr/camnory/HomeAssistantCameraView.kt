@@ -37,7 +37,8 @@ internal class HomeAssistantCameraView(
     private val fullscreen: () -> Unit,
     private val onAudible: (HomeAssistantCameraView) -> Unit,
     private val fullscreenMode: Boolean = false,
-    private val columnMode: Boolean = false
+    private val columnMode: Boolean = false,
+    private val accessories: (() -> Unit)? = null
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: java.util.concurrent.ExecutorService? = null
@@ -112,7 +113,7 @@ internal class HomeAssistantCameraView(
             frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.HomeAssistant, listOf(
                 sound,
                 icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
-                icon(R.drawable.ic_settings, R.string.ha_camera_details) { showInformation() },
+                icon(R.drawable.ic_settings, R.string.ha_camera_details) { accessories?.invoke() ?: showInformation() },
                 icon(R.drawable.ic_list, R.string.ha_camera_details) { showMenu(it) }.apply {
                     tag = "ha-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
                 }
@@ -167,7 +168,7 @@ internal class HomeAssistantCameraView(
     }
     private fun showMenu(anchor: View) {
         menu?.dismiss()
-        val actions: List<Triple<Int, Int, () -> Unit>> = listOf(
+        val actions: List<Triple<Int, Int, () -> Unit>> = listOf<Triple<Int, Int, () -> Unit>>(
             Triple(if (live) R.drawable.ic_pause_outline else R.drawable.ic_play_outline,
                 if (live) R.string.ha_stop_live else R.string.ha_watch_live, { play.performClick() }),
             Triple(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume,
@@ -175,7 +176,7 @@ internal class HomeAssistantCameraView(
             Triple(R.drawable.ic_refresh, R.string.reload, { retry.performClick() }),
             Triple(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
             Triple(R.drawable.ic_info, R.string.ha_camera_details, { showInformation() })
-        )
+        ) + accessories?.let { listOf(Triple(R.drawable.ic_camera_light, R.string.accessory_title, it)) }.orEmpty()
         val rows = LinearLayout(context).apply {
             orientation = VERTICAL; setPadding(dp(4), dp(6), dp(4), dp(6))
             background = GradientDrawable().apply { setColor(Palette.card); cornerRadius = dp(8).toFloat(); setStroke(dp(1), Palette.divider) }

@@ -1,0 +1,15 @@
+<resources>
+    <string name="accessory_title">Éclairage et sirènes</string>
+    <string name="accessory_light">Éclairage</string>
+    <string name="accessory_siren">Sirène</string>
+    <string name="accessory_none">Non associé</string>
+    <string name="accessory_on">Activer</string>
+    <string name="accessory_off">Désactiver</string>
+    <string name="accessory_no_ha">Connectez Home Assistant pour associer un éclairage ou une sirène à cette caméra.</string>
+    <string name="accessory_via_ha">Via Home Assistant. Associez uniquement les équipements de cette caméra. Une association ne déclenche aucune commande.</string>
+    <string name="accessory_loading">Recherche des équipements disponibles…</string>
+    <string name="accessory_failed">Équipement indisponible ou commande refusée.</string>
+    <string name="accessory_unavailable">Indisponible</string>
+    <string name="accessory_confirmation">Caméra : %1$s\nEntité : %2$s\nServeur : %3$s</string>
+    <string name="accessory_siren_warning">Cette commande pilote une vraie sirène. Vérifiez l’équipement et l’action choisie avant de confirmer.</string>
+</resources>

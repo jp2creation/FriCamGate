@@ -1,0 +1,15 @@
+<resources>
+    <string name="accessory_title">Luces y sirenas</string>
+    <string name="accessory_light">Iluminación</string>
+    <string name="accessory_siren">Sirena</string>
+    <string name="accessory_none">Sin asociar</string>
+    <string name="accessory_on">Activar</string>
+    <string name="accessory_off">Desactivar</string>
+    <string name="accessory_no_ha">Conecta Home Assistant para asociar una luz o sirena a esta cámara.</string>
+    <string name="accessory_via_ha">Mediante Home Assistant. Asocia solo equipos de esta cámara. La asociación no envía órdenes.</string>
+    <string name="accessory_loading">Buscando equipos disponibles…</string>
+    <string name="accessory_failed">Equipo no disponible u orden rechazada.</string>
+    <string name="accessory_unavailable">No disponible</string>
+    <string name="accessory_confirmation">Cámara: %1$s\nEntidad: %2$s\nServidor: %3$s</string>
+    <string name="accessory_siren_warning">Esta orden controla una sirena real. Comprueba el equipo y la acción antes de confirmar.</string>
+</resources>
