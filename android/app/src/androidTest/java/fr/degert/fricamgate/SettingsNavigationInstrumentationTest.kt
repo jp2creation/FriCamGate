@@ -78,6 +78,51 @@ class SettingsNavigationInstrumentationTest {
         fail("Fixture dashboard did not load")
     }
 
+    @Test fun dateSheetDoesNotLoadUntilConfirmedAndStaysBelowSeventyPercent() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            lateinit var sheet: TimelineDateSheet
+            var chosen: Long? = null
+            scenario.onActivity { activity ->
+                sheet = TimelineDateSheet(activity, System.currentTimeMillis()) { chosen = it }
+                sheet.show()
+                sheet.window!!.decorView.findViewWithTag<View>("calendar-yesterday").performClick()
+                sheet.window!!.decorView.findViewWithTag<View>("calendar-previous").performClick()
+                assertNull(chosen)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val panel = sheet.window!!.decorView.findViewWithTag<View>("selection-sheet")
+                assertTrue(panel.height > 0)
+                assertTrue(panel.height <= activity.resources.displayMetrics.heightPixels * 0.70f + 1)
+                sheet.window!!.decorView.findViewWithTag<View>("calendar-confirm").performClick()
+                assertNotNull(chosen)
+                assertFalse(sheet.isShowing)
+            }
+        }
+    }
+
+    @Test fun cameraButtonOptionsAreInOneSheetAndPersistWithoutActuatingCamera() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                render(activity, "renderAppearanceSettings")
+                assertNull(root(activity).findViewWithTag<View>("appearance-camera-button:sound"))
+                root(activity).findViewWithTag<View>("appearance-camera-buttons").performClick()
+                val field = MainActivity::class.java.getDeclaredField("cameraButtonsSheet").apply { isAccessible = true }
+                var sheet = field.get(activity) as CameraButtonsSheet
+                val toggle = sheet.window!!.decorView.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("appearance-camera-button:sound")
+                toggle.isChecked = false
+                sheet.dismiss()
+                assertFalse(CameraButton.Sound.visible(activity))
+                root(activity).findViewWithTag<View>("appearance-camera-buttons").performClick()
+                sheet = field.get(activity) as CameraButtonsSheet
+                assertFalse(sheet.window!!.decorView.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("appearance-camera-button:sound").isChecked)
+                sheet.dismiss()
+            }
+        }
+    }
+
     @Test fun activityBriefingStylesHaveOneEntryAndRespectHiddenPreference() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

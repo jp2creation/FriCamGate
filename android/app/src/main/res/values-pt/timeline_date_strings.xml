@@ -1,0 +1,8 @@
+<resources>
+    <string name="timeline_date_title">Escolher uma data</string>
+    <string name="timeline_previous_month">Mês anterior</string>
+    <string name="timeline_next_month">Mês seguinte</string>
+    <string name="timeline_today">Hoje</string>
+    <string name="timeline_yesterday">Ontem</string>
+    <string name="timeline_show_day">Mostrar este dia</string>
+</resources>

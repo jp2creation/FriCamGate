@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
-import android.app.DatePickerDialog
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
@@ -129,6 +128,8 @@ class MainActivity : AppCompatActivity() {
     private var cameraPickerPopup: PopupWindow? = null
     private var cameraPickerSheet: SelectionBottomSheet? = null
     private var activityBriefingSheet: ActivityBriefingSheet? = null
+    private var timelineDateSheet: TimelineDateSheet? = null
+    private var cameraButtonsSheet: CameraButtonsSheet? = null
     private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
     private var chatDialog: NativeChatDialog? = null
@@ -263,6 +264,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        timelineDateSheet?.dismiss(); timelineDateSheet = null
+        cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
         dismissCameraPicker()
         accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
@@ -2552,25 +2555,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTimelineDatePicker(camera: NativeCamera, timelineDayMillis: Long) {
-        val calendar = Calendar.getInstance().apply { timeInMillis = timelineDayMillis }
-        DatePickerDialog(
-            this,
-            { _, year, month, day ->
-                val selected = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, year)
-                    set(Calendar.MONTH, month)
-                    set(Calendar.DAY_OF_MONTH, day)
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                loadCameraTimelineDay(camera, selected.timeInMillis)
-            },
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH),
-            calendar.get(Calendar.DAY_OF_MONTH)
-        ).show()
+        if (appLock.locked) return
+        dismissTransientPopups()
+        timelineDateSheet?.dismiss()
+        val sheet = TimelineDateSheet(this, timelineDayMillis) { selected ->
+            if (!appLock.locked) loadCameraTimelineDay(camera, selected)
+        }
+        timelineDateSheet = sheet
+        sheet.setOnDismissListener { if (timelineDateSheet === sheet) timelineDateSheet = null }
+        sheet.show()
     }
 
     private fun loadCameraTimelineDay(camera: NativeCamera, dayMillis: Long) {
@@ -3121,6 +3114,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        timelineDateSheet?.dismiss(); timelineDateSheet = null
+        cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
         accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
         chatServerSheet?.dismiss(); chatServerSheet = null
@@ -3635,18 +3630,15 @@ class MainActivity : AppCompatActivity() {
             contentDescription = getString(R.string.reduce_motion)
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
-        column.addView(sectionHeading(getString(R.string.camera_buttons_title)))
-        CameraButton.values().forEach { button ->
-            column.addView(preferenceToggleRow(getString(button.titleRes), "", SwitchCompat(this).apply {
-                tag = "appearance-camera-button:${button.preference}"
-                contentDescription = getString(button.titleRes)
-                isChecked = button.visible(this@MainActivity)
-                setOnCheckedChangeListener { _, checked ->
-                    appearancePrefs.edit().putBoolean("cameraButton:${button.preference}", checked).apply()
-                }
-            }))
-        }
         column.addView(sectionHeading(getString(R.string.appearance_details)))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.camera_buttons_title),
+            getString(R.string.playback_sound) + " · " + getString(R.string.camera_fullscreen), {
+                dismissTransientPopups()
+                val sheet = CameraButtonsSheet(this)
+                cameraButtonsSheet = sheet
+                sheet.setOnDismissListener { if (cameraButtonsSheet === sheet) cameraButtonsSheet = null }
+                sheet.show()
+            }, icon = R.drawable.ic_videocam).apply { tag = "appearance-camera-buttons" }))
         column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating",
             ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
         column.addView(settingsGroup(choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
@@ -4461,6 +4453,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        timelineDateSheet?.dismiss(); timelineDateSheet = null
         if (expandedLiveImmersive) {
             androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
                 .show(WindowInsetsCompat.Type.systemBars())
