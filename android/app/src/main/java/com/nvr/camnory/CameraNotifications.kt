@@ -86,14 +86,17 @@ internal object CameraNotifications {
         settings.edit().putBoolean("notificationsEnabled", enabled).apply()
         if (enabled && !wasEnabled) {
             val native = context.getSharedPreferences("fricamgate-native", Context.MODE_PRIVATE)
-            native.edit().putLong(cursorKey(native.getString("baseUrl", "").orEmpty(), native.getString("username", "").orEmpty()), System.currentTimeMillis()).apply()
+            val edit = native.edit()
+            runCatching { FrigateServerStore(context).load() }.getOrDefault(emptyList())
+                .forEach { edit.putLong(cursorKey(it.baseUrl, it.username), System.currentTimeMillis()) }
+            edit.apply()
         }
         schedule(context)
     }
 
     fun schedule(context: Context) {
         val worker = WorkManager.getInstance(context)
-        val hasSession = context.getSharedPreferences("fricamgate-native", Context.MODE_PRIVATE).contains("token")
+        val hasSession = runCatching { FrigateServerStore(context).load().isNotEmpty() }.getOrDefault(false)
         if (!enabled(context) || !permitted(context) || !hasSession) {
             context.stopService(Intent(context, CameraAlertMonitorService::class.java))
             worker.cancelUniqueWork(PERIODIC)
@@ -121,10 +124,19 @@ internal object CameraNotifications {
 
     fun check(context: Context, stopped: () -> Boolean): Boolean = synchronized(requestLock) {
         if (!enabled(context) || !permitted(context) || stopped()) return@synchronized true
+        val servers = FrigateServerStore(context).load()
+        servers.map { server -> runCatching { checkServer(context, server, stopped) }.getOrElse {
+            diagnostic(context, "NETWORK"); false
+        } }.all { it }
+    }
+
+    private fun checkServer(context: Context, server: FrigateServer, stopped: () -> Boolean): Boolean {
+        if (stopped() || !enabled(context)) return true
         val prefs = context.getSharedPreferences("fricamgate-native", Context.MODE_PRIVATE)
-        val baseUrl = prefs.getString("baseUrl", null) ?: return@synchronized true
-        val token = prefs.getString("token", null) ?: return@synchronized true
-        val username = prefs.getString("username", "").orEmpty()
+        val baseUrl = server.baseUrl
+        val token = server.token
+        val username = server.username
+        fun stillRegistered() = FrigateServerStore(context).load().any { it.id == server.id && it.token == token && it.baseUrl == baseUrl }
         val key = cursorKey(baseUrl, username)
         val requestStarted = System.currentTimeMillis()
         val afterMillis = prefs.getLong(key, requestStarted)
@@ -133,7 +145,7 @@ internal object CameraNotifications {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 diagnostic(context, "HTTP ${response.code}")
-                return@synchronized false
+                return false
             }
             val array = JSONArray(response.body?.string().orEmpty())
             val candidates = (0 until array.length()).mapNotNull { index ->
@@ -146,7 +158,7 @@ internal object CameraNotifications {
                 CameraAlert(id, camera, facts.name ?: facts.label, time, facts)
             }
             // A late response must not publish for an account that has since signed out.
-            if (stopped() || !enabled(context) || prefs.getString("token", null) != token || prefs.getString("baseUrl", null) != baseUrl) return@synchronized true
+            if (stopped() || !enabled(context) || !stillRegistered()) return true
             val postedKey = "postedAlerts:$baseUrl:$username"
             val posted = prefs.getStringSet(postedKey, emptySet()).orEmpty().toMutableSet()
             val hidden = prefs.getStringSet("hiddenCameras:$baseUrl", emptySet()).orEmpty()
@@ -155,30 +167,32 @@ internal object CameraNotifications {
             val now = Calendar.getInstance()
             val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
             newCameraAlerts(candidates, afterMillis / 1000.0 - 30.0, hidden, posted)
-                .filter { policy.accepts(it.camera, it.facts.label, minute) }.takeLast(20).forEach { alert ->
-                if (stopped() || !enabled(context)) return@synchronized true
+                .filter { policy.accepts(server.qualify(it.camera), it.facts.label, minute) }
+                .filter { !CameraArrangementStore(context).hidden(CameraArrangement.key("frigate", baseUrl, it.camera)) }
+                .takeLast(20).forEach { alert ->
+                if (stopped() || !enabled(context) || !stillRegistered()) return true
                 val cooldownKey = "alertLast:$baseUrl:$username:${alert.camera}:${notificationCategory(alert.facts.label)}"
                 val last = prefs.getLong(cooldownKey, 0)
-                if (!policy.accepts(alert.camera, alert.facts.label, minute) || !policy.cooldownAllows(requestStarted, last)) {
+                if (!policy.accepts(server.qualify(alert.camera), alert.facts.label, minute) || !policy.cooldownAllows(requestStarted, last)) {
                     posted.add(alert.id)
                     return@forEach
                 }
-                val title = alert.camera.replace('_', ' ')
+                val title = if (server.legacy) alert.camera.replace('_', ' ') else "${alert.camera.replace('_', ' ')} · ${server.name}"
                 val narrative = eventNarrative(localized, alert.facts, title, alert.startTime)
                 val text = alert.facts.description?.let {
                     "$narrative\n${localized.getString(R.string.frigate_description_inline, it)}"
                 } ?: narrative
                 val bitmap = if (context.getSharedPreferences("camgate-settings", Context.MODE_PRIVATE).getBoolean("biometricLock", false)) null
                     else snapshot(baseUrl, token, alert.id)
-                if (stopped() || !enabled(context) || prefs.getString("token", null) != token) return@synchronized true
-                if (publish(localized, alert.id, title, text, alert.id, policy.silent(minute), bitmap)) {
+                if (stopped() || !enabled(context) || !stillRegistered()) return true
+                if (publish(localized, server.qualify(alert.id), title, text, server.qualify(alert.id), policy.silent(minute), bitmap)) {
                     posted.add(alert.id)
                     prefs.edit().putLong(cooldownKey, requestStarted).apply()
                 }
             }
             prefs.edit().putLong(key, requestStarted).putStringSet(postedKey, posted.toList().takeLast(1000).toSet()).apply()
             diagnostic(context, "OK")
-            true
+            return true
         }
     }
 

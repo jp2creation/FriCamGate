@@ -97,9 +97,13 @@ class SettingsNavigationInstrumentationTest {
                 root(activity).findViewWithTag<View>("settings-entry-connections").performClick()
                 root(activity).findViewWithTag<View>("settings-entry-frigate").performClick()
                 assertEquals("server", page(activity))
-                activity.onBackPressedDispatcher.onBackPressed()
-                assertEquals("connections", page(activity))
             }
+            instrumentation.waitForIdleSync()
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(R.string.frigate_servers))
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+            androidx.test.espresso.Espresso.pressBack()
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { assertEquals("connections", page(it)) }
             scenario.recreate()
             awaitDashboard(scenario)
             instrumentation.waitForIdleSync()
@@ -196,7 +200,9 @@ class SettingsNavigationInstrumentationTest {
                 assertEquals(android.view.Gravity.BOTTOM, sheet.window!!.attributes.gravity)
                 assertNotNull(sheet.findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>("appearance-option-backgroundStyle-anthracite"))
             }
-            androidx.test.espresso.Espresso.pressBack()
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("selection-sheet" as Any)))
+                .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                .perform(androidx.test.espresso.action.ViewActions.pressKey(android.view.KeyEvent.KEYCODE_BACK))
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 assertFalse(context.getSharedPreferences("camgate-settings", 0).contains("backgroundStyle"))

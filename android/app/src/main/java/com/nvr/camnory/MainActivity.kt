@@ -102,6 +102,22 @@ class MainActivity : AppCompatActivity() {
     private val reducedMotion get() = appearancePrefs.getBoolean("reducedMotion", false)
     private var session: NativeSession? = null
     private var api: FrigateNativeApi? = null
+    private val frigateServers by lazy { FrigateServerStore(this) }
+    private val frigateManager = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        settingsPage = "connections"
+        if (result.resultCode == RESULT_OK) {
+            session = loadSession()
+            api = createFrigateApi()
+            cameras = emptyList(); events = emptyList(); globalResults = null
+            seenAlertIdsMemory.clear()
+            restoredSettingsPage = "connections"
+            loadDashboard()
+        } else renderConnectionsSettings()
+    }
+
+    private fun createFrigateApi(): FrigateNativeApi? = runCatching {
+        frigateServers.load().takeIf { it.isNotEmpty() }?.let { MultiFrigateApi(it, httpClient) }
+    }.getOrElse { toast(getString(R.string.frigate_storage_error)); null }
     private var cameras: List<NativeCamera> = emptyList()
     private var events: List<NativeEvent> = emptyList()
     private var currentPlayer: ExoPlayer? = null
@@ -190,7 +206,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        // Android still creates a launch window; hand it off without a second logo animation.
+        installSplashScreen().setOnExitAnimationListener { it.remove() }
         delegate.localNightMode = when (appearancePrefs.getString("theme", "system")) {
             "dark" -> AppCompatDelegate.MODE_NIGHT_YES
             "light" -> AppCompatDelegate.MODE_NIGHT_NO
@@ -225,7 +242,7 @@ class MainActivity : AppCompatActivity() {
         }
         soundEnabled = prefs.getBoolean("soundEnabled", false)
         session = loadSession()
-        api = session?.let { FrigateNativeApi(it.baseUrl, httpClient) }
+        api = createFrigateApi()
         if (session == null) {
             if (hasStandaloneCameras()) renderRestoredSettingsOrHome() else renderLogin()
         } else {
@@ -495,9 +512,11 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 result.onSuccess { login ->
                     val nextSession = NativeSession(normalizedUrl, login.token, login.username)
-                    saveSession(nextSession)
-                    session = nextSession
-                    api = nextApi
+                    if (!runCatching { saveSession(nextSession) }.isSuccess) {
+                        renderLogin(); toast(getString(R.string.frigate_storage_error)); return@onSuccess
+                    }
+                    session = loadSession()
+                    api = createFrigateApi()
                     dashboardErrorMessage = null
                     loadDashboard(getString(R.string.connected, normalizedUrl))
                 }.onFailure {
@@ -522,16 +541,17 @@ class MainActivity : AppCompatActivity() {
         renderLoading(getString(R.string.loading_cameras))
         activeApi.loadDashboard(activeSession.token) { result ->
             runOnUiThread {
+                if (api !== activeApi) return@runOnUiThread
                 result.onSuccess { data ->
                     cameras = data.cameras
                     events = data.events
                     dashboardErrorMessage = null
-                    renderRestoredSettingsOrHome(message)
+                    renderRestoredSettingsOrHome(if ((activeApi as? MultiFrigateApi)?.unavailable?.isNotEmpty() == true) getString(R.string.frigate_partial) else message)
                     CameraNotifications.schedule(this)
                     openPendingNotification()
                 }.onFailure { error ->
                     val errorMessage = error.message ?: getString(R.string.frigate_unavailable)
-                    if (isAuthFailure(errorMessage)) {
+                    if (isAuthFailure(errorMessage) && activeApi !is MultiFrigateApi) {
                         prefs.edit().remove("token").apply()
                         session = null
                         api = null
@@ -608,7 +628,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun dashboardCameras(): List<DashboardCamera> {
         val items = cameras.map { camera ->
-            DashboardCamera(CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), camera.name),
+            DashboardCamera(frigateCameraKey(camera.name),
                 camera.friendlyName, CameraSource.Frigate, frigate = camera)
         } + savedOnvifCameras().map { camera ->
             DashboardCamera(CameraArrangement.key("onvif", "", camera.id), camera.name, CameraSource.Onvif, onvif = camera)
@@ -718,9 +738,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderLiaChat() {
         releasePlayer()
-        val activeSession = session ?: run { renderLogin(); return }
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        setShell(NativeChatView(this, activeSession.baseUrl, activeSession.token, activeSession.username, httpClient), Tab.Home)
+        val servers = runCatching { frigateServers.load() }.getOrElse { toast(getString(R.string.frigate_storage_error)); return }
+        fun open(server: FrigateServer) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            setShell(NativeChatView(this, server.baseUrl, server.token, server.username, httpClient), Tab.Home)
+        }
+        if (servers.isEmpty()) { renderLogin(); return }
+        if (servers.size == 1) open(servers.first()) else {
+            val list = vertical()
+            lateinit var sheet: SelectionBottomSheet
+            servers.forEach { server -> list.addView(settingsNavRow(server.name, server.baseUrl, { sheet.dismiss(); open(server) })) }
+            sheet = SelectionBottomSheet(this, getString(R.string.frigate_chat_server), list)
+            sheet.show()
+        }
     }
 
     private fun renderCameraDetail(
@@ -1205,9 +1235,15 @@ class MainActivity : AppCompatActivity() {
         connect(0)
     }
 
-    private fun authDataSource(token: String): DefaultHttpDataSource.Factory =
-        DefaultHttpDataSource.Factory()
+    private fun authDataSource(token: String): androidx.media3.datasource.DataSource.Factory {
+        val router = api as? MultiFrigateApi ?: return DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token", "User-Agent" to "Camnory"))
+        val mediaClient = httpClient.newBuilder().followRedirects(false).followSslRedirects(false).addInterceptor { chain ->
+            val server = router.serverForUrl(chain.request().url.toString()) ?: throw java.io.IOException("Unknown Frigate media source")
+            chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer ${server.token}").build())
+        }.build()
+        return androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(mediaClient).setUserAgent("Camnory")
+    }
 
     private fun applyPlayerVolume(player: ExoPlayer) {
         player.volume = if (soundEnabled) 1f else 0f
@@ -1272,7 +1308,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startHomeLiveAudio(camera: NativeCamera, playbackKey: String, generation: Int) {
-        val activeSession = session
+        val owner = (api as? MultiFrigateApi)?.serverFor(camera.name)
+        val activeSession = owner?.let { NativeSession(it.baseUrl, it.token, it.username) } ?: session
         val activeApi = api
         if (activeSession == null || activeApi == null) {
             failHomeLiveAudio(playbackKey, getString(R.string.sound_unavailable))
@@ -2642,7 +2679,8 @@ class MainActivity : AppCompatActivity() {
             cookieManager.setAcceptThirdPartyCookies(webView, true)
         }
         val secure = if (normalizeBaseUrl(activeSession.baseUrl).startsWith("https://", ignoreCase = true)) "; Secure" else ""
-        cookieManager.setCookie(activeSession.baseUrl, "frigate_token=${activeSession.token}; Path=/$secure")
+        val cookiePath = android.net.Uri.parse(activeSession.baseUrl).encodedPath.orEmpty().trimEnd('/').ifEmpty { "/" }
+        cookieManager.setCookie(activeSession.baseUrl, "frigate_token=${activeSession.token}; Path=$cookiePath$secure")
         cookieManager.flush()
     }
 
@@ -2807,7 +2845,6 @@ class MainActivity : AppCompatActivity() {
     private fun alertEvents(): List<NativeEvent> {
         val visibleNames = visibleCameras().map { it.name }.toSet()
         val seenIds = seenAlertIds()
-        val seenCutoffSec = seenAlertsCutoffMillis() / 1000.0
         val nowSec = System.currentTimeMillis() / 1000.0
         return events
             .asSequence()
@@ -2815,7 +2852,7 @@ class MainActivity : AppCompatActivity() {
             .filter { it.id !in seenIds }
             .filter { event ->
                 val started = event.startTime ?: return@filter true
-                started > seenCutoffSec
+                started > seenAlertsCutoffMillis(event) / 1000.0
             }
             .filter { event ->
                 val started = event.startTime ?: return@filter true
@@ -2829,8 +2866,7 @@ class MainActivity : AppCompatActivity() {
         dismissTransientPopups()
         val recent = recentNotifications(events, visibleCameras().map { it.name }.toSet(), System.currentTimeMillis() / 1000.0)
         val seen = seenAlertIds()
-        val cutoff = seenAlertsCutoffMillis() / 1000.0
-        val unread = recent.filter { it.id !in seen && (it.startTime == null || it.startTime > cutoff) }.map { it.id }.toSet()
+        val unread = recent.filter { it.id !in seen && (it.startTime == null || it.startTime > seenAlertsCutoffMillis(it) / 1000.0) }.map { it.id }.toSet()
         val sheet = NotificationsSheet(this, recent, unread,
             title = { event ->
                 if (!event.subLabel.isNullOrBlank()) eventDisplayText(event)
@@ -2877,22 +2913,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun markAlertsSeen(items: List<NativeEvent>, advanceCutoff: Boolean) {
-        val currentEventIds = events.map { it.id }.toSet()
-        val ids = seenAlertIds()
-            .filter { it in currentEventIds }
-            .toMutableSet()
-        ids.addAll(items.map { it.id }.filter { it.isNotBlank() })
-        seenAlertIdsMemory.clear()
-        seenAlertIdsMemory.addAll(ids)
-        val editor = prefs.edit().putStringSet(seenAlertsKey(), ids)
-        if (advanceCutoff) {
-            val newestSeenMillis = items
-                .mapNotNull { it.startTime }
-                .maxOrNull()
-                ?.times(1000)
-                ?.toLong()
-                ?: System.currentTimeMillis()
-            editor.putLong(seenAlertsCutoffKey(), maxOf(seenAlertsCutoffMillis(), newestSeenMillis))
+        val editor = prefs.edit()
+        items.groupBy { eventServerUrl(it) }.forEach { (url, group) ->
+            val ids = prefs.getStringSet("seenAlerts:$url", emptySet()).orEmpty() + group.map { it.id }
+            editor.putStringSet("seenAlerts:$url", ids.toList().takeLast(1000).toSet())
+            seenAlertIdsMemory.addAll(group.map { it.id })
+            if (advanceCutoff) {
+                val newest = group.mapNotNull { it.startTime }.maxOrNull()?.times(1000)?.toLong() ?: 0L
+                editor.putLong("seenAlertsCutoff:$url", maxOf(prefs.getLong("seenAlertsCutoff:$url", 0), newest))
+            }
         }
         editor.commit()
     }
@@ -3150,7 +3179,7 @@ class MainActivity : AppCompatActivity() {
         val (scroll, column) = newSettingsPage("connections", getString(R.string.settings_connections))
         column.addView(sectionHeading(getString(R.string.settings_sources)))
         column.addView(settingsGroup(
-            settingsNavRow("Frigate", session?.baseUrl ?: getString(R.string.settings_add_connection), { renderServerSettings() }, icon = R.drawable.ic_source_frigate, key = "frigate"),
+            settingsNavRow("Frigate", getString(R.string.frigate_servers_detail), { renderServerSettings() }, icon = R.drawable.ic_source_frigate, key = "frigate"),
             settingsNavRow(getString(R.string.onvif_cameras), getString(R.string.settings_onvif_detail), { openOnvifManager() }, icon = R.drawable.ic_source_onvif, key = "onvif"),
             settingsNavRow(getString(R.string.ha_cameras), getString(R.string.settings_ha_detail), { openHomeAssistantManager() }, icon = R.drawable.ic_source_home_assistant, key = "ha")
         ))
@@ -3554,39 +3583,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderServerSettings() {
         settingsPage = "server"
         releasePlayer()
-        val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
-        val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
-        scroll.addView(column, responsiveScrollParams(760))
-        column.addView(settingsPageHeader(getString(R.string.server)))
-        column.addView(sectionHeading(getString(R.string.connection)))
-        val serverInput = editText("http://cam.example.fr", session?.baseUrl ?: prefs.getString("baseUrl", "").orEmpty())
-        val usernameInput = editText("admin", session?.username ?: prefs.getString("username", "").orEmpty())
-        val passwordInput = editText(getString(R.string.password_hint), "").apply {
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        column.addView(label(getString(R.string.frigate_server), 12, Palette.muted).apply { setPadding(0, dp(8), 0, dp(8)) })
-        column.addView(serverInput, matchWrap())
-        column.addView(label(getString(R.string.username), 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
-        column.addView(usernameInput, matchWrap())
-        column.addView(label(getString(R.string.password), 12, Palette.muted).apply { setPadding(0, dp(16), 0, dp(8)) })
-        column.addView(passwordInput, matchWrap())
-        column.addView(primaryButton(getString(R.string.save_reconnect)).apply {
-            setOnClickListener { connect(serverInput.text.toString(), usernameInput.text.toString(), passwordInput.text.toString()) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(22) })
-        column.addView(settingsGroup(
-            settingsRow(getString(R.string.current_server), session?.baseUrl ?: "-"),
-            settingsRow(getString(R.string.current_user), session?.username ?: "-")
-        ))
-        column.addView(primaryButton(getString(R.string.logout)).apply {
-            setOnClickListener {
-                prefs.edit().remove("token").apply()
-                session = null
-                api = null
-                CameraNotifications.schedule(this@MainActivity)
-                renderLogin()
-            }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
-        setShell(scroll, Tab.Settings)
+        homeAssistantCards.forEach { it.setActive(false) }
+        onvifCards.forEach { it.setActive(false) }
+        frigateManager.launch(Intent(this, FrigateServersActivity::class.java))
     }
 
     private fun renderCameraSettings() {
@@ -3983,11 +3982,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveSession(value: NativeSession) {
-        prefs.edit()
-            .putString("baseUrl", value.baseUrl)
-            .putString("token", value.token)
-            .putString("username", value.username)
-            .apply()
+        val all = frigateServers.load()
+        val existing = all.firstOrNull { it.baseUrl == value.baseUrl }
+        frigateServers.upsert(FrigateServer(existing?.id ?: FrigateServerStore.newId(), existing?.name ?: android.net.Uri.parse(value.baseUrl).host.orEmpty(),
+            value.baseUrl, value.username, value.token, existing?.legacy ?: all.isEmpty()))
     }
 
     private fun localizedLoadingStage(index: Int): String = getString(when (((index % 3) + 3) % 3) {
@@ -3997,48 +3995,47 @@ class MainActivity : AppCompatActivity() {
     })
 
     private fun loadSession(): NativeSession? {
-        val baseUrl = prefs.getString("baseUrl", null) ?: return null
-        val token = prefs.getString("token", null) ?: return null
-        val username = prefs.getString("username", "admin") ?: "admin"
-        return NativeSession(baseUrl, token, username)
+        return runCatching { frigateServers.load().firstOrNull()?.let { NativeSession(it.baseUrl, it.token, it.username) } }
+            .getOrElse { toast(getString(R.string.frigate_storage_error)); null }
     }
 
+    private fun frigateCameraKey(name: String) = (api as? MultiFrigateApi)?.cameraKey(name)
+        ?: CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), name)
+
     private fun visibleCameras(): List<NativeCamera> {
-        val byKey = cameras.filter { isCameraVisible(it) }.associateBy { CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), it.name) }
+        val byKey = cameras.filter { isCameraVisible(it) }.associateBy { frigateCameraKey(it.name) }
         return CameraArrangement.ordered(byKey.keys.toList(), cameraArrangement.savedOrder()).mapNotNull { byKey[it] }
     }
 
     private fun isCameraVisible(camera: NativeCamera): Boolean =
-        camera.enabled && !hiddenCameraNames().contains(camera.name) &&
-            !cameraArrangement.hidden(CameraArrangement.key("frigate", session?.baseUrl.orEmpty(), camera.name))
+        camera.enabled && !hiddenCameraNames(camera.name).contains((api as? MultiFrigateApi)?.nativeName(camera.name) ?: camera.name) &&
+            !cameraArrangement.hidden(frigateCameraKey(camera.name))
 
-    private fun hiddenCameraNames(): Set<String> =
-        prefs.getStringSet(hiddenCameraKey(), emptySet())?.toSet() ?: emptySet()
+    private fun hiddenCameraNames(cameraName: String): Set<String> =
+        prefs.getStringSet(hiddenCameraKey(cameraName), emptySet())?.toSet() ?: emptySet()
 
     private fun setCameraHidden(cameraName: String, hidden: Boolean) {
-        val names = hiddenCameraNames().toMutableSet()
+        val names = hiddenCameraNames(cameraName).toMutableSet()
+        val nativeName = (api as? MultiFrigateApi)?.nativeName(cameraName) ?: cameraName
         if (hidden) {
-            names.add(cameraName)
+            names.add(nativeName)
         } else {
-            names.remove(cameraName)
+            names.remove(nativeName)
         }
-        prefs.edit().putStringSet(hiddenCameraKey(), names).apply()
+        prefs.edit().putStringSet(hiddenCameraKey(cameraName), names).apply()
     }
 
-    private fun hiddenCameraKey(): String = "hiddenCameras:${session?.baseUrl ?: "default"}"
+    private fun hiddenCameraKey(cameraName: String): String = "hiddenCameras:${(api as? MultiFrigateApi)?.serverFor(cameraName)?.baseUrl ?: session?.baseUrl ?: "default"}"
 
     private fun seenAlertIds(): Set<String> {
-        val saved = prefs.getStringSet(seenAlertsKey(), emptySet())?.toSet() ?: emptySet()
+        val urls = (api as? MultiFrigateApi)?.servers?.map { it.baseUrl } ?: listOf(session?.baseUrl ?: "default")
+        val saved = urls.flatMap { prefs.getStringSet("seenAlerts:$it", emptySet()).orEmpty() }.toSet()
         if (saved.isNotEmpty()) seenAlertIdsMemory.addAll(saved)
         return saved + seenAlertIdsMemory
     }
 
-    private fun seenAlertsKey(): String = "seenAlerts:${session?.baseUrl ?: "default"}"
-
-    private fun seenAlertsCutoffMillis(): Long =
-        prefs.getLong(seenAlertsCutoffKey(), 0L)
-
-    private fun seenAlertsCutoffKey(): String = "seenAlertsCutoff:${session?.baseUrl ?: "default"}"
+    private fun eventServerUrl(event: NativeEvent) = (api as? MultiFrigateApi)?.serverFor(event.id)?.baseUrl ?: session?.baseUrl ?: "default"
+    private fun seenAlertsCutoffMillis(event: NativeEvent): Long = prefs.getLong("seenAlertsCutoff:${eventServerUrl(event)}", 0L)
 
     private fun appVersionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }

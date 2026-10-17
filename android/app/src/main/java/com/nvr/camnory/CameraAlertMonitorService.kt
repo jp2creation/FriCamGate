@@ -41,7 +41,7 @@ class CameraAlertMonitorService : Service() {
         if (polling == null) {
             polling = executor.scheduleWithFixedDelay({
                 if (!CameraNotifications.enabled(this) || !CameraNotifications.permitted(this) ||
-                    !getSharedPreferences("fricamgate-native", Context.MODE_PRIVATE).contains("token")) {
+                    runCatching { FrigateServerStore(this@CameraAlertMonitorService).load().isEmpty() }.getOrDefault(true)) {
                     stopSelf()
                 } else runCatching { CameraNotifications.check(this) { !running } }
                     .onFailure { if (running) CameraNotifications.diagnostic(this, "NETWORK") }

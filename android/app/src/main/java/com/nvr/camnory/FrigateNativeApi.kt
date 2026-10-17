@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-internal class FrigateNativeApi(
+internal open class FrigateNativeApi(
     private val baseUrl: String,
     private val client: OkHttpClient
 ) : NvrConnector, NvrPlaybackMedia, NvrLiveFrames, NvrEventHistory {
@@ -205,7 +205,7 @@ internal class FrigateNativeApi(
         })
     }
 
-    fun setCameraFeature(
+    open fun setCameraFeature(
         token: String,
         cameraName: String,
         feature: String,
@@ -284,7 +284,7 @@ internal class FrigateNativeApi(
         })
     }
 
-    fun requestHlsUrl(token: String, streamName: String, callback: (Result<String>) -> Unit) {
+    open fun requestHlsUrl(token: String, streamName: String, callback: (Result<String>) -> Unit) {
         val request = Request.Builder()
             .url(liveWebSocketUrl(streamName))
             .header("Authorization", "Bearer $token")
@@ -317,7 +317,7 @@ internal class FrigateNativeApi(
     override fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
     override fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
     override fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
-    fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
+    open fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
     override fun eventVodUrl(eventId: String): String = endpoint("/vod/event/${Uri.encode(eventId)}/master.m3u8")
     override fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String =
         endpoint("/api/${Uri.encode(cameraName)}/start/$startSec/end/$endSec/clip.mp4")
@@ -325,7 +325,7 @@ internal class FrigateNativeApi(
         endpoint(recordingVodPath(cameraName, startSec, endSec, stream))
     override fun recordingSnapshotUrl(cameraName: String, frameTime: Double): String =
         endpoint("/api/${Uri.encode(cameraName)}/recordings/${frameTime.toLong()}/snapshot.webp")
-    fun liveMseWebSocketUrl(streamName: String): String = liveWebSocketUrl(streamName)
+    open fun liveMseWebSocketUrl(streamName: String): String = liveWebSocketUrl(streamName)
 
     private fun getJson(token: String, path: String, callback: (Result<JSONObject>) -> Unit) {
         val request = authRequest(token, path).build()

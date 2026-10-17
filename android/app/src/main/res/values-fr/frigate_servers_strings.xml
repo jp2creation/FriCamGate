@@ -1,0 +1,18 @@
+<resources>
+    <string name="frigate_servers">Serveurs Frigate</string>
+    <string name="frigate_add_server">Ajouter un serveur</string>
+    <string name="frigate_server_name">Nom du serveur</string>
+    <string name="frigate_server_name_hint">Maison, bureau…</string>
+    <string name="frigate_servers_detail">Vos serveurs et leurs caméras</string>
+    <string name="frigate_remove_server">Retirer ce serveur</string>
+    <string name="frigate_remove_confirm">Retirer %1$s de Camnory ? Le serveur et ses enregistrements ne seront pas modifiés.</string>
+    <string name="frigate_save_name">Enregistrer le nom</string>
+    <string name="frigate_duplicate">Cette adresse est déjà enregistrée.</string>
+    <string name="frigate_storage_error">Impossible de lire ou enregistrer les connexions Frigate. Les connexions existantes sont conservées.</string>
+    <string name="frigate_bad_fields">Renseignez un nom, une adresse HTTP(S) valide, un utilisateur et un mot de passe.</string>
+    <string name="frigate_saved_session">Session enregistrée</string>
+    <string name="frigate_checking">Vérification de la connexion…</string>
+    <string name="frigate_offline">Indisponible — vérifier la connexion</string>
+    <string name="frigate_chat_server">Choisir un serveur pour le chat</string>
+    <string name="frigate_partial">Certains serveurs Frigate sont indisponibles. Vérifiez les connexions.</string>
+</resources>
