@@ -1,4 +1,7 @@
 <resources>
+    <string name="activity_show_button">Bouton du résumé d’activité</string>
+    <string name="activity_show_button_detail">Afficher le raccourci flottant sur l’accueil</string>
+    <string name="activity_up_to_date">Vous êtes à jour. Aucune détection non lue sur les dernières 24 heures.</string>
     <string name="activity_since_visit">Depuis votre dernière visite</string>
     <string name="activity_period">Détections non lues · Dernières 24 heures</string>
     <string name="activity_listen">Écouter le résumé</string>

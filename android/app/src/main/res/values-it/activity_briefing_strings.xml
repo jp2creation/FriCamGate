@@ -1,4 +1,7 @@
 <resources>
+    <string name="activity_show_button">Pulsante del riepilogo attività</string>
+    <string name="activity_show_button_detail">Mostra il collegamento mobile nella schermata iniziale</string>
+    <string name="activity_up_to_date">Sei in pari. Nessun rilevamento non letto nelle ultime 24 ore.</string>
     <string name="activity_since_visit">Dalla tua ultima visita</string>
     <string name="activity_period">Rilevamenti non letti · Ultime 24 ore</string>
     <string name="activity_listen">Ascolta il riepilogo</string>

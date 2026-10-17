@@ -1,0 +1,6 @@
+<resources>
+    <string name="home_source_filter">Filtrar cámaras por servidor</string>
+    <string name="home_source_all">Todos los servidores</string>
+    <string name="home_source_direct">Cámaras directas · ONVIF</string>
+    <string name="home_source_empty">No hay cámaras visibles para este servidor. Cambia el filtro para ver otras cámaras.</string>
+</resources>

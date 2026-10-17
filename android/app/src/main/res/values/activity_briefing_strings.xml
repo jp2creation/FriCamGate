@@ -1,4 +1,7 @@
 <resources>
+    <string name="activity_show_button">Activity summary button</string>
+    <string name="activity_show_button_detail">Show the floating shortcut on the home screen</string>
+    <string name="activity_up_to_date">You are up to date. No unread detections in the last 24 hours.</string>
     <string name="activity_since_visit">Since your last visit</string>
     <string name="activity_period">Unread detections · Last 24 hours</string>
     <string name="activity_listen">Listen to summary</string>

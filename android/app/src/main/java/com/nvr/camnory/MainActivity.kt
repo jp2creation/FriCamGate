@@ -129,6 +129,7 @@ class MainActivity : AppCompatActivity() {
     private var cameraPickerPopup: PopupWindow? = null
     private var cameraPickerSheet: SelectionBottomSheet? = null
     private var activityBriefingSheet: ActivityBriefingSheet? = null
+    private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -252,6 +253,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         super.onStop()
         notificationHandler.removeCallbacks(notificationPoll)
@@ -331,6 +333,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         dismissAlertsPopup()
         dismissCameraPicker()
@@ -577,7 +580,8 @@ class MainActivity : AppCompatActivity() {
         releasePlayer()
         homeVisible = true
         val dashboardCameras = dashboardCameras()
-        val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) }
+        val sourceFilter = homeSourceFilter()
+        val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) && sourceFilter.includes(homeSourceKey(it)) }
         val content = appScrollView().apply {
             setBackgroundColor(Palette.background)
             clipToPadding = false
@@ -587,7 +591,6 @@ class MainActivity : AppCompatActivity() {
         content.addView(column, responsiveScrollParams(720))
         if (session != null) {
             column.addView(eventStrip())
-            recentActivitySummary()?.let { column.addView(it) }
         }
         column.addView(homeTitleRow(message))
 
@@ -598,7 +601,7 @@ class MainActivity : AppCompatActivity() {
         if (dashboardCameras.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else if (shownCameras.isEmpty()) {
-            column.addView(emptyMessage(getString(R.string.all_hidden)))
+            column.addView(emptyMessage(getString(if (sourceFilter.selected != null) R.string.home_source_empty else R.string.all_hidden)))
         } else {
             val layout = homeCameraLayout()
             shownCameras.chunked(layout.columns).forEach { cameraRow ->
@@ -616,7 +619,15 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
             }
         }
-        setShell(content, Tab.Home, animateIn = true)
+        val homeContent = FrameLayout(this).apply {
+            addView(content, FrameLayout.LayoutParams(-1, -1))
+            recentActivitySummary()?.let { entry ->
+                addView(entry, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END).apply {
+                    marginEnd = dp(16); bottomMargin = dp(16)
+                })
+            }
+        }
+        setShell(homeContent, Tab.Home, animateIn = true)
         onvifCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
     }
@@ -2308,6 +2319,7 @@ class MainActivity : AppCompatActivity() {
         cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' '), event.startTime)
 
     private fun recentActivitySummary(): View? {
+        if (!getSharedPreferences("camgate-settings", MODE_PRIVATE).getBoolean("showActivityBriefing", true)) return null
         val activeSession = session ?: return null
         val allowed = visibleCameras().map { it.name }.toSet()
         val now = System.currentTimeMillis() / 1000.0
@@ -2317,33 +2329,33 @@ class MainActivity : AppCompatActivity() {
         val unread = unreadActivities(recent.map { ActivityItem(it.id, it.camera, it.startTime!!,
             EventFacts(it.objectLabel, it.subLabel, it.description)) }, acknowledged)
         val groups = groupActivities(unread)
-        if (groups.isEmpty()) return null
-        val summary = groups.take(3).joinToString(" · ") { group ->
+        val summary = if (groups.isEmpty()) getString(R.string.activity_up_to_date) else groups.take(3).joinToString(" · ") { group ->
             val event = recent.first { it.id == group.latest.id }
             val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' ')
             getString(R.string.activity_compact_item, eventDisplayText(event), camera, group.count)
         }
-        return horizontal().apply {
+        return FrameLayout(this).apply {
             val entry = this
             tag = "activity-briefing-entry"
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(52)
-            setPadding(0, dp(4), 0, dp(4))
             isFocusable = true
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8)
-                bottomMargin = dp(4)
-            }
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_list); setColorFilter(Palette.accent)
-            }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(10) })
-            addView(label(getString(R.string.activity_since_visit), 13, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 11, Palette.muted).apply {
-                setPadding(dp(8), 0, dp(8), 0)
-            })
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted)
-            }, LinearLayout.LayoutParams(dp(18), dp(18)))
+            isClickable = true
+            contentDescription = getString(R.string.recent_activity) + ", " + resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size)
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+            addView(FrameLayout(context).apply {
+                background = rounded(Palette.card, 28, Palette.border, 1)
+                elevation = dp(6).toFloat()
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_activity_wave); setColorFilter(Palette.accent)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+            if (unread.isNotEmpty()) addView(label(if (unread.size > 99) "99+" else unread.size.toString(), 10, Color.WHITE).apply {
+                tag = "activity-briefing-badge"
+                elevation = dp(8).toFloat()
+                gravity = Gravity.CENTER
+                background = rounded(Palette.accent, 10)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(dp(if (unread.size > 99) 28 else 22), dp(20), Gravity.TOP or Gravity.END))
             setOnClickListener {
                 if (appLock.locked) return@setOnClickListener
                 activityBriefingSheet?.dismiss()
@@ -2384,8 +2396,13 @@ class MainActivity : AppCompatActivity() {
                     acknowledge = {
                         val current = prefs.getStringSet(key, emptySet()).orEmpty()
                         prefs.edit().putStringSet(key, (unread.map { it.id } + current).take(1000).toSet()).apply()
-                        entry.visibility = View.GONE
-                        window.decorView.findViewWithTag<View>("activity-briefing-entry")?.visibility = View.GONE
+                        val currentEntry = window.decorView.findViewWithTag<View>("activity-briefing-entry") ?: entry
+                        (currentEntry.parent as? ViewGroup)?.let { parent ->
+                            val position = parent.indexOfChild(currentEntry)
+                            val params = currentEntry.layoutParams
+                            parent.removeView(currentEntry)
+                            recentActivitySummary()?.let { parent.addView(it, position, params) }
+                        }
                     }, review = { changeEventSearch(EventSearch()) }).also { it.show() }
             }
         }
@@ -2606,9 +2623,17 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(dp(34), dp(34)).apply {
                     rightMargin = dp(7)
                 })
-                addView(label(getString(R.string.cameras), 25, Palette.text).apply {
-                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-                })
+                addView(vertical().apply {
+                    addView(label(getString(R.string.cameras), 25, Palette.text).apply {
+                        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                    })
+                    val selected = homeSourceFilter().selected
+                    if (selected != null) homeSourceOptions().firstOrNull { it.value == selected }?.let {
+                        addView(label(it.title, 11, Palette.accent).apply {
+                            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                        })
+                    }
+                }, LinearLayout.LayoutParams(0, -2, 1f))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             if (!message.isNullOrBlank() && resources.configuration.screenWidthDp >= 700) {
                 addView(label(message, 12, Palette.muted).apply {
@@ -2621,18 +2646,13 @@ class MainActivity : AppCompatActivity() {
                 contentDescription = description
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
-            addView(toolbarIcon(R.drawable.ic_videocam, tint = Palette.muted) { anchor ->
-                android.widget.PopupMenu(this@MainActivity, anchor).apply {
-                    menu.add(0, 0, 0, "Frigate")
-                    menu.add(0, 1, 1, "ONVIF")
-                    menu.add(0, 2, 2, "Home Assistant")
-                    setOnMenuItemClickListener {
-                        when (it.itemId) { 0 -> renderLogin(); 1 -> openOnvifManager(); 2 -> openHomeAssistantManager() }
-                        true
-                    }
-                }.show()
+            val filtered = homeSourceFilter().selected != null
+            addView(toolbarIcon(R.drawable.ic_server_filter, tint = if (filtered) Palette.accent else Palette.muted) {
+                showHomeSourceFilter()
             }.apply {
-                contentDescription = getString(R.string.ha_sources)
+                tag = "home-server-filter"
+                isSelected = filtered
+                contentDescription = getString(R.string.home_source_filter)
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
@@ -2641,6 +2661,40 @@ class MainActivity : AppCompatActivity() {
     private fun homeCameraLayout(): HomeCameraLayout = HomeCameraLayout.fromPreference(
         getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("homeCameraLayout", null)
     )
+
+    private fun homeSourceKey(camera: DashboardCamera): String = when (camera.source) {
+        CameraSource.Frigate -> "frigate:${camera.frigate?.let { (api as? MultiFrigateApi)?.serverFor(it.name)?.id } ?: "legacy"}"
+        CameraSource.HomeAssistant -> "ha"
+        CameraSource.Onvif -> "onvif"
+    }
+
+    private fun homeSourceOptions(): List<AppearanceSheetOption> {
+        val servers = (api as? MultiFrigateApi)?.servers ?: runCatching { frigateServers.load() }.getOrDefault(emptyList())
+        return servers.map { AppearanceSheetOption("frigate:${it.id}", "Frigate · ${it.name}") } +
+            savedHomeAssistant()?.let {
+                listOf(AppearanceSheetOption("ha", "Home Assistant · ${android.net.Uri.parse(it.baseUrl).host.orEmpty()}"))
+            }.orEmpty() + if (savedOnvifCameras().isNotEmpty())
+                listOf(AppearanceSheetOption("onvif", getString(R.string.home_source_direct))) else emptyList()
+    }
+
+    private fun homeSourceFilter() = HomeSourceFilter(
+        getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("homeCameraServer", null),
+        homeSourceOptions().map { it.value }.toSet())
+
+    private fun showHomeSourceFilter() {
+        dismissTransientPopups()
+        val options = listOf(AppearanceSheetOption("all", getString(R.string.home_source_all))) + homeSourceOptions()
+        val sheet = AppearanceChoiceSheet(this, getString(R.string.home_source_filter), "home-server",
+            homeSourceFilter().selected ?: "all", options) { value ->
+            getSharedPreferences("camgate-settings", MODE_PRIVATE).edit().apply {
+                if (value == "all") remove("homeCameraServer") else putString("homeCameraServer", value)
+            }.apply()
+            renderHome()
+        }
+        homeSourceSheet = sheet
+        sheet.setOnDismissListener { if (homeSourceSheet === sheet) homeSourceSheet = null }
+        sheet.show()
+    }
 
     private fun showCameraLayoutMenu(anchor: View) {
         val selected = homeCameraLayout()
@@ -2871,6 +2925,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        homeSourceSheet?.dismiss(); homeSourceSheet = null
         appearanceChoiceSheet?.dismiss()
         appearanceChoiceSheet = null
         dismissCameraPicker()
@@ -3369,6 +3424,14 @@ class MainActivity : AppCompatActivity() {
         }))
         column.addView(sectionHeading(getString(R.string.appearance_details)))
         column.addView(settingsGroup(choice(R.string.camera_layout, "homeCameraLayout", "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
+        column.addView(preferenceToggleRow(getString(R.string.activity_show_button), getString(R.string.activity_show_button_detail), SwitchCompat(this).apply {
+            tag = "show-activity-briefing"
+            contentDescription = getString(R.string.activity_show_button)
+            isChecked = appearancePrefs.getBoolean("showActivityBriefing", true)
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("showActivityBriefing", checked).apply()
+            }
+        }))
         column.addView(preferenceToggleRow(getString(R.string.camera_source_icons), getString(R.string.camera_source_icons_detail), SwitchCompat(this).apply {
             tag = "show-camera-source-icons"
             contentDescription = getString(R.string.camera_source_icons)
@@ -3385,7 +3448,7 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val edit = appearancePrefs.edit()
-                    listOf("theme", "backgroundStyle", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "reducedMotion").forEach { edit.remove(it) }
+                    listOf("theme", "backgroundStyle", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "reducedMotion").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
                 }.show()
@@ -3930,15 +3993,16 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(28), 0, dp(28), 0)
         }
-        content.addView(BrandWordmarkView(this, 260, portrait = true),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf(dp(332), (resources.displayMetrics.heightPixels * 0.42f).toInt())))
+        content.addView(BrandWordmarkView(this, 190, portrait = true).apply { tag = "loading-brand" },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf(dp(243), (resources.displayMetrics.heightPixels * 0.32f).toInt())))
         val status = label(text.ifBlank { localizedLoadingStage(0) }, 14, Palette.muted).apply {
             gravity = Gravity.CENTER
             alpha = 0.86f
-            setPadding(0, dp(28), 0, 0)
+            setPadding(0, dp(20), 0, 0)
         }
         content.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val progressTrack = FrameLayout(this).apply {
+            tag = "loading-progress"
             background = rounded(Palette.surface, 2)
         }
         val progressFill = View(this).apply {
@@ -3947,8 +4011,8 @@ class MainActivity : AppCompatActivity() {
             scaleX = 0.18f
         }
         progressTrack.addView(progressFill, frameMatch())
-        content.addView(progressTrack, LinearLayout.LayoutParams(dp(176), dp(3)).apply {
-            topMargin = dp(20)
+        content.addView(progressTrack, LinearLayout.LayoutParams(dp(140), maxOf(1, dp(1))).apply {
+            topMargin = dp(16)
         })
         val slowPanel = vertical().apply {
             alpha = 0f

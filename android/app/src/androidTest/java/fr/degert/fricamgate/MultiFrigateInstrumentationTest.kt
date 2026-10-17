@@ -226,6 +226,37 @@ class MultiFrigateInstrumentationTest {
         assertTrue(CameraNotifications.check(context) { false })
         assertEquals(count, requestsB.size)
     }
+    @Test fun homeFilterSelectsOneServerWithoutChangingConnectionsAndCanReset() {
+        store.save(profiles)
+        val connections = File(context.noBackupFilesDir, "frigate-servers.enc").readBytes()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var count = 0
+            waitFor {
+                scenario.onActivity { activity -> count = (MainActivity::class.java.getDeclaredField("cameras").apply { isAccessible = true }.get(activity) as List<*>).size }
+                count == 2
+            }
+            scenario.onActivity { activity ->
+                fun root() = activity.findViewById<ViewGroup>(android.R.id.content)
+                fun tiles() = views(root()).filter { (it.tag as? String)?.startsWith("dashboard-camera:") == true }
+                assertEquals(2, tiles().size)
+                root().findViewWithTag<View>("home-server-filter").performClick()
+                val field = MainActivity::class.java.getDeclaredField("homeSourceSheet").apply { isAccessible = true }
+                val sheet = field.get(activity) as AppearanceChoiceSheet
+                sheet.window!!.decorView.findViewWithTag<View>("appearance-option-home-server-frigate:office").performClick()
+                assertEquals(1, tiles().size)
+                assertTrue(root().findViewWithTag<View>("home-server-filter").isSelected)
+                assertEquals("frigate:office", settings.getString("homeCameraServer", null))
+                assertArrayEquals(connections, File(context.noBackupFilesDir, "frigate-servers.enc").readBytes())
+                root().findViewWithTag<View>("home-server-filter").performClick()
+                (field.get(activity) as AppearanceChoiceSheet).window!!.decorView
+                    .findViewWithTag<View>("appearance-option-home-server-all").performClick()
+                assertEquals(2, tiles().size)
+                assertFalse(root().findViewWithTag<View>("home-server-filter").isSelected)
+                assertFalse(settings.contains("homeCameraServer"))
+            }
+        }
+    }
+
     @Test fun dashboardAndPlayerUseBothSourcesAndSettingsReturnToConnections() {
         store.save(profiles)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

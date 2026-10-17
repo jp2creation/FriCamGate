@@ -1,4 +1,7 @@
 <resources>
+    <string name="activity_show_button">Schaltfläche für Aktivitätsübersicht</string>
+    <string name="activity_show_button_detail">Schwebende Verknüpfung auf der Startseite anzeigen</string>
+    <string name="activity_up_to_date">Sie sind auf dem neuesten Stand. Keine ungelesenen Erkennungen in den letzten 24 Stunden.</string>
     <string name="activity_since_visit">Seit Ihrem letzten Besuch</string>
     <string name="activity_period">Ungelesene Erkennungen · Letzte 24 Stunden</string>
     <string name="activity_listen">Zusammenfassung anhören</string>

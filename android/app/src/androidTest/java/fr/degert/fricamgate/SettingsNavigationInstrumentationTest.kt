@@ -78,6 +78,41 @@ class SettingsNavigationInstrumentationTest {
         fail("Fixture dashboard did not load")
     }
 
+    @Test fun activityBriefingFloatsAboveNavigationAndRemainsAvailableWhenRead() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                val entry = root(activity).findViewWithTag<View>("activity-briefing-entry")
+                assertNotNull(entry)
+                assertTrue(entry.parent is android.widget.FrameLayout)
+                val params = entry.layoutParams as android.widget.FrameLayout.LayoutParams
+                assertEquals(android.view.Gravity.BOTTOM or android.view.Gravity.END, params.gravity)
+                assertEquals((64 * activity.resources.displayMetrics.density).toInt(), params.width)
+                assertNull(root(activity).findViewWithTag<View>("activity-briefing-badge"))
+                entry.performClick()
+                val field = MainActivity::class.java.getDeclaredField("activityBriefingSheet").apply { isAccessible = true }
+                val sheet = field.get(activity) as ActivityBriefingSheet
+                assertTrue(views(sheet.window!!.decorView).filterIsInstance<TextView>()
+                    .any { it.text == activity.getString(R.string.activity_up_to_date) })
+                views(sheet.window!!.decorView).filterIsInstance<TextView>()
+                    .first { it.text == activity.getString(R.string.activity_mark_read) }.performClick()
+                assertFalse(sheet.isShowing)
+                assertNotNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
+                render(activity, "renderAppearanceSettings")
+                val toggle = root(activity).findViewWithTag<androidx.appcompat.widget.SwitchCompat>("show-activity-briefing")
+                assertTrue(toggle.isChecked)
+                toggle.isChecked = false
+                assertFalse(context.getSharedPreferences("camgate-settings", 0).getBoolean("showActivityBriefing", true))
+                MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
+                assertNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
+                render(activity, "renderAppearanceSettings")
+                root(activity).findViewWithTag<androidx.appcompat.widget.SwitchCompat>("show-activity-briefing").isChecked = true
+                MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
+                assertNotNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
+            }
+        }
+    }
+
     @Test fun activityBriefingIsSilentUntilRequestedAndActionsDismissTheSheet() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

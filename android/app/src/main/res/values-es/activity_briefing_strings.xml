@@ -1,4 +1,7 @@
 <resources>
+    <string name="activity_show_button">Botón del resumen de actividad</string>
+    <string name="activity_show_button_detail">Mostrar el acceso flotante en el inicio</string>
+    <string name="activity_up_to_date">Estás al día. No hay detecciones sin leer en las últimas 24 horas.</string>
     <string name="activity_since_visit">Desde tu última visita</string>
     <string name="activity_period">Detecciones sin leer · Últimas 24 horas</string>
     <string name="activity_listen">Escuchar el resumen</string>
