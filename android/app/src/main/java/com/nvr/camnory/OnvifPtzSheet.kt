@@ -11,13 +11,15 @@ import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import java.util.concurrent.Executors
 
-internal class OnvifPtzSheet(context: Context, private val camera: OnvifSavedCamera, private val allowed: () -> Boolean)
-    : SelectionBottomSheet(context, "PTZ · ${camera.name}") {
-    private val client = OnvifPtzClient()
+internal class OnvifPtzSheet(context: Context, camera: OnvifSavedCamera, allowed: () -> Boolean)
+    : CameraPtzSheet(context, camera.name, OnvifCameraPtzDriver(camera), allowed)
+
+internal open class CameraPtzSheet(context: Context, private val cameraName: String, private val client: CameraPtzDriver,
+    private val allowed: () -> Boolean) : SelectionBottomSheet(context, "PTZ · $cameraName") {
     private val worker = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var rows: LinearLayout
-    private var catalog: OnvifPtzCatalog? = null
+    private var catalog: CameraPtzState? = null
     private var confirmation: AlertDialog? = null
     @Volatile private var closed = false
     private var started = false
@@ -30,7 +32,7 @@ internal class OnvifPtzSheet(context: Context, private val camera: OnvifSavedCam
         busy = true
         rows.removeAllViews(); rows.addView(ConnectionFormUi(context).text(context.getString(R.string.accessory_loading)))
         worker.execute {
-            val result = runCatching { client.discover(camera) }
+            val result = runCatching { client.discover() }
             handler.post { if (!closed) { busy = false; catalog = result.getOrNull(); render(result.isFailure) } }
         }
     }
@@ -42,39 +44,39 @@ internal class OnvifPtzSheet(context: Context, private val camera: OnvifSavedCam
             rows.addView(ui.action(context.getString(R.string.retry), false) { if (!busy) load() }); return
         }
         val current = catalog
-        if (current == null || current.spaces.panTilt == null && current.spaces.zoom == null && current.presets.isEmpty()) {
+        if (current == null || !current.available) {
             rows.addView(ui.text(context.getString(R.string.ptz_unavailable))); return
         }
-        if (current.spaces.panTilt != null) {
+        if (current.panTilt) {
             rows.addView(LinearLayout(context).apply {
                 gravity = Gravity.CENTER
-                addView(control("up", R.drawable.ic_arrow_up, R.string.ptz_up) { act { client.move(camera, current, "up") } })
+                addView(control("up", R.drawable.ic_arrow_up, R.string.ptz_up) { act { client.move("up") } })
             })
             rows.addView(LinearLayout(context).apply {
                 gravity = Gravity.CENTER
-                addView(control("left", R.drawable.ic_arrow_up, R.string.ptz_left, -90f) { act { client.move(camera, current, "left") } })
-                addView(control("stop", R.drawable.ic_stop, R.string.ptz_stop) { act { client.stop(camera, current) } })
-                addView(control("right", R.drawable.ic_arrow_up, R.string.ptz_right, 90f) { act { client.move(camera, current, "right") } })
+                addView(control("left", R.drawable.ic_arrow_up, R.string.ptz_left, -90f) { act { client.move("left") } })
+                addView(control("stop", R.drawable.ic_stop, R.string.ptz_stop) { act { client.stop() } })
+                addView(control("right", R.drawable.ic_arrow_up, R.string.ptz_right, 90f) { act { client.move("right") } })
             })
             rows.addView(LinearLayout(context).apply {
                 gravity = Gravity.CENTER
-                addView(control("down", R.drawable.ic_arrow_up, R.string.ptz_down, 180f) { act { client.move(camera, current, "down") } })
+                addView(control("down", R.drawable.ic_arrow_up, R.string.ptz_down, 180f) { act { client.move("down") } })
             })
         }
-        if (current.spaces.zoom != null) rows.addView(LinearLayout(context).apply {
+        if (current.zoom) rows.addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER
-            addView(control("out", R.drawable.ic_zoom_out, R.string.ptz_zoom_out) { act { client.move(camera, current, "out") } })
-            addView(control("in", R.drawable.ic_zoom_in, R.string.ptz_zoom_in) { act { client.move(camera, current, "in") } })
-            if (current.spaces.panTilt == null) addView(control("stop", R.drawable.ic_stop, R.string.ptz_stop) { act { client.stop(camera, current) } })
+            addView(control("out", R.drawable.ic_zoom_out, R.string.ptz_zoom_out) { act { client.move("out") } })
+            addView(control("in", R.drawable.ic_zoom_in, R.string.ptz_zoom_in) { act { client.move("in") } })
+            if (!current.panTilt) addView(control("stop", R.drawable.ic_stop, R.string.ptz_stop) { act { client.stop() } })
         })
         current.presets.forEach { preset ->
             rows.addView(ui.action(preset.name, false) {
                 if (!busy && !closed && allowed()) {
                     confirmation?.dismiss()
                     confirmation = AlertDialog.Builder(context).setTitle(preset.name)
-                        .setMessage(context.getString(R.string.ptz_preset_confirm, camera.name))
+                        .setMessage(context.getString(R.string.ptz_preset_confirm, cameraName))
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(android.R.string.ok) { _, _ -> act { client.preset(camera, current, preset.token) } }.show()
+                        .setPositiveButton(android.R.string.ok) { _, _ -> act { client.preset(preset.token) } }.show()
                 }
             })
         }

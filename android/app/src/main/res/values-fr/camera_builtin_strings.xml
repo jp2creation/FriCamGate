@@ -1,0 +1,5 @@
+<resources>
+    <string name="builtin_title">Commandes intégrées à la caméra</string>
+    <string name="builtin_checking">Vérification des fonctions…</string>
+    <string name="builtin_unavailable">Non disponible via cette connexion</string>
+</resources>

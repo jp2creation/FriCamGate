@@ -1,9 +1,7 @@
 package com.nvr.camnory
 
-import android.content.Context
 import okhttp3.OkHttpClient
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 internal data class OnvifRelay(val token: String, val mode: String)
@@ -38,28 +36,4 @@ internal class OnvifRelayClient {
         http.dispatcher.cancelAll()
         http.dispatcher.executorService.execute { http.connectionPool.evictAll() }
     }
-}
-
-internal class OnvifRelayBindings(context: Context, camera: OnvifSavedCamera) {
-    private val prefs = context.getSharedPreferences("onvif-relay-bindings", 0)
-    private val prefix = MessageDigest.getInstance("SHA-256").digest("${camera.endpoint}\n${camera.id}".toByteArray()).joinToString("") { "%02x".format(it) }
-    fun get(kind: String): String? = prefs.getString("$prefix:$kind", null)
-    fun set(kind: String, token: String?) {
-        require(kind in setOf("light", "siren"))
-        require(token == null || token.length in 1..256 && token.none(Char::isISOControl))
-        check(prefs.edit().apply { if (token == null) remove("$prefix:$kind") else putString("$prefix:$kind", token) }.commit())
-    }
-}
-
-/** Local explicit association only; never matches by camera name or network address. */
-internal class OnvifCameraLinks(context: Context, cameraKey: String) {
-    private val prefs = context.getSharedPreferences("onvif-camera-links", 0)
-    private val key = hash(cameraKey)
-    private fun fingerprint(camera: OnvifSavedCamera) = hash("${camera.id}\n${camera.endpoint}")
-    fun resolve(cameras: List<OnvifSavedCamera>): OnvifSavedCamera? =
-        prefs.getString(key, null)?.let { value -> cameras.firstOrNull { fingerprint(it) == value } }
-    fun set(camera: OnvifSavedCamera?) {
-        check(prefs.edit().apply { if (camera == null) remove(key) else putString(key, fingerprint(camera)) }.commit())
-    }
-    private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 }

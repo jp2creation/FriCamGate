@@ -1,0 +1,5 @@
+<resources>
+    <string name="builtin_title">Integrierte Kamerasteuerung</string>
+    <string name="builtin_checking">Kamerafunktionen werden geprüft…</string>
+    <string name="builtin_unavailable">Über diese Verbindung nicht verfügbar</string>
+</resources>

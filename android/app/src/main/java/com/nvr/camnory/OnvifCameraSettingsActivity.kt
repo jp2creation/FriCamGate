@@ -18,8 +18,8 @@ class OnvifCameraSettingsActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var lock: BiometricAppLock
     private lateinit var rows: LinearLayout
-    private var controls: OnvifRelaySheet? = null
     private var confirmation: AlertDialog? = null
+    private var controls: CameraControlsView? = null
     @Volatile private var generation = 0
     @Volatile private var foreground = false
     private var busy = false
@@ -102,10 +102,7 @@ class OnvifCameraSettingsActivity : AppCompatActivity() {
             addView(ui.text(getString(R.string.device_readonly_note)))
         }
         section(getString(R.string.camera_native_controls)) {
-            addView(ui.action(getString(R.string.ptz_title) + " · " + getString(R.string.accessory_title), false) {
-                if (permitted()) { controls?.dismiss(); controls = OnvifRelaySheet(this@OnvifCameraSettingsActivity, saved, ::permitted) {}.also { it.show() } }
-            })
-            addView(ui.text(getString(R.string.camera_only_warning)))
+            addView(CameraControlsView(this@OnvifCameraSettingsActivity, CameraControlTarget(saved.name, onvif = saved), ::permitted).also { controls = it })
         }
         section(getString(R.string.device_services)) {
             state.services.forEach { fact("ONVIF", it) }
@@ -163,7 +160,7 @@ class OnvifCameraSettingsActivity : AppCompatActivity() {
     override fun onPause() { lock.protectContent(); super.onPause() }
     override fun onStop() {
         foreground = false; generation++; busy = false; client.cancel()
-        confirmation?.dismiss(); controls?.dismiss(); lock.onBackground(); super.onStop()
+        confirmation?.dismiss(); controls?.close(); lock.onBackground(); super.onStop()
     }
     override fun onDestroy() { client.close(); worker.shutdownNow(); super.onDestroy() }
 }

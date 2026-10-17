@@ -268,12 +268,23 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
-    @Test fun accessoryDiscoveryAssociationAndCanceledSirenConfirmationNeverSendCommands() {
+    @Test fun builtinDiscoveryAndCanceledSirenConfirmationNeverSendCommands() {
         val commands = java.util.concurrent.atomic.AtomicInteger()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.method == "POST") commands.incrementAndGet()
                 return when (request.path?.substringBefore('?')) {
+                    "/api/websocket" -> MockResponse().withWebSocketUpgrade(object : okhttp3.WebSocketListener() {
+                        override fun onOpen(ws: okhttp3.WebSocket, response: okhttp3.Response) { ws.send("""{"type":"auth_required"}""") }
+                        override fun onMessage(ws: okhttp3.WebSocket, text: String) {
+                            val message = org.json.JSONObject(text)
+                            if (message.optString("type") == "auth") ws.send("""{"type":"auth_ok"}""")
+                            else ws.send(org.json.JSONObject().put("id", message.getInt("id")).put("type", "result").put("success", true)
+                                .put("result", org.json.JSONArray("""[{"entity_id":"camera.fixture","device_id":"fixture","platform":"ring"},
+                                    {"entity_id":"siren.fixture","device_id":"fixture","platform":"ring"},
+                                    {"entity_id":"light.fixture","device_id":"fixture","platform":"ring"}]""")).toString())
+                        }
+                    })
                     "/api/states" -> MockResponse().setBody("""[{"entity_id":"light.fixture","state":"off","attributes":{}},
                         {"entity_id":"siren.fixture","state":"off","attributes":{"supported_features":3}}]""")
                     "/api/config" -> MockResponse().setBody("""{"cameras":{"front":{"enabled":true}}}""")
@@ -283,33 +294,28 @@ class SettingsNavigationInstrumentationTest {
             }
         }
         val base = server.url("/").toString().trimEnd('/')
-        val bindings = CameraAccessoryBindings(context, "test-accessory-fixture", base)
-        try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitDashboard(scenario)
-                lateinit var sheet: CameraAccessorySheet
+                lateinit var sheet: CameraControlsSheet
                 scenario.onActivity { activity ->
-                    sheet = CameraAccessorySheet(activity, "test-accessory-fixture", "Fixture camera",
-                        HomeAssistantConnection(base, "fixture-token", emptyList()), { true })
+                    sheet = CameraControlsSheet(activity, CameraControlTarget("Fixture camera",
+                        homeAssistant = HomeAssistantConnection(base, "fixture-token", emptyList()), haEntity = "camera.fixture"), { true })
                     sheet.show()
                 }
                 var loaded = false
                 repeat(100) {
                     if (!loaded) {
-                        scenario.onActivity { loaded = sheet.window!!.decorView.findViewWithTag<View>("accessory-bind-siren") != null }
+                        scenario.onActivity { loaded = sheet.window!!.decorView.findViewWithTag<View>("builtin-siren")?.isEnabled == true }
                         if (!loaded) Thread.sleep(50)
                     }
                 }
                 assertTrue(loaded)
                 scenario.onActivity {
                     assertEquals(0, commands.get())
-                    sheet.window!!.decorView.findViewWithTag<View>("accessory-bind-siren").performClick()
-                    val picker = CameraAccessorySheet::class.java.getDeclaredField("picker").apply { isAccessible = true }.get(sheet) as AppearanceChoiceSheet
-                    picker.window!!.decorView.findViewWithTag<View>("appearance-option-accessory-siren-siren.fixture").performClick()
-                    assertEquals("siren.fixture", bindings.get("siren"))
-                    assertEquals(0, commands.get())
-                    sheet.window!!.decorView.findViewWithTag<View>("accessory-command-siren-true").performClick()
-                    val dialog = CameraAccessorySheet::class.java.getDeclaredField("confirmation").apply { isAccessible = true }.get(sheet) as androidx.appcompat.app.AlertDialog
+                    assertNull(sheet.window!!.decorView.findViewWithTag<View>("accessory-native-link"))
+                    (sheet.window!!.decorView.findViewWithTag<View>("builtin-siren") as androidx.appcompat.widget.SwitchCompat).isChecked = true
+                    val controlView = sheet.window!!.decorView.findViewWithTag<View>("camera-builtins") as CameraControlsView
+                    val dialog = CameraControlsView::class.java.getDeclaredField("confirmation").apply { isAccessible = true }.get(controlView) as androidx.appcompat.app.AlertDialog
                     assertTrue(dialog.isShowing)
                     assertEquals(0, commands.get())
                     dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick()
@@ -317,7 +323,6 @@ class SettingsNavigationInstrumentationTest {
                 }
                 assertEquals(0, commands.get())
             }
-        } finally { bindings.set("light", null); bindings.set("siren", null) }
     }
 
     @Test fun submenuNavigationAndRecreationKeepSettingsContext() {

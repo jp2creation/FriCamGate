@@ -42,11 +42,13 @@ internal fun homeAssistantBaseUrl(value: String): String {
 
 /** Camera reads/playback plus strictly allowlisted, explicitly requested light/siren commands. */
 internal class HomeAssistantClient(baseUrl: String, private val token: String) : Closeable {
+    @Volatile private var closed = false
     private val base = (homeAssistantBaseUrl(baseUrl) + "/").toHttpUrl()
     private val sockets = java.util.concurrent.CopyOnWriteArrayList<HomeAssistantSocket>()
     internal val http = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
         .pingInterval(30, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).addInterceptor { chain ->
+            if (closed) throw IOException("Home Assistant client closed")
             if (!sameOrigin(chain.request().url)) throw IOException("External camera URL refused")
             chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
         }.build()
@@ -79,6 +81,17 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
         return get(endpoint("api/camera_proxy/$entity").newBuilder().addQueryParameter("width", "640").build(), 8 * 1024 * 1024)
     }
     fun accessories(): List<CameraAccessory> = parseCameraAccessories(JSONArray(String(get(endpoint("api/states"), 4 * 1024 * 1024), Charsets.UTF_8)))
+
+    fun cameraBuiltins(entity: String): List<CameraAccessory> {
+        require(validHomeAssistantCamera(entity))
+        val ids = socket().use { cameraBuiltinEntityIds(entity, it.entityRegistry()) }
+        return if (ids.isEmpty()) emptyList() else accessories().filter { it.entityId in ids }
+    }
+
+    fun setCameraBuiltin(camera: String, entity: String, enabled: Boolean) {
+        require(cameraBuiltins(camera).any { it.entityId == entity })
+        setAccessory(entity, enabled)
+    }
 
     fun setAccessory(entity: String, enabled: Boolean) {
         require(validCameraAccessory(entity))
@@ -114,6 +127,7 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
     }
     fun socket() = HomeAssistantSocket(this, token).also { sockets.add(it) }
     override fun close() {
+        closed = true
         sockets.forEach { it.close() }; sockets.clear(); http.dispatcher.cancelAll()
         // TLS close_notify can write to the socket, even after the response was read.
         http.dispatcher.executorService.execute { http.connectionPool.evictAll() }
@@ -156,23 +170,29 @@ internal class HomeAssistantSocket(private val client: HomeAssistantClient, toke
         failure = error; authenticated.countDown(); replies.values.forEach { it.latch.countDown() }
         event?.invoke(JSONObject().put("type", "error"))
     }
-    private fun request(type: String, entity: String, extra: JSONObject = JSONObject(), subscription: Boolean = false): JSONObject {
-        require(validHomeAssistantCamera(entity))
-        check(type in setOf("camera/capabilities", "camera/stream", "camera/webrtc/get_client_config", "camera/webrtc/offer"))
+    private fun requestEnvelope(type: String, entity: String?, extra: JSONObject = JSONObject(), subscription: Boolean = false): JSONObject {
+        require(if (type == "config/entity_registry/list") entity == null else entity != null && validHomeAssistantCamera(entity))
+        check(type in setOf("camera/capabilities", "camera/stream", "camera/webrtc/get_client_config", "camera/webrtc/offer", "config/entity_registry/list"))
         if (!authenticated.await(15, TimeUnit.SECONDS)) throw IOException("Home Assistant authentication timed out")
         failure?.let { throw it }; if (stopped) throw IOException("Closed")
         val id = ids.incrementAndGet()
         val reply = Reply(); replies[id] = reply
         if (subscription) offerId = id
         try {
-            check(socket.send(extra.put("id", id).put("type", type).put("entity_id", entity).toString()))
+            val message = extra.put("id", id).put("type", type)
+            if (entity != null) message.put("entity_id", entity)
+            check(socket.send(message.toString()))
             if (!reply.latch.await(20, TimeUnit.SECONDS)) throw IOException("Camera request timed out")
             failure?.let { throw it }
             val response = reply.value ?: throw IOException("Camera connection closed")
             if (!response.optBoolean("success")) throw IOException("Camera operation unavailable")
-            return response.optJSONObject("result") ?: JSONObject()
+            return response
         } finally { replies.remove(id) }
     }
+    private fun request(type: String, entity: String, extra: JSONObject = JSONObject(), subscription: Boolean = false): JSONObject =
+        requestEnvelope(type, entity, extra, subscription).optJSONObject("result") ?: JSONObject()
+    fun entityRegistry(): JSONArray = requestEnvelope("config/entity_registry/list", null).optJSONArray("result")
+        ?: throw IOException("Entity registry unavailable")
     fun capabilities(entity: String): Set<String> {
         val array = request("camera/capabilities", entity).optJSONArray("frontend_stream_types") ?: JSONArray()
         return (0 until array.length()).map { array.optString(it) }.filter { it in setOf("hls", "web_rtc") }.toSet()

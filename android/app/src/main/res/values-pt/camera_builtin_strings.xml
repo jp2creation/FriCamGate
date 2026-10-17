@@ -1,0 +1,5 @@
+<resources>
+    <string name="builtin_title">Controlos integrados da câmara</string>
+    <string name="builtin_checking">A verificar funções…</string>
+    <string name="builtin_unavailable">Não disponível nesta ligação</string>
+</resources>

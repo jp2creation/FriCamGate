@@ -1,0 +1,5 @@
+<resources>
+    <string name="builtin_title">Built-in camera controls</string>
+    <string name="builtin_checking">Checking camera capabilities…</string>
+    <string name="builtin_unavailable">Not available through this connection</string>
+</resources>

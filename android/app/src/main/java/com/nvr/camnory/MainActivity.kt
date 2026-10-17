@@ -132,7 +132,7 @@ class MainActivity : AppCompatActivity() {
     private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
     private var chatDialog: NativeChatDialog? = null
-    private var accessorySheet: CameraAccessorySheet? = null
+    private var accessorySheet: CameraControlsSheet? = null
     private var chatServerSheet: SelectionBottomSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
@@ -255,6 +255,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        dismissCameraPicker()
         accessorySheet?.dismiss(); accessorySheet = null
         chatDialog?.dismiss(); chatDialog = null
         chatServerSheet?.dismiss(); chatServerSheet = null
@@ -632,7 +633,7 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.TOP
                     repeat(layout.columns) { index ->
                         val item = cameraRow.getOrNull(index)
-                        val tile = item?.let { accessoryShortcut(it, dashboardCameraView(it, layout), layout) } ?: View(context)
+                        val tile = item?.let { dashboardCameraView(it, layout) } ?: View(context)
                         tile.tag = item?.let { "dashboard-camera:${it.key}" }
                         val height = if (layout == HomeCameraLayout.Column) dp(218) else ViewGroup.LayoutParams.WRAP_CONTENT
                         addView(tile, LinearLayout.LayoutParams(0, height, 1f).apply {
@@ -710,33 +711,21 @@ class MainActivity : AppCompatActivity() {
     private fun savedHomeAssistant(): HomeAssistantConnection? = runCatching { HomeAssistantStore(this).load() }
         .getOrElse { toast(getString(R.string.ha_storage_failed)); null }
 
-    private fun accessoryShortcut(camera: DashboardCamera, content: View, layout: HomeCameraLayout): View = FrameLayout(this).apply {
-        addView(content, FrameLayout.LayoutParams(-1, if (layout == HomeCameraLayout.Column) -1 else -2))
-        addView(android.widget.ImageButton(context).apply {
-            tag = "camera-light:${camera.key}"
-            setImageResource(R.drawable.ic_camera_light); setColorFilter(Palette.text)
-            background = rounded(Palette.overlay, 22)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            contentDescription = getString(R.string.accessory_light)
-            visibility = if (savedHomeAssistant()?.let { CameraAccessoryBindings(context, camera.key, it.baseUrl).get("light") } != null ||
-                (camera.onvif ?: OnvifCameraLinks(context, camera.key).resolve(savedOnvifCameras()))?.let { OnvifRelayBindings(context, it).get("light") } != null) View.VISIBLE else View.GONE
-            setOnClickListener { showAccessories(camera.key, camera.name) }
-        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { marginStart = dp(8); topMargin = dp(8) })
+    private fun cameraControlTarget(camera: DashboardCamera): CameraControlTarget {
+        camera.onvif?.let { return CameraControlTarget(camera.name, onvif = it) }
+        camera.haCamera?.let { return CameraControlTarget(camera.name, homeAssistant = camera.haConnection, haEntity = it.entityId) }
+        val native = camera.frigate?.name ?: return CameraControlTarget(camera.name)
+        val router = api as? MultiFrigateApi
+        val server = runCatching { router?.serverFor(native) ?: frigateServers.load().firstOrNull() }.getOrNull()
+        return CameraControlTarget(camera.name, frigate = server, frigateCamera = router?.nativeName(native) ?: native)
     }
 
     private fun showAccessories(key: String, name: String) {
         if (appLock.locked) return
         dismissTransientPopups()
-        val connection = savedHomeAssistant()
-        val native = dashboardCameras().firstOrNull { it.key == key }?.onvif
-        val sheet = CameraAccessorySheet(this, key, name, connection,
-            nativeCamera = native,
-            nativeCameras = savedOnvifCameras(),
-            allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) }) {
-            window.decorView.findViewWithTag<View>("camera-light:$key")?.visibility =
-                if (connection != null && CameraAccessoryBindings(this, key, connection.baseUrl).get("light") != null ||
-                    (native ?: OnvifCameraLinks(this, key).resolve(savedOnvifCameras()))?.let { OnvifRelayBindings(this, it).get("light") } != null) View.VISIBLE else View.GONE
-        }
+        val item = dashboardCameras().firstOrNull { it.key == key } ?: return
+        val sheet = CameraControlsSheet(this, cameraControlTarget(item).copy(name = name),
+            allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) })
         accessorySheet = sheet
         sheet.setOnDismissListener { if (accessorySheet === sheet) accessorySheet = null }
         sheet.show()
@@ -3101,9 +3090,11 @@ class MainActivity : AppCompatActivity() {
             card.addView(cameraFeatureToggleRow(activeApi, activeSession.token, camera, control))
         }
         card.addView(disabledCameraOptionRow(getString(R.string.microphone), getString(R.string.api_unavailable)))
-        card.addView(secondaryButton(getString(R.string.accessory_title)).apply {
-            setOnClickListener { showAccessories(frigateCameraKey(camera.name), camera.friendlyName) }
-        })
+        dashboardCameras().firstOrNull { it.frigate?.name == camera.name }?.let { item ->
+            card.addView(CameraControlsView(this, cameraControlTarget(item)) {
+                !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+            })
+        }
 
         val sheet = SelectionBottomSheet(this, camera.friendlyName, card)
         cameraPickerSheet = sheet
@@ -3791,9 +3782,9 @@ class MainActivity : AppCompatActivity() {
             }))
         }
         if (all.isNotEmpty()) {
-            column.addView(sectionHeading(getString(R.string.accessory_title)))
+            column.addView(sectionHeading(getString(R.string.builtin_title)))
             all.forEach { camera -> column.addView(settingsNavRow(camera.name, camera.source.title,
-                { showAccessories(camera.key, camera.name) }, icon = R.drawable.ic_camera_light)) }
+                { showAccessories(camera.key, camera.name) }, icon = R.drawable.ic_settings)) }
         }
         setShell(scroll, Tab.Settings)
     }
