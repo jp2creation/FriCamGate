@@ -1,0 +1,35 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="tv_no_events">No recent Frigate events available.</string>
+    <string name="tv_remove_source">Remove from this TV</string>
+    <string name="tv_remove_confirm">Remove this connection from the TV? The server and phone remain unchanged.</string>
+    <string name="tv_admin">Administration</string>
+    <string name="tv_servers">Servers</string>
+    <string name="tv_picture_sound">Picture and sound</string>
+    <string name="tv_appearance">Appearance</string>
+    <string name="tv_diagnostics">Diagnostics</string>
+    <string name="tv_visible">Visible on home screen</string>
+    <string name="tv_move_up">Move up</string>
+    <string name="tv_primary_camera">Use as main camera</string>
+    <string name="tv_main_stream">Main Frigate stream</string>
+    <string name="tv_start_muted">Start Frigate playback muted</string>
+    <string name="tv_preview_resolution">Frigate preview resolution</string>
+    <string name="tv_fill_video">Fill Frigate video (crop)</string>
+    <string name="tv_black_background">Black background</string>
+    <string name="tv_large_text">Larger text</string>
+    <string name="tv_accent">Accent color</string>
+    <string name="tv_app_version">Application version</string>
+    <string name="tv_test_connection">Test connection</string>
+    <string name="tv_api_token">API access token</string>
+    <string name="tv_source">Source</string>
+    <string name="tv_stream">Stream</string>
+    <string name="tv_economy">Economy</string>
+    <string name="tv_previous_page">Previous cameras</string>
+    <string name="tv_next_page">Next cameras</string>
+    <string-array name="tv_accent_names">
+        <item>Pink</item>
+        <item>Blue</item>
+        <item>Green</item>
+        <item>Violet</item>
+        <item>Ochre</item>
+    </string-array>
+</resources>
