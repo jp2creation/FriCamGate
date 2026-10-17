@@ -49,6 +49,7 @@ internal class CameraArrangementView(
                     })
                 }, LayoutParams(0, -2, 1f))
                 addView(SwitchCompat(context).apply {
+                    applyAccentTint()
                     tag = "camera-visibility:${camera.key}"
                     contentDescription = context.getString(R.string.camera_visibility_name, camera.name)
                     isChecked = camera.visible; isEnabled = camera.enabled

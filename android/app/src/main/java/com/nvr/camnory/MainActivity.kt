@@ -3088,6 +3088,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun settingsToggleRow(title: String, detail: String, switchView: SwitchCompat): View {
+        switchView.applyAccentTint()
         return horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(8), dp(4), dp(8))
@@ -3650,6 +3651,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun preferenceToggleRow(title: String, detail: String, toggle: SwitchCompat): View = horizontal().apply {
+        toggle.applyAccentTint()
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(16), dp(12), dp(16))
         background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)

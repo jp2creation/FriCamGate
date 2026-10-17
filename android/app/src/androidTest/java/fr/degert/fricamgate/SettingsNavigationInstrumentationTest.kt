@@ -175,6 +175,38 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
+    @Test fun switchesFollowEveryAccentInLightAndDarkWithoutChangingTheirValues() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                val originalAccent = Palette.accent
+                val originalDark = Palette.dark
+                try {
+                    for (dark in listOf(false, true)) for (accent in listOf("red", "blue", "green", "violet", "ochre")) {
+                        Palette.dark = dark; Palette.accent = Appearance.accent(accent)
+                        render(activity, "renderAppearanceSettings")
+                        val switches = views(root(activity)).filterIsInstance<androidx.appcompat.widget.SwitchCompat>()
+                        assertEquals(3, switches.size)
+                        switches.forEach { toggle ->
+                            val value = toggle.isChecked
+                            val enabled = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked)
+                            val unchecked = intArrayOf(android.R.attr.state_enabled, -android.R.attr.state_checked)
+                            val disabled = intArrayOf(-android.R.attr.state_enabled, android.R.attr.state_checked)
+                            assertEquals(Palette.accent, toggle.thumbTintList!!.getColorForState(enabled, 0))
+                            assertEquals(Palette.muted, toggle.thumbTintList!!.getColorForState(unchecked, 0))
+                            assertEquals(androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 85),
+                                toggle.trackTintList!!.getColorForState(enabled, 0))
+                            assertEquals(androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 97),
+                                toggle.thumbTintList!!.getColorForState(disabled, 0))
+                            toggle.applyAccentTint()
+                            assertEquals(value, toggle.isChecked)
+                        }
+                    }
+                } finally { Palette.accent = originalAccent; Palette.dark = originalDark }
+            }
+        }
+    }
+
     @Test fun submenuNavigationAndRecreationKeepSettingsContext() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)
