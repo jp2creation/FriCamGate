@@ -22,6 +22,7 @@ internal class ActivityBriefingSheet(
     private val acknowledge: () -> Unit,
     private val review: () -> Unit
 ) : SelectionBottomSheet(context, context.getString(R.string.recent_activity)) {
+    override val maxHeightFraction = 0.70f
     private val handler = Handler(Looper.getMainLooper())
     private var engine: TextToSpeech? = null
     private var ready = false

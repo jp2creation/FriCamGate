@@ -2204,32 +2204,30 @@ class MainActivity : AppCompatActivity() {
             pendingScrollPlayback = null
             currentPlayer?.pause()
             timelinePlaybackGeneration++
-            if (!selectedToday) {
-                renderCameraDetail(camera)
-                return
-            }
+            fun finishReturn() { if (selectedToday) resumeLive() else renderCameraDetail(camera) }
             if (reducedMotion) {
                 syncingPlaybackScroll = true
                 scroll.scrollTo(0, 0)
                 syncingPlaybackScroll = false
-                resumeLive()
+                finishReturn()
                 return
             }
             returnLiveAnimator = ValueAnimator.ofInt(scroll.scrollY, 0).apply {
-                duration = 460L
-                interpolator = android.view.animation.DecelerateInterpolator()
+                duration = timelineReturnDuration(scroll.scrollY, frame.height)
+                interpolator = android.view.animation.AccelerateDecelerateInterpolator()
                 addUpdateListener {
                     if (!frame.isAttachedToWindow) return@addUpdateListener
                     syncingPlaybackScroll = true
                     scroll.scrollTo(0, it.animatedValue as Int)
                     syncingPlaybackScroll = false
+                    currentTime.text = formatTimelineClock(centerSecondForScroll(scroll.scrollY))
                 }
                 addListener(object : android.animation.AnimatorListenerAdapter() {
                     private var cancelled = false
                     override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
                     override fun onAnimationEnd(animation: android.animation.Animator) {
                         returnLiveAnimator = null
-                        if (!cancelled) resumeLive()
+                        if (!cancelled) finishReturn()
                     }
                 })
                 start()

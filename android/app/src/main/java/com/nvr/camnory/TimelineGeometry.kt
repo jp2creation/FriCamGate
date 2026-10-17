@@ -2,6 +2,9 @@ package com.nvr.camnory
 
 internal val timelineZoomDensities = intArrayOf(4, 8, 12, 18, 34, 62, 100)
 
+internal fun timelineReturnDuration(distancePx: Int, viewportPx: Int): Long =
+    (700.0 + distancePx.coerceAtLeast(0).toDouble() / viewportPx.coerceAtLeast(1) * 220.0).toLong().coerceIn(700L, 4500L)
+
 internal fun timelineZoomIndex(density: Int?, legacyIndex: Int): Int {
     val saved = density ?: intArrayOf(18, 34, 62, 100)[legacyIndex.coerceIn(0, 3)]
     return timelineZoomDensities.indices.minBy { kotlin.math.abs(timelineZoomDensities[it] - saved) }
