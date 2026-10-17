@@ -6,6 +6,18 @@ import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+
+internal fun applyIpCameraFormInsets(root: View, column: View, insets: WindowInsetsCompat) {
+    val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+    val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+    root.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
+    val available = (root.width.takeIf { it > 0 } ?: root.resources.displayMetrics.widthPixels) - bars.left - bars.right
+    val width = minOf(available.coerceAtLeast(1), (760 * root.resources.displayMetrics.density).toInt())
+    if (column.layoutParams.width != width) column.layoutParams = column.layoutParams.apply { this.width = width }
+}
 
 class IpCameraActivity : AppCompatActivity() {
     private lateinit var store: IpCameraStore
@@ -16,9 +28,15 @@ class IpCameraActivity : AppCompatActivity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         Appearance.loadPalette(getSharedPreferences("camgate-settings", MODE_PRIVATE), resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         store = IpCameraStore(this)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !Palette.dark
+            isAppearanceLightNavigationBars = !Palette.dark
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         lock = BiometricAppLock(this) { list() }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { if (editing) list() else finish() }
@@ -39,14 +57,22 @@ class IpCameraActivity : AppCompatActivity() {
                 contentDescription = getString(R.string.onvif_back)
                 setOnClickListener { if (editing) list() else finish() }
             }, LinearLayout.LayoutParams(dp(44), dp(44)))
-            addView(ui.text(getString(R.string.ip_cameras), 20, Palette.text))
+            addView(ui.text(getString(R.string.ip_cameras), 20, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
         })
-        setContentView(ScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
+            tag = "ip-camera-root"
             setBackgroundColor(Palette.background)
             addView(FrameLayout(context).apply {
                 addView(column, FrameLayout.LayoutParams(minOf(resources.displayMetrics.widthPixels, dp(760)), -2, Gravity.CENTER_HORIZONTAL))
             })
-        })
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            applyIpCameraFormInsets(view, column, insets)
+            insets
+        }
+        setContentView(scroll)
+        ViewCompat.requestApplyInsets(scroll)
+        scroll.post { ViewCompat.getRootWindowInsets(window.decorView)?.let { ViewCompat.dispatchApplyWindowInsets(scroll, it) } }
         return column
     }
     private fun list() {

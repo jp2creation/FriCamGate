@@ -138,7 +138,7 @@ class MainActivity : AppCompatActivity() {
     private var timelineDateSheet: TimelineDateSheet? = null
     private var cameraButtonsSheet: CameraButtonsSheet? = null
     private var appearanceResetSheet: ConfirmationSheet? = null
-    private var homeSourceSheet: AppearanceChoiceSheet? = null
+    private var homeSourceSheet: SelectionBottomSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
     private var chatDialog: NativeChatDialog? = null
     private var accessorySheet: CameraControlsSheet? = null
@@ -692,10 +692,6 @@ class MainActivity : AppCompatActivity() {
             column.addView(it, LinearLayout.LayoutParams(-1, -2))
         }
         if (showHomeToolbar()) column.addView(homeTitleRow(message).apply { tag = "home-camera-toolbar" })
-        if (metadata.categories.isNotEmpty()) column.addView(homeMenuRow(R.drawable.ic_server_filter,
-            metadata.categories.firstOrNull { it.id == metadata.selected }?.name ?: getString(R.string.all_cameras), metadata.selected != null) {
-                showCameraCategoryFilter()
-            }.apply { tag = "home-category-filter"; contentDescription = getString(R.string.category_filter) }, LinearLayout.LayoutParams(-1, dp(44)))
 
         val dashboardError = dashboardErrorMessage
         if (!dashboardError.isNullOrBlank()) {
@@ -833,7 +829,7 @@ class MainActivity : AppCompatActivity() {
         val overlay = layout == HomeCameraLayout.Column || tabletLayout().tablet && layout == HomeCameraLayout.TwoColumns
         item.ip?.let { camera ->
             return IpCameraCard(this, camera, { renderExpandedLive(item) }, { openIpManager(camera.id) },
-                onAudible = ::silenceForIp, compact = !overlay, displayName = item.name).also { ipCards.add(it) }
+                onAudible = ::silenceForIp, compact = !overlay, preload = true, displayName = item.name).also { ipCards.add(it) }
         }
         item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
@@ -842,6 +838,7 @@ class MainActivity : AppCompatActivity() {
                 manage = { openOnvifManager(camera.id, manage = true) },
                 columnMode = overlay,
                 displayName = item.name,
+                preloadLive = true,
                 accessories = { showAccessories(item.key, item.name) },
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
@@ -858,6 +855,7 @@ class MainActivity : AppCompatActivity() {
             fullscreen = { openHomeAssistantCamera(connection, camera) },
             columnMode = overlay,
             displayName = item.name,
+            preloadLive = true,
             accessories = { showAccessories(item.key, item.name) },
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
@@ -2750,7 +2748,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             })
-            addView(timelineFloatButton(R.drawable.ic_list).apply {
+            addView(timelineFloatButton(R.drawable.ic_grid).apply {
                 setOnClickListener {
                     renderCameraDetail(camera, timelineDayMillis, cameraEvents, centerSecondForScroll(scroll.scrollY), true)
                 }
@@ -3232,13 +3230,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appHeader(): View {
+        val headerFilter = homeVisible && !showHomeToolbar() && catalog().categories.isNotEmpty()
+        val filterMargin = 14 + (if (showHeaderAlerts()) 50 else 0) + (if (showHeaderChat()) 50 else 0)
         if (tabletLayout().tablet) return FrameLayout(this).apply {
             tag = "tablet-header"
             setBackgroundColor(Palette.background)
             addView(brandWordmark(160), FrameLayout.LayoutParams(dp(160), dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(16) })
             addView(label(java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG).format(java.util.Date()), 12, Palette.muted).apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_VERTICAL
-            }, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(196); marginEnd = dp(126) })
+            }, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(196); marginEnd = dp(maxOf(126, if (headerFilter) filterMargin + 50 else 0)) })
+            if (headerFilter) addView(homeFilterButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(filterMargin) })
             if (showHeaderAlerts()) addView(alertsButton().apply { tag = "header-alerts"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(14) })
             if (showHeaderChat()) addView(chatButton().apply { tag = "header-chat"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(if (showHeaderAlerts()) 64 else 14) })
         }.also { it.layoutParams = LinearLayout.LayoutParams(-1, dp(64)) }
@@ -3254,7 +3255,7 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70)))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.START or Gravity.TOP).apply {
                 leftMargin = dp(10)
-                rightMargin = dp(118)
+                rightMargin = dp(maxOf(118, if (headerFilter) filterMargin + 50 else 0))
                 topMargin = dp(26)
             })
             if (showHeaderAlerts()) addView(alertsButton().apply { tag = "header-alerts"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
@@ -3264,6 +3265,9 @@ class MainActivity : AppCompatActivity() {
             if (showHeaderChat()) addView(chatButton().apply { tag = "header-chat"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
                 rightMargin = dp(if (showHeaderAlerts()) 64 else 14)
                 topMargin = dp(38)
+            })
+            if (headerFilter) addView(homeFilterButton(), FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+                rightMargin = dp(filterMargin); topMargin = dp(38)
             })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)) }
     }
@@ -3348,15 +3352,7 @@ class MainActivity : AppCompatActivity() {
                 contentDescription = description
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
-            val filtered = homeSourceFilter().selected != null
-            addView(toolbarIcon(R.drawable.ic_server_filter, tint = if (filtered) Palette.accent else Palette.muted) {
-                showHomeSourceFilter()
-            }.apply {
-                tag = "home-server-filter"
-                isSelected = filtered
-                contentDescription = getString(R.string.home_source_filter)
-                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
-            }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            addView(homeFilterButton(), LinearLayout.LayoutParams(dp(48), dp(48)))
         }
     }
 
@@ -3386,16 +3382,30 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences("camgate-settings", MODE_PRIVATE).getString("homeCameraServer", null),
         homeSourceOptions().map { it.value }.toSet())
 
-    private fun showHomeSourceFilter() {
+    private fun homeFilterButton(): View {
+        val filtered = homeSourceFilter().selected != null || catalog().selected != null
+        return toolbarIcon(R.drawable.ic_server_filter, tint = if (filtered) Palette.accent else Palette.muted) { showHomeSourceFilter() }.apply {
+            tag = "home-server-filter"; isSelected = filtered
+            contentDescription = getString(R.string.home_camera_filters)
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+        }
+    }
+
+    private fun showHomeSourceFilter(categoryFirst: Boolean = false) {
+        if (appLock.locked) return
         dismissTransientPopups()
         val options = listOf(AppearanceSheetOption("all", getString(R.string.home_source_all))) + homeSourceOptions()
-        val sheet = AppearanceChoiceSheet(this, getString(R.string.home_source_filter), "home-server",
-            homeSourceFilter().selected ?: "all", options) { value ->
-            getSharedPreferences("camgate-settings", MODE_PRIVATE).edit().apply {
-                if (value == "all") remove("homeCameraServer") else putString("homeCameraServer", value)
-            }.apply()
-            renderHome()
-        }
+        val metadata = catalog()
+        val sheet = HomeCameraFilterSheet(this, options,
+            listOf(AppearanceSheetOption("all", getString(R.string.all_cameras))) + metadata.categories.map { AppearanceSheetOption(it.id, it.name) },
+            homeSourceFilter().selected, metadata.selected, { source, category ->
+                if (!appLock.locked) runCatching {
+                    catalogStore().update { it.select(category) }
+                    getSharedPreferences("camgate-settings", MODE_PRIVATE).edit().apply {
+                        if (source == null) remove("homeCameraServer") else putString("homeCameraServer", source)
+                    }.apply()
+                }.onSuccess { renderHome() }.onFailure { toast(getString(R.string.category_error)) }
+            }, categoryFirst)
         homeSourceSheet = sheet
         sheet.setOnDismissListener { if (homeSourceSheet === sheet) homeSourceSheet = null }
         sheet.show()
@@ -4580,17 +4590,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showCameraCategoryFilter() {
-        if (appLock.locked) return
-        dismissTransientPopups()
-        val metadata = catalog()
-        val sheet = AppearanceChoiceSheet(this, getString(R.string.category_filter), "camera-category", metadata.selected ?: "all",
-            listOf(AppearanceSheetOption("all", getString(R.string.all_cameras))) + metadata.categories.map { AppearanceSheetOption(it.id, it.name) }) { id ->
-            if (!appLock.locked) runCatching { catalogStore().update { it.select(id.takeUnless { value -> value == "all" }) } }
-                .onSuccess { renderHome() }.onFailure { toast(getString(R.string.category_error)) }
-        }
-        homeSourceSheet = sheet
-        sheet.setOnDismissListener { if (homeSourceSheet === sheet) homeSourceSheet = null }
-        sheet.show()
+        showHomeSourceFilter(categoryFirst = true)
     }
 
     private fun renderAboutSettings() {

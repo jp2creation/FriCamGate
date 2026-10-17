@@ -241,15 +241,17 @@ class MultiFrigateInstrumentationTest {
                 assertEquals(2, tiles().size)
                 root().findViewWithTag<View>("home-server-filter").performClick()
                 val field = MainActivity::class.java.getDeclaredField("homeSourceSheet").apply { isAccessible = true }
-                val sheet = field.get(activity) as AppearanceChoiceSheet
-                sheet.window!!.decorView.findViewWithTag<View>("appearance-option-home-server-frigate:office").performClick()
+                val sheet = field.get(activity) as HomeCameraFilterSheet
+                sheet.window!!.decorView.findViewWithTag<View>("home-filter-server-frigate:office").performClick()
+                sheet.window!!.decorView.findViewWithTag<View>("home-filter-apply").performClick()
                 assertEquals(1, tiles().size)
                 assertTrue(root().findViewWithTag<View>("home-server-filter").isSelected)
                 assertEquals("frigate:office", settings.getString("homeCameraServer", null))
                 assertArrayEquals(connections, File(context.noBackupFilesDir, "frigate-servers.enc").readBytes())
                 root().findViewWithTag<View>("home-server-filter").performClick()
-                (field.get(activity) as AppearanceChoiceSheet).window!!.decorView
-                    .findViewWithTag<View>("appearance-option-home-server-all").performClick()
+                val reset = field.get(activity) as HomeCameraFilterSheet
+                reset.window!!.decorView.findViewWithTag<View>("home-filter-server-all").performClick()
+                reset.window!!.decorView.findViewWithTag<View>("home-filter-apply").performClick()
                 assertEquals(2, tiles().size)
                 assertFalse(root().findViewWithTag<View>("home-server-filter").isSelected)
                 assertFalse(settings.contains("homeCameraServer"))

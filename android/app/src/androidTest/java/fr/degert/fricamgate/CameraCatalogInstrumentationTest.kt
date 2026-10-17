@@ -128,11 +128,13 @@ class CameraCatalogInstrumentationTest {
                         (view is ViewGroup && (0 until view.childCount).any { textExists(view.getChildAt(it)) })
                     assertTrue(textExists(activity.window.decorView))
                     MainActivity::class.java.getDeclaredMethod("showCameraCategoryFilter").apply { isAccessible = true }.invoke(activity)
-                    val filter = field("homeSourceSheet").get(activity) as AppearanceChoiceSheet
+                    val filter = field("homeSourceSheet").get(activity) as HomeCameraFilterSheet
                     val selected = store.load().categories.first().id
-                    filter.window!!.decorView.findViewWithTag<View>("appearance-option-camera-category-$selected").performClick()
+                    filter.window!!.decorView.findViewWithTag<View>("home-filter-category-$selected").performClick()
+                    filter.window!!.decorView.findViewWithTag<View>("home-filter-apply").performClick()
                     assertEquals(selected, store.load().selected)
-                    assertNotNull(activity.window.decorView.findViewWithTag<View>("home-category-filter"))
+                    assertNull(activity.window.decorView.findViewWithTag<View>("home-category-filter"))
+                    assertNotNull(activity.window.decorView.findViewWithTag<View>("home-server-filter"))
                 }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
