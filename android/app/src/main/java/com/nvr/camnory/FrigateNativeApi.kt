@@ -307,7 +307,7 @@ internal open class FrigateNativeApi(
     override fun latestFrameUrl(cameraName: String): String = endpoint("/api/${Uri.encode(cameraName)}/latest.jpg?h=360&_=${System.currentTimeMillis()}")
     override fun eventSnapshotUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/snapshot.jpg?h=360")
     override fun eventPreviewUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/preview.gif")
-    open fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
+    override fun eventClipUrl(eventId: String): String = endpoint("/api/events/${Uri.encode(eventId)}/clip.mp4")
     override fun eventVodUrl(eventId: String): String = endpoint("/vod/event/${Uri.encode(eventId)}/master.m3u8")
     override fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String =
         endpoint("/api/${Uri.encode(cameraName)}/start/$startSec/end/$endSec/clip.mp4")

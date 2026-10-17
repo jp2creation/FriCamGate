@@ -39,7 +39,9 @@ internal class HomeAssistantCameraView(
     private val fullscreenMode: Boolean = false,
     private val columnMode: Boolean = false,
     private val accessories: (() -> Unit)? = null,
-    private val playerOnly: Boolean = false
+    private val playerOnly: Boolean = false,
+    private val fillPreview: Boolean = false,
+    private val preloadLive: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: java.util.concurrent.ExecutorService? = null
@@ -60,6 +62,12 @@ internal class HomeAssistantCameraView(
     private val watchLayout = ViewTreeObserver.OnGlobalLayoutListener { syncVisibility() }
     private val frame: FrameLayout
     private val image: ImageView
+    private lateinit var connectionOverlay: CameraConnectionOverlay
+    private var lastLivePreview: Bitmap? = null
+    private var connectingState = false
+    private var preloadAttempted = false
+    private var imageOnly = false
+    private var pendingHls: (() -> Unit)? = null
     private val state: TextView
     private val play: ImageButton
     private val sound: ImageButton
@@ -79,7 +87,7 @@ internal class HomeAssistantCameraView(
                     MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }.apply { setBackgroundColor(Color.BLACK) }
-        image = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        image = ImageView(context).apply { scaleType = if (fillPreview) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER }
         frame.addView(image, FrameLayout.LayoutParams(-1, -1))
         addView(frame, if (fullscreenMode) LayoutParams(-1, 0, 1f) else LayoutParams(-1, -2))
         state = TextView(context).apply {
@@ -105,6 +113,8 @@ internal class HomeAssistantCameraView(
         }
         progress = ProgressBar(context).apply { visibility = View.GONE; indeterminateTintList = android.content.res.ColorStateList.valueOf(Palette.accent) }
         frame.addView(progress, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
+        connectionOverlay = CameraConnectionOverlay(context).apply { visibility = View.GONE }
+        frame.addView(connectionOverlay, FrameLayout.LayoutParams(-1, -1))
         if (!fullscreenMode || playerOnly) {
             play.setColorFilter(Color.WHITE)
             play.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xb3000000.toInt()) }
@@ -164,6 +174,17 @@ internal class HomeAssistantCameraView(
         setOnClickListener { click(it) }
     }
     private fun setState(detail: Int) {
+        connectingState = detail == R.string.connecting
+        if (::connectionOverlay.isInitialized) {
+            if (connectingState) {
+                captureLastLivePreview()
+                connectionOverlay.showConnection(lastLivePreview)
+                progress.visibility = View.GONE
+            } else if (detail in listOf(R.string.ha_live_failed, R.string.ha_auth_failed, R.string.ha_image_failed)) {
+                connectionOverlay.showUnavailable(lastLivePreview)
+            } else connectionOverlay.visibility = View.GONE
+        }
+        state.visibility = if (connectingState) View.GONE else View.VISIBLE
         state.text = context.getString(when (detail) {
             R.string.ha_live -> R.string.ha_status_live
             R.string.connecting -> R.string.connecting
@@ -224,6 +245,7 @@ internal class HomeAssistantCameraView(
         }
     }
     fun setActive(value: Boolean) {
+        if (value && !active) preloadAttempted = false
         active = value
         if (!value) { menu?.dismiss(); information?.dismiss(); stopLive(); if (image.drawable == null) loaded = false } else syncVisibility()
     }
@@ -233,12 +255,17 @@ internal class HomeAssistantCameraView(
         web?.evaluateJavascript("setMuted($muted)", null)
         sound.setImageResource(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume)
     }
-    private fun visible() = active && isAttachedToWindow && isShown && getGlobalVisibleRect(Rect())
+    private fun inViewport() = isShown && getGlobalVisibleRect(Rect())
+    private fun visible() = cameraConnectionActive(active, isAttachedToWindow, inViewport(), preloadLive)
     private fun syncVisibility() {
         if (!visible()) {
             if (client != null || live) stopLive()
             if (image.drawable == null) loaded = false
-        } else if (!loaded && !live) loadImage()
+        } else {
+            if (inViewport()) pendingHls?.let { start -> pendingHls = null; start() }
+            if (preloadLive && !live && !preloadAttempted && !imageOnly) startLive()
+            else if (!loaded && !live) loadImage()
+        }
     }
     private fun executor() = worker ?: Executors.newSingleThreadExecutor().also { worker = it }
     private fun loadImage(resultState: Int? = null) {
@@ -265,6 +292,7 @@ internal class HomeAssistantCameraView(
     }
     fun startLive() {
         if (!visible() || live) return
+        preloadAttempted = true
         stopTransport()
         live = true; play.isEnabled = false; if (!fullscreenMode || playerOnly) play.visibility = View.GONE
         progress.visibility = View.VISIBLE; setState(R.string.connecting)
@@ -282,6 +310,7 @@ internal class HomeAssistantCameraView(
                         "web_rtc" in types -> startRtc(request, channel)
                         "hls" in types -> startHls(request, channel, api)
                         else -> {
+                            imageOnly = true
                             stopLive(); setState(R.string.ha_image_only)
                             if (image.drawable == null) loadImage(R.string.ha_image_only)
                         }
@@ -296,7 +325,11 @@ internal class HomeAssistantCameraView(
             handler.post {
                 if (request != generation || !visible()) return@post
                 result.onSuccess { url ->
-                    val preview = (android.view.LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
+                    val startPlayback: () -> Unit = {
+                    val preview = (android.view.LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply {
+                        tintVideoBuffering()
+                        if (fillPreview) resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    }
                     frame.addView(preview, 1, FrameLayout.LayoutParams(-1, -1))
                     val current = ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(OkHttpDataSource.Factory(api.http))).build()
@@ -315,6 +348,13 @@ internal class HomeAssistantCameraView(
                         override fun onPlayerError(error: PlaybackException) { if (player === current) showFailure() }
                     })
                     current.setMediaItem(MediaItem.fromUri(url)); current.prepare(); current.playWhenReady = true
+                    }
+                    if (preloadLive && !inViewport()) {
+                        // Warm the provider's stream now; reserve a TV decoder for visible video.
+                        pendingHls = startPlayback
+                        handler.removeCallbacks(timeout)
+                        executor().submit { runCatching { api.warmHls(url) } }
+                    } else startPlayback()
                 }.onFailure { showFailure() }
             }
         }
@@ -375,6 +415,7 @@ internal class HomeAssistantCameraView(
                         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
                             WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
                         override fun onPageFinished(view: WebView, url: String) {
+                            if (request == generation && fillPreview) view.evaluateJavascript("document.querySelector('video').style.objectFit='cover'", null)
                             if (request == generation) view.evaluateJavascript("start($config)", null)
                         }
                     }
@@ -407,7 +448,7 @@ internal class HomeAssistantCameraView(
         val w = MeasureSpec.getSize(widthMeasureSpec)
         state.maxWidth = (w - dp(12)).coerceAtLeast(0)
         if (!fullscreenMode || playerOnly) play.visibility = if (!live && w >= dp(150)) View.VISIBLE else View.GONE
-        state.visibility = if (w < dp(150) && progress.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        state.visibility = if (connectingState || w < dp(150) && progress.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
     private fun showFailure(auth: Boolean = false) {
@@ -417,6 +458,8 @@ internal class HomeAssistantCameraView(
         if (!auth && image.drawable == null) loadImage(status)
     }
     private fun stopTransport() {
+        pendingHls = null
+        captureLastLivePreview()
         generation++; handler.removeCallbacksAndMessages(null)
         socket?.close(); socket = null; client?.close(); client = null
         worker?.shutdownNow(); worker = null
@@ -427,6 +470,14 @@ internal class HomeAssistantCameraView(
             if (child is PlayerView || child is WebView) frame.removeViewAt(index)
         }
         rtcSession = null; localCandidates.clear(); streamTypes = emptySet()
+    }
+    private fun captureLastLivePreview() {
+        if (player?.videoSize?.width?.let { it > 0 } != true) return
+        for (index in 0 until frame.childCount) {
+            val view = frame.getChildAt(index) as? PlayerView ?: continue
+            val texture = view.videoSurfaceView as? android.view.TextureView ?: continue
+            if (texture.isAvailable) texture.getBitmap(480, 270)?.let { lastLivePreview = it }
+        }
     }
     private fun stopLive() {
         stopTransport(); live = false; mute(); play.isEnabled = true; sound.isEnabled = false

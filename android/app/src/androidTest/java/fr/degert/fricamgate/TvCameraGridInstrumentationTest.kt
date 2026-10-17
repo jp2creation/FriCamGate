@@ -15,6 +15,26 @@ import org.junit.Test
 
 /** Uses the real shared shell/tiles with fixture photographs, without connecting cameras. */
 class TvCameraGridInstrumentationTest {
+    @Test fun haloIsDiffuseAndLowOpacityInBothThemes() {
+        val dark = Palette.dark
+        try {
+            for (theme in listOf(true, false)) {
+                Palette.dark = theme
+                val image = android.graphics.Bitmap.createBitmap(160, 96, android.graphics.Bitmap.Config.ARGB_8888)
+                TvRemoteSupport.CameraHalo(1f).apply {
+                    setBounds(0, 0, 160, 96)
+                    draw(android.graphics.Canvas(image))
+                }
+                val near = android.graphics.Color.alpha(image.getPixel(1, 48))
+                val far = android.graphics.Color.alpha(image.getPixel(8, 48))
+                assertTrue("Halo must remain subtle", near in 1..45)
+                assertTrue("Halo must fade across a broad area", far in 1 until near)
+                assertEquals("The image centre must remain unchanged", 0, android.graphics.Color.alpha(image.getPixel(80, 48)))
+                image.recycle()
+            }
+        } finally { Palette.dark = dark }
+    }
+
     @Test fun fourCamerasAreEntirelyVisible() = checkGrid(4)
     @Test fun navigationChangesWholePages() = checkGrid(8)
 
@@ -41,7 +61,11 @@ class TvCameraGridInstrumentationTest {
                             .apply { isAccessible = true }.invoke(activity, camera) as android.view.ViewGroup
                         val asset = listOf("driveway", "entrance", "terrace", "workshop")[index % 4]
                         instrumentation.context.assets.open("ha-previews/$asset.jpg").use {
-                            (tile.getChildAt(0) as ImageView).setImageBitmap(BitmapFactory.decodeStream(it))
+                            val image = tile.getChildAt(0) as ImageView
+                            val original = BitmapFactory.decodeStream(it)
+                            image.setImageBitmap(android.graphics.Bitmap.createBitmap(original, 0, 0,
+                                if (index % 2 == 0) original.width else original.width / 2,
+                                if (index % 2 == 0) original.height / 2 else original.height))
                         }
                         tiles.add(tile)
                     }
@@ -73,6 +97,12 @@ class TvCameraGridInstrumentationTest {
                     assertTrue(tile.getGlobalVisibleRect(visible))
                     assertEquals("Clipped camera height", tile.height, visible.height())
                     assertEquals("Clipped camera width", tile.width, visible.width())
+                    val image = (tile as android.view.ViewGroup).getChildAt(0) as ImageView
+                    assertEquals("TV thumbnails must fill the halo frame", ImageView.ScaleType.CENTER_CROP, image.scaleType)
+                    val pixels = android.graphics.RectF(0f, 0f, image.drawable.intrinsicWidth.toFloat(), image.drawable.intrinsicHeight.toFloat())
+                    image.imageMatrix.mapRect(pixels)
+                    assertTrue("No horizontal letterbox inside halo", pixels.left <= 1 && pixels.right >= image.width - 1)
+                    assertTrue("No vertical letterbox inside halo", pixels.top <= 1 && pixels.bottom >= image.height - 1)
                 }
                 assertTrue(tiles[0].requestFocus())
             }

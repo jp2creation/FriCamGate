@@ -15,6 +15,39 @@ import java.io.File
 import java.io.FileOutputStream
 
 class SharedTabletTvInstrumentationTest {
+    @Test fun headerButtonsAreOptionalAndHiddenByDefaultOnTv() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        assumeTrue(TelevisionMode.enabled(context))
+        val prefs = context.getSharedPreferences("camgate-settings", 0)
+        val keys = listOf("showHeaderChat", "showHeaderAlerts")
+        val previous = keys.associateWith { if (prefs.contains(it)) prefs.getBoolean(it, false) else null }
+        try {
+            prefs.edit().remove(keys[0]).remove(keys[1]).commit()
+            ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java).apply {
+                action = "com.nvr.camnory.TV_SETTINGS"
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }).use { scenario ->
+                scenario.onActivity { activity ->
+                    assertNull(activity.window.decorView.findViewWithTag<View>("header-chat"))
+                    assertNull(activity.window.decorView.findViewWithTag<View>("header-alerts"))
+                    val render = MainActivity::class.java.getDeclaredMethod("renderAppearanceSettings").apply { isAccessible = true }
+                    render.invoke(activity)
+                    for ((key, header) in listOf(keys[0] to "header-chat", keys[1] to "header-alerts")) {
+                        val toggle = activity.window.decorView.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("appearance-$key")
+                        assertFalse(toggle.isChecked)
+                        toggle.performClick()
+                        assertTrue(prefs.getBoolean(key, false))
+                        assertNotNull(activity.window.decorView.findViewWithTag<View>(header))
+                    }
+                    render.invoke(activity)
+                    assertTrue(activity.window.decorView.findViewWithTag<androidx.appcompat.widget.SwitchCompat>("appearance-${keys[0]}").isChecked)
+                }
+            }
+        } finally {
+            prefs.edit().apply { previous.forEach { (key, value) -> if (value == null) remove(key) else putBoolean(key, value) } }.commit()
+        }
+    }
+
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
 

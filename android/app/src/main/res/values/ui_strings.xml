@@ -64,7 +64,7 @@
     <string name="chat_offline">AI chat is unavailable offline.</string>
     <string name="external_blocked">External link blocked in chat.</string>
     <string name="required_login">Server, username and password are required.</string>
-    <string name="connecting">Connecting to Frigate…</string>
+    <string name="connecting">Connecting…</string>
     <string name="loading_cameras">Loading cameras…</string>
     <string name="connecting_nvr">Connecting to the NVR…</string>
     <string name="preparing_live">Preparing live view…</string>

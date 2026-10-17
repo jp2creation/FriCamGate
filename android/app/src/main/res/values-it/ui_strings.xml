@@ -64,7 +64,7 @@
     <string name="chat_offline">Chat IA non disponibile offline.</string>
     <string name="external_blocked">Link esterno bloccato.</string>
     <string name="required_login">Server, utente e password obbligatori.</string>
-    <string name="connecting">Connessione a Frigate…</string>
+    <string name="connecting">Connessione…</string>
     <string name="loading_cameras">Caricamento telecamere…</string>
     <string name="connecting_nvr">Connessione al NVR…</string>
     <string name="preparing_live">Preparazione diretta…</string>

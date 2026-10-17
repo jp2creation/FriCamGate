@@ -3,6 +3,8 @@ package com.nvr.camnory
 import android.widget.CheckBox
 
 import android.animation.ValueAnimator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -183,6 +185,8 @@ class MainActivity : AppCompatActivity() {
     private val seenAlertIdsMemory = mutableSetOf<String>()
     private var dashboardErrorMessage: String? = null
     private val loadingAnimators = mutableListOf<ValueAnimator>()
+    private var loadingProgress: View? = null
+    private var loadingCompletion: ValueAnimator? = null
     private lateinit var appLock: BiometricAppLock
     private var activeTab = Tab.Home
     private var settingsPage = "main"
@@ -608,9 +612,12 @@ class MainActivity : AppCompatActivity() {
                     cameras = data.cameras
                     events = data.events
                     dashboardErrorMessage = null
-                    renderRestoredSettingsOrHome(if ((activeApi as? MultiFrigateApi)?.unavailable?.isNotEmpty() == true) getString(R.string.frigate_partial) else message)
-                    CameraNotifications.schedule(this)
-                    openPendingNotification()
+                    finishLoading {
+                        if (api !== activeApi) return@finishLoading
+                        renderRestoredSettingsOrHome(if ((activeApi as? MultiFrigateApi)?.unavailable?.isNotEmpty() == true) getString(R.string.frigate_partial) else message)
+                        CameraNotifications.schedule(this)
+                        openPendingNotification()
+                    }
                 }.onFailure { error ->
                     val errorMessage = error.message ?: getString(R.string.frigate_unavailable)
                     if (isAuthFailure(errorMessage) && activeApi !is MultiFrigateApi) {
@@ -809,10 +816,10 @@ class MainActivity : AppCompatActivity() {
     private fun televisionCameraTile(item: DashboardCamera): View {
         val video: View = when {
             item.frigate != null -> return cameraCard(item.frigate)
-            item.onvif != null -> OnvifLiveCard(this, item.onvif, fullscreen = {}, manage = {}, playerOnly = true)
+            item.onvif != null -> OnvifLiveCard(this, item.onvif, fullscreen = {}, manage = {}, playerOnly = true, fillPreview = true, preloadLive = true)
                 .also { card -> onvifCards.add(card); tvCameraSound[item.key] = { card.restorePlaybackSound(it) } }
             else -> HomeAssistantCameraView(this, requireNotNull(item.haConnection), requireNotNull(item.haCamera),
-                fullscreen = {}, onAudible = { silenceOtherSources(it) }, fullscreenMode = true, playerOnly = true)
+                fullscreen = {}, onAudible = { silenceOtherSources(it) }, fullscreenMode = true, playerOnly = true, fillPreview = true, preloadLive = true)
                 .also { card -> homeAssistantCards.add(card); tvCameraSound[item.key] = { enabled ->
                     card.restorePlaybackSound(enabled)
                     if (enabled) card.startLive()
@@ -845,6 +852,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showHomeEvents() = appearancePrefs.getBoolean("showHomeEvents", !TelevisionMode.enabled(this))
     private fun showHomeToolbar() = appearancePrefs.getBoolean("showHomeCameraToolbar", !TelevisionMode.enabled(this))
+    private fun showHeaderChat() = appearancePrefs.getBoolean("showHeaderChat", !TelevisionMode.enabled(this))
+    private fun showHeaderAlerts() = appearancePrefs.getBoolean("showHeaderAlerts", !TelevisionMode.enabled(this))
 
     private fun savedHomeAssistant(): HomeAssistantConnection? = runCatching { HomeAssistantStore(this).load() }
         .getOrElse { toast(getString(R.string.ha_storage_failed)); null }
@@ -1038,7 +1047,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val playerView = PlayerView(this).apply {
+        val playerView = (if (TelevisionMode.enabled(this))
+            layoutInflater.inflate(R.layout.tv_live_player, playerFrame, false) as PlayerView
+            else PlayerView(this)).apply {
             useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             tintVideoBuffering()
@@ -1171,7 +1182,7 @@ class MainActivity : AppCompatActivity() {
         eventPlaybackControls?.player = player
         playerView.visibility = View.VISIBLE
         attachFallbackHider(player, key, fallback, playerView)
-        player.setMediaItem(MediaItem.fromUri(api.eventVodUrl(event.id)))
+        player.setMediaItem(MediaItem.fromUri(if (TelevisionMode.enabled(this)) api.eventClipUrl(event.id) else api.eventVodUrl(event.id)))
         applyPlayerVolume(player)
         player.prepare()
         player.playWhenReady = true
@@ -1386,12 +1397,19 @@ class MainActivity : AppCompatActivity() {
         badge: View
     ) {
         streamRestarts[image] = { startMjpegStream(api, token, camera, image, badge) }
+        val frame = image.parent as? FrameLayout
+        val connection = frame?.findViewWithTag<CameraConnectionOverlay>("camera-connection-overlay")
+            ?: frame?.let { parent -> CameraConnectionOverlay(this).also {
+                parent.addView(it, parent.indexOfChild(image) + 1, frameMatch())
+            } }
+        fun showConnection() { connection?.showConnection((image.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap) }
+        showConnection()
         badge.visibility = View.GONE
         if (streamsSuspended) return
         val generation = homeStreamGeneration
         fun connect(attempt: Int) {
             if (generation != homeStreamGeneration || streamsSuspended) return
-            if (TelevisionMode.enabled(this) && !image.isShown) {
+            if (TelevisionMode.enabled(this) && !homeVisible && !image.isShown) {
                 mainHandler.postDelayed({ connect(attempt) }, 1000L)
                 return
             }
@@ -1404,13 +1422,14 @@ class MainActivity : AppCompatActivity() {
                 mainHandler.removeCallbacks(watchdog)
                 stream.cancel()
                 badge.visibility = View.GONE
+                showConnection()
                 val next = if (receivedFrame) 0 else (attempt + 1).coerceAtMost(6)
                 mainHandler.postDelayed({ connect(next) }, streamRetryDelay(next))
             }
             watchdog = object : Runnable {
                 override fun run() {
                     if (generation != homeStreamGeneration || !homeStreams.contains(stream)) return
-                    if (TelevisionMode.enabled(this@MainActivity) && !image.isShown) { recover(); return }
+                    if (TelevisionMode.enabled(this@MainActivity) && !homeVisible && !image.isShown) { recover(); return }
                     val limit = if (receivedFrame) 15_000L else HOME_MJPEG_STARTUP_TIMEOUT_MS
                     if (android.os.SystemClock.elapsedRealtime() - lastFrameAt >= limit) recover()
                     else mainHandler.postDelayed(this, 1000L)
@@ -1425,6 +1444,7 @@ class MainActivity : AppCompatActivity() {
                         receivedFrame = true
                         lastFrameAt = android.os.SystemClock.elapsedRealtime()
                         image.setImageBitmap(bitmap)
+                        connection?.visibility = View.GONE
                         badge.visibility = View.VISIBLE
                     }
                 },
@@ -1440,8 +1460,9 @@ class MainActivity : AppCompatActivity() {
         val router = api as? MultiFrigateApi ?: return DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token", "User-Agent" to "Camnory"))
         val mediaClient = httpClient.newBuilder().followRedirects(false).followSslRedirects(false).addInterceptor { chain ->
-            val server = router.serverForUrl(chain.request().url.toString()) ?: throw java.io.IOException("Unknown Frigate media source")
-            chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer ${server.token}").build())
+            val (server, canonical) = canonicalFrigateMediaSource(router.servers, chain.request().url.toString())
+                ?: throw java.io.IOException("Unknown Frigate media source")
+            chain.proceed(chain.request().newBuilder().url(canonical).header("Authorization", "Bearer ${server.token}").build())
         }.apply {
             router.servers.forEach { server -> server.localRoute?.let {
                 addInterceptor(LocalRouteInterceptor.create(this@MainActivity, server.baseUrl, it, server.token, "/api/version"))
@@ -1719,7 +1740,7 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Palette.surface)
         }
         if (TelevisionMode.enabled(this)) {
-            image.scaleType = ImageView.ScaleType.FIT_CENTER
+            image.scaleType = ImageView.ScaleType.CENTER_CROP
             image.setBackgroundColor(Color.BLACK)
             card.setBackgroundColor(Color.BLACK)
         }
@@ -1887,6 +1908,7 @@ class MainActivity : AppCompatActivity() {
                                     fallbackRunning = false
                                     video.visibility = View.VISIBLE
                                     image.visibility = View.GONE
+                                    frame.findViewWithTag<View>("camera-connection-overlay")?.visibility = View.GONE
                                 }
                             }
                             override fun onPlayerError(error: PlaybackException) {
@@ -2916,6 +2938,7 @@ class MainActivity : AppCompatActivity() {
                 val gridRow = horizontal().apply { setPadding(0, dp(12), 0, 0) }
                 camerasInRow.forEachIndexed { index, camera ->
                 val row = vertical().apply {
+                    tag = "event-related-camera:${camera.name}"
                     setOnClickListener { renderEventDetail(event, camera.name) }
                     contentDescription = "${camera.friendlyName}, ${event.time}"
                 }
@@ -2931,7 +2954,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 preview.addView(image, frameMatch())
-                preview.addView(discreetFullscreenButton {
+                if (!TelevisionMode.enabled(this)) preview.addView(discreetFullscreenButton {
                     openEventCameraFullscreen(event, camera)
                 }.apply {
                     contentDescription = "${getString(R.string.camera_fullscreen)} : ${camera.friendlyName}"
@@ -3007,8 +3030,8 @@ class MainActivity : AppCompatActivity() {
             addView(label(java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG).format(java.util.Date()), 12, Palette.muted).apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_VERTICAL
             }, FrameLayout.LayoutParams(-1, -1).apply { marginStart = dp(196); marginEnd = dp(126) })
-            addView(alertsButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(14) })
-            addView(chatButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(64) })
+            if (showHeaderAlerts()) addView(alertsButton().apply { tag = "header-alerts"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(14) })
+            if (showHeaderChat()) addView(chatButton().apply { tag = "header-chat"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(if (showHeaderAlerts()) 64 else 14) })
         }.also { it.layoutParams = LinearLayout.LayoutParams(-1, dp(64)) }
         return FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
@@ -3025,12 +3048,12 @@ class MainActivity : AppCompatActivity() {
                 rightMargin = dp(118)
                 topMargin = dp(26)
             })
-            addView(alertsButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+            if (showHeaderAlerts()) addView(alertsButton().apply { tag = "header-alerts"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
                 rightMargin = dp(14)
                 topMargin = dp(38)
             })
-            addView(chatButton().apply { if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
-                rightMargin = dp(64)
+            if (showHeaderChat()) addView(chatButton().apply { tag = "header-chat"; if (session == null) visibility = View.INVISIBLE }, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.TOP).apply {
+                rightMargin = dp(if (showHeaderAlerts()) 64 else 14)
                 topMargin = dp(38)
             })
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(104)) }
@@ -3947,6 +3970,18 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
         column.addView(sectionHeading(getString(R.string.appearance_details)))
+        listOf(Triple("showHeaderChat", R.string.appearance_header_chat, showHeaderChat()),
+            Triple("showHeaderAlerts", R.string.appearance_header_alerts, showHeaderAlerts())).forEach { (key, title, enabled) ->
+            column.addView(preferenceToggleRow(getString(title), "", SwitchCompat(this).apply {
+                tag = "appearance-$key"
+                contentDescription = getString(title)
+                isChecked = enabled
+                setOnCheckedChangeListener { _, checked ->
+                    appearancePrefs.edit().putBoolean(key, checked).apply()
+                    reflowShell?.invoke()
+                }
+            }))
+        }
         column.addView(preferenceToggleRow(getString(R.string.home_recent_events), getString(R.string.home_recent_events_detail), SwitchCompat(this).apply {
             tag = "appearance-home-events"
             contentDescription = getString(R.string.home_recent_events)
@@ -3989,7 +4024,7 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.appearance_reset_confirm)) {
                     val edit = appearancePrefs.edit()
                     CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
-                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion", "showHomeEvents", "showHomeCameraToolbar").forEach { edit.remove(it) }
+                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion", "showHomeEvents", "showHomeCameraToolbar", "showHeaderChat", "showHeaderAlerts").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
                 }
@@ -4219,6 +4254,8 @@ class MainActivity : AppCompatActivity() {
                 "appearance-oled-black" -> R.drawable.ic_image
                 "appearance-reduced-motion" -> R.drawable.ic_pause_outline
                 "appearance-home-events" -> R.drawable.ic_image
+                "appearance-showHeaderChat" -> R.drawable.ic_chat_header
+                "appearance-showHeaderAlerts" -> R.drawable.ic_bell_header
                 "appearance-home-camera-toolbar" -> R.drawable.ic_server_filter
                 "show-camera-source-icons" -> R.drawable.ic_settings_link
                 else -> R.drawable.ic_settings
@@ -4563,11 +4600,13 @@ class MainActivity : AppCompatActivity() {
             background = rounded(Palette.surface, 2)
         }
         val progressFill = View(this).apply {
+            tag = "loading-progress-fill"
             background = rounded(Palette.accent, 2)
             pivotX = 0f
             scaleX = 0.18f
         }
         progressTrack.addView(progressFill, frameMatch())
+        loadingProgress = progressFill
         content.addView(progressTrack, LinearLayout.LayoutParams(dp(140), maxOf(1, dp(1))).apply {
             topMargin = dp(16)
         })
@@ -4635,6 +4674,32 @@ class MainActivity : AppCompatActivity() {
                 slowPanel.animate().alpha(1f).setDuration(220L).start()
             }
         }, LOADING_SLOW_ACTIONS_DELAY_MS)
+    }
+
+    private fun finishLoading(onReady: () -> Unit) {
+        val fill = loadingProgress?.takeIf { it.isAttachedToWindow } ?: return onReady()
+        loadingAnimators.forEach { it.cancel() }
+        loadingAnimators.clear()
+        fun openWhenComplete() {
+            fill.postOnAnimation { if (loadingProgress === fill && fill.isAttachedToWindow) onReady() }
+        }
+        if (reducedMotion) {
+            fill.scaleX = 1f
+            openWhenComplete()
+            return
+        }
+        loadingCompletion = ValueAnimator.ofFloat(fill.scaleX, 1f).apply {
+            duration = 220L
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { fill.scaleX = it.animatedValue as Float }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    loadingCompletion = null
+                    openWhenComplete()
+                }
+            })
+            start()
+        }
     }
 
     private fun saveSession(value: NativeSession) {
@@ -4830,6 +4895,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releaseLoadingAnimations() {
+        loadingCompletion?.removeAllListeners()
+        loadingCompletion?.cancel()
+        loadingCompletion = null
+        loadingProgress = null
         loadingAnimators.forEach { it.cancel() }
         loadingAnimators.clear()
     }

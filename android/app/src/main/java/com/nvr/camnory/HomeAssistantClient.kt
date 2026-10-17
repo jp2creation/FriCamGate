@@ -132,6 +132,20 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String, c
         }
     }
     fun socket() = HomeAssistantSocket(this, token).also { sockets.add(it) }
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    internal fun warmHls(value: String) {
+        val url = mediaUrl(value)
+        val playlist = http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Camera stream is not ready")
+            val body = response.body ?: throw IOException("Missing camera playlist")
+            androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser().parse(android.net.Uri.parse(url), body.byteStream())
+        }
+        // Requesting a media playlist starts cloud cameras without decoding offscreen video.
+        val variant = (playlist as? androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist)?.variants?.firstOrNull()?.url
+        if (variant != null) http.newCall(Request.Builder().url(mediaUrl(variant.toString())).build()).execute().use {
+            if (!it.isSuccessful) throw IOException("Camera stream is not ready")
+        }
+    }
     override fun close() {
         closed = true
         sockets.forEach { it.close() }; sockets.clear(); http.dispatcher.cancelAll()

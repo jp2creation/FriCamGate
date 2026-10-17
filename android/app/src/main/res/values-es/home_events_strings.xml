@@ -1,4 +1,6 @@
 <resources>
+    <string name="appearance_header_chat">Botón de chat en la barra superior</string>
+    <string name="appearance_header_alerts">Campana de notificaciones en la barra superior</string>
     <string name="home_camera_toolbar">Barra de cámaras, diseño y filtros</string>
     <string name="home_recent_events">Franja de eventos recientes</string>
     <string name="home_recent_events_detail">Eventos recientes en la pantalla de inicio</string>

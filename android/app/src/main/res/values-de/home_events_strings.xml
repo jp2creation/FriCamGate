@@ -1,4 +1,6 @@
 <resources>
+    <string name="appearance_header_chat">Chat-Schaltfläche in der Kopfzeile</string>
+    <string name="appearance_header_alerts">Benachrichtigungsglocke in der Kopfzeile</string>
     <string name="home_camera_toolbar">Kameratitel, Anordnung und Filter</string>
     <string name="home_recent_events">Leiste mit letzten Ereignissen</string>
     <string name="home_recent_events_detail">Letzte Ereignisse auf der Startseite</string>

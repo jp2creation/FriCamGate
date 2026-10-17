@@ -166,6 +166,8 @@ class TvLiveQualityInstrumentationTest {
                 assertTrue(advancing.await(12, TimeUnit.SECONDS))
                 assertTrue("Video did not advance", advanced)
                 scenario.onActivity { activity ->
+                    assertNotEquals("Connection placeholder must disappear after live playback starts", View.VISIBLE,
+                        activity.window.decorView.findViewWithTag<View>("camera-connection-overlay")?.visibility)
                     val audio = playback!!.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
                     report("Audio tracks: ${audio.size}; selected: ${audio.any { it.isSelected }}; decoded: ${playback!!.audioFormat?.sampleMimeType}")
                     report("Audio output buffers: ${playback!!.audioDecoderCounters?.renderedOutputBufferCount}")

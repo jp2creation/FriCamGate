@@ -6,6 +6,7 @@ import okhttp3.WebSocket
 
 /** Recorded media is separate from live transport: a provider need not use go2rtc. */
 internal interface NvrRecordedMedia {
+    fun eventClipUrl(eventId: String): String
     fun eventVodUrl(eventId: String): String
     fun recordingVodUrl(cameraName: String, startSec: Long, endSec: Long, stream: String? = null): String
     fun recordingClipUrl(cameraName: String, startSec: Long, endSec: Long): String

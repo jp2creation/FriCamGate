@@ -64,7 +64,7 @@
     <string name="chat_offline">KI-Chat ist offline nicht verfügbar.</string>
     <string name="external_blocked">Externer Link im Chat blockiert.</string>
     <string name="required_login">Server, Benutzername und Passwort erforderlich.</string>
-    <string name="connecting">Verbindung zu Frigate…</string>
+    <string name="connecting">Verbindung…</string>
     <string name="loading_cameras">Kameras werden geladen…</string>
     <string name="connecting_nvr">Verbindung zum NVR…</string>
     <string name="preparing_live">Live-Ansicht wird vorbereitet…</string>

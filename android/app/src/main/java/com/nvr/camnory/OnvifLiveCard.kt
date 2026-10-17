@@ -31,7 +31,9 @@ internal class OnvifLiveCard(
     private val onAudible: (OnvifLiveCard) -> Unit = {},
     private val columnMode: Boolean = false,
     private val accessories: (() -> Unit)? = null,
-    private val playerOnly: Boolean = false
+    private val playerOnly: Boolean = false,
+    private val fillPreview: Boolean = false,
+    private val preloadLive: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService? = null
@@ -47,6 +49,9 @@ internal class OnvifLiveCard(
     private val bufferingTimeout = Runnable { if (player != null && player?.isPlaying != true && visible()) fail() }
     private val preview: PlayerView
     private val status: TextView
+    private val connectionOverlay: CameraConnectionOverlay
+    private var lastPreview: android.graphics.Bitmap? = null
+    private var preparedUri: String? = null
     private val liveBadge: TextView
     private var menu: PopupWindow? = null
     private var overlaySound: ImageButton? = null
@@ -63,7 +68,10 @@ internal class OnvifLiveCard(
                 super.onMeasure(widthMeasureSpec, if (playerOnly) heightMeasureSpec else MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }
-        preview = (LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
+        preview = (LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply {
+            tintVideoBuffering()
+            if (fillPreview) resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
         if (resources.configuration.tabletLayoutPolicy().tablet && !playerOnly) {
             frame.setOnClickListener { fullscreen() }
@@ -75,6 +83,8 @@ internal class OnvifLiveCard(
             gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         frame.addView(status, FrameLayout.LayoutParams(-1, -1))
+        connectionOverlay = CameraConnectionOverlay(context)
+        frame.addView(connectionOverlay, FrameLayout.LayoutParams(-1, -1))
         liveBadge = TextView(context).apply {
             text = context.getString(R.string.live); textSize = 10f * textScale; setTextColor(if (columnMode) Palette.text else Color.WHITE)
             gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0)
@@ -212,13 +222,14 @@ internal class OnvifLiveCard(
         active = value
         if (!value) { menu?.dismiss(); mute(); stop() } else syncVisibility()
     }
-    private fun playbackVisibility() = onvifPlaybackVisibility(active, isAttachedToWindow, isShown, getGlobalVisibleRect(Rect()))
+    private fun playbackVisibility() = onvifPlaybackVisibility(active, isAttachedToWindow, isShown, getGlobalVisibleRect(Rect()), preloadLive)
     private fun visible() = playbackVisibility() == OnvifPlaybackVisibility.Play
     private fun syncVisibility() {
         when (playbackVisibility()) {
             OnvifPlaybackVisibility.Release -> if (connecting || player != null) { mute(); stop() }
             OnvifPlaybackVisibility.Pause -> {
                 menu?.dismiss(); mute()
+                if (preloadLive && !connecting && connection == null && !failed) start()
                 player?.playWhenReady = false
                 handler.removeCallbacks(bufferingTimeout)
                 liveBadge.visibility = View.GONE
@@ -233,12 +244,15 @@ internal class OnvifLiveCard(
                         handler.postDelayed(bufferingTimeout, 25_000)
                     }
                 }
+                else if (preparedUri != null) { val uri = requireNotNull(preparedUri); preparedUri = null; play(uri) }
                 else if (!connecting && !failed) start()
             }
         }
     }
     private fun start() {
         connecting = true; status.visibility = View.VISIBLE; status.text = context.getString(R.string.onvif_connecting)
+        connectionOverlay.showConnection(lastPreview)
+        status.alpha = 0f
         val request = ++generation
         val executor = worker ?: Executors.newSingleThreadExecutor().also { worker = it }
         executor.submit {
@@ -252,7 +266,7 @@ internal class OnvifLiveCard(
                 connecting = false
                 result.onSuccess { (connected, uri) ->
                     connection = connected
-                    play(uri)
+                    if (visible()) play(uri) else preparedUri = uri
                 }.onFailure { error ->
                     fail(error is java.net.SocketTimeoutException || error is java.net.ConnectException ||
                         error is java.net.UnknownHostException || (error is OnvifHttpException && error.statusCode >= 500))
@@ -274,6 +288,7 @@ internal class OnvifLiveCard(
             override fun onRenderedFirstFrame() {
                 if (player === current) {
                     status.visibility = View.GONE
+                    connectionOverlay.visibility = View.GONE
                     liveBadge.visibility = if (visible() && current.isPlaying) View.VISIBLE else View.GONE
                     retries = 0
                 }
@@ -292,6 +307,8 @@ internal class OnvifLiveCard(
     }
     private fun fail(retryable: Boolean = true) {
         stop(); status.visibility = View.VISIBLE; status.text = context.getString(R.string.onvif_connection_failed)
+        status.alpha = 0f
+        connectionOverlay.showUnavailable(lastPreview)
         failed = true
         if (retryable && retries < 3) {
             if (!visible()) { failed = false; return }
@@ -323,10 +340,12 @@ internal class OnvifLiveCard(
         }.show()
     }
     private fun stop() {
+        cachedPreview()?.let { lastPreview = it }
         generation++; handler.removeCallbacksAndMessages(null); client.cancel()
         worker?.shutdownNow(); worker = null
         connecting = false; preview.player = null; player?.release(); player = null
         connection = null; liveBadge.visibility = View.GONE
+        preparedUri = null
         overlaySound?.isEnabled = false
     }
     override fun onAttachedToWindow() {

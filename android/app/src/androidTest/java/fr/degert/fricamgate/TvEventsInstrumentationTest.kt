@@ -24,7 +24,7 @@ class TvEventsInstrumentationTest {
             scenario.onActivity { activity ->
                 fun field(name: String) = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
                 val camera = NativeCamera("fixture", "Allée", true, "fixture", null, null, null, null, null, null, null)
-                field("cameras").set(activity, listOf(camera))
+                field("cameras").set(activity, listOf(camera, camera.copy(name = "fixture-other", friendlyName = "Entrée")))
                 val fixtures = (0 until 9).map { index ->
                     val asset = listOf("driveway", "entrance", "terrace", "workshop")[index % 4]
                     val image = instrumentation.context.assets.open("ha-previews/$asset.jpg").use { BitmapFactory.decodeStream(it) }
@@ -41,6 +41,7 @@ class TvEventsInstrumentationTest {
                         callback(fixtures.first().thumbnail)
                     }
                     override fun eventVodUrl(eventId: String) = "file:///nonexistent-fixture.mp4"
+                    override fun eventClipUrl(eventId: String) = "file:///nonexistent-fixture.mp4"
                 })
                 MainActivity::class.java.getDeclaredMethod("renderTvEvents").apply { isAccessible = true }.invoke(activity)
             }
@@ -89,6 +90,12 @@ class TvEventsInstrumentationTest {
                 assertEquals(android.widget.LinearLayout.HORIZONTAL, body.orientation)
                 assertTrue("Video must dominate the TV event layout", playback.width > body.getChildAt(1).width)
                 assertTrue(frame.height > 100)
+                val related = activity.window.decorView.findViewWithTag<ViewGroup>("event-related-camera:fixture-other")
+                assertNotNull(related)
+                assertTrue(related.isClickable)
+                fun clickableCount(view: View): Int = (if (view.isClickable) 1 else 0) +
+                    if (view is ViewGroup) (0 until view.childCount).sumOf { clickableCount(view.getChildAt(it)) } else 0
+                assertEquals("TV related camera has one whole-tile action, no fullscreen button", 1, clickableCount(related))
             }
             val detailDrawn = java.util.concurrent.CountDownLatch(1)
             scenario.onActivity { it.window.decorView.postOnAnimation { detailDrawn.countDown() } }
