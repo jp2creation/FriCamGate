@@ -1,0 +1,8 @@
+<resources>
+    <string name="display_mode">Modo de apresentação</string>
+    <string name="background_palette">Paleta de fundo</string>
+    <string name="background_neutral">Neutro</string>
+    <string name="oled_dark_only">Aplica-se apenas no modo escuro. A opção mantém-se guardada no modo claro.</string>
+    <string name="background_blue">Azul</string>
+    <string name="background_green">Verde</string>
+</resources>

@@ -340,6 +340,9 @@ class HomeAssistantInstrumentationTest {
                     val bounds = android.graphics.Rect()
                     assertTrue("Picker row is clipped", row.getGlobalVisibleRect(bounds))
                     assertEquals(row.height, bounds.height())
+                    assertTrue(row.isClickable)
+                    assertEquals(ViewGroup.FOCUS_BLOCK_DESCENDANTS, children.descendantFocusability)
+                    assertTrue(views(row).drop(1).all { !it.isClickable && !it.isLongClickable && !it.isFocusable })
                 }
                 arrangement.setHidden(keys[1], true)
                 MainActivity::class.java.getDeclaredMethod("showCameraPickerPopup", View::class.java).apply { isAccessible = true }

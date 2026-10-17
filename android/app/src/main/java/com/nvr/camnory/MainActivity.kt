@@ -217,10 +217,8 @@ class MainActivity : AppCompatActivity() {
             else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
         super.onCreate(savedInstanceState)
-        Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
-        Palette.dark = Appearance.isDark(appearancePrefs.getString("theme", "system"),
-            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
-        Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
+        Appearance.loadPalette(appearancePrefs, resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         getSharedPreferences("camgate-settings", MODE_PRIVATE).edit()
             .putString("language", AppCompatDelegate.getApplicationLocales().toLanguageTags()).apply()
         appLock = BiometricAppLock(this) {
@@ -274,6 +272,19 @@ class MainActivity : AppCompatActivity() {
         homeStreamGeneration++
         homeStreams.forEach { it.cancel() }
         homeStreams.clear()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val mode = appearancePrefs.getString("theme", "system")
+        if (mode != "dark" && mode != "light") {
+            val systemDark = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            if (Palette.dark != systemDark) {
+                Appearance.loadPalette(appearancePrefs, systemDark)
+                recreate()
+            }
+        }
     }
 
     override fun onPause() {
@@ -2869,6 +2880,18 @@ class MainActivity : AppCompatActivity() {
                 alpha = 0.95f
             }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(8) })
             row.minimumHeight = dp(64)
+            row.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            // Tooltips make child labels long-clickable and can swallow taps meant for the row.
+            fun mergeTapTarget(view: View) {
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(view, null)
+                view.isClickable = false; view.isLongClickable = false; view.isFocusable = false
+                view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                if (view is ViewGroup) repeat(view.childCount) { mergeTapTarget(view.getChildAt(it)) }
+            }
+            repeat(row.childCount) { mergeTapTarget(row.getChildAt(it)) }
+            row.background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(Palette.accent, 35)),
+                rounded(Color.TRANSPARENT, 8), rounded(Color.WHITE, 8))
             card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(2)
             })
@@ -3341,10 +3364,13 @@ class MainActivity : AppCompatActivity() {
 
         fun refreshAppearance() {
             appearanceScrollY = scroll.scrollY
-            Palette.accent = Appearance.accent(appearancePrefs.getString("accent", null))
-            Palette.backgroundStyle = BackgroundStyle.fromPreference(appearancePrefs.getString("backgroundStyle", null))
-            Palette.dark = Appearance.isDark(appearancePrefs.getString("theme", "system"),
-                resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
+            delegate.localNightMode = when (appearancePrefs.getString("theme", "system")) {
+                "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+                "light" -> AppCompatDelegate.MODE_NIGHT_NO
+                else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            }
+            Appearance.loadPalette(appearancePrefs, resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
             window.statusBarColor = Palette.background
             window.navigationBarColor = Palette.black
             androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -3360,7 +3386,7 @@ class MainActivity : AppCompatActivity() {
                 AppearanceChoiceSheet(this, getString(title), key, selected.orEmpty(),
                     options.map { (value, textRes) ->
                         AppearanceSheetOption(value, getString(textRes),
-                            if (key == "backgroundStyle") BackgroundStyle.fromPreference(value).background else null,
+                            if (key == "backgroundStyle") BackgroundStyle.fromPreference(value).let { if (Palette.dark) it.background else it.lightBackground } else null,
                             if (key == "textSize") Appearance.textScale(value) else 1f)
                     }) { value ->
                         if (appearancePrefs.getString(key, fallback) != value) {
@@ -3376,9 +3402,26 @@ class MainActivity : AppCompatActivity() {
         }
         column.addView(sectionHeading(getString(R.string.appearance_ambience)))
         column.addView(settingsGroup(
-            choice(R.string.theme, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light)),
-            choice(R.string.background_style, "backgroundStyle", "automatic", BackgroundStyle.values().map { it.preference to it.titleRes })
+            choice(R.string.display_mode, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light)),
+            choice(R.string.background_palette, "backgroundStyle", "automatic", BackgroundStyle.values().filter { it != BackgroundStyle.Oled }.map {
+                it.preference to when (it) {
+                    BackgroundStyle.Automatic -> R.string.background_neutral
+                    BackgroundStyle.Midnight -> R.string.background_blue
+                    BackgroundStyle.Forest -> R.string.background_green
+                    else -> it.titleRes
+                }
+            })
         ))
+        column.addView(preferenceToggleRow(getString(R.string.background_oled), getString(R.string.oled_dark_only), SwitchCompat(this).apply {
+            tag = "appearance-oled-black"
+            contentDescription = getString(R.string.background_oled)
+            isChecked = appearancePrefs.getBoolean("oledBlack", false)
+            isEnabled = Palette.dark
+            setOnCheckedChangeListener { _, checked ->
+                appearancePrefs.edit().putBoolean("oledBlack", checked).apply()
+                refreshAppearance()
+            }
+        }))
         column.addView(settingsDetailLabel(getString(R.string.accent_color)))
         column.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -3434,7 +3477,7 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val edit = appearancePrefs.edit()
-                    listOf("theme", "backgroundStyle", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "reducedMotion").forEach { edit.remove(it) }
+                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "reducedMotion").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
                 }.show()
@@ -4827,19 +4870,22 @@ private enum class Tab(val label: String, val iconRes: Int) {
 
 internal object Palette {
     private var themeDark = true
+    var oledBlack = false
     var backgroundStyle = BackgroundStyle.Automatic
     var dark: Boolean
-        get() = backgroundStyle != BackgroundStyle.Automatic || themeDark
+        get() = themeDark
         set(value) { themeDark = value }
     var accent = 0xffff2d63.toInt()
-    val background get() = if (dark) backgroundStyle.background else 0xfff5f6f8.toInt()
-    val backgroundAlt get() = if (backgroundStyle != BackgroundStyle.Automatic) backgroundStyle.background else if (dark) 0xff151518.toInt() else 0xfff0f1f4.toInt()
-    val black get() = if (backgroundStyle != BackgroundStyle.Automatic) backgroundStyle.background else if (dark) 0xff000000.toInt() else 0xffffffff.toInt()
-    val card get() = if (dark) backgroundStyle.card else 0xffffffff.toInt()
-    val surface get() = if (dark) backgroundStyle.surface else 0xffe5e7ec.toInt()
+    private val pureBlack get() = dark && (oledBlack || backgroundStyle == BackgroundStyle.Oled)
+    val background get() = if (pureBlack) 0xff000000.toInt() else if (dark) backgroundStyle.background else backgroundStyle.lightBackground
+    val backgroundAlt get() = if (dark) if (backgroundStyle != BackgroundStyle.Automatic || pureBlack) background else 0xff151518.toInt()
+        else if (backgroundStyle == BackgroundStyle.Automatic) 0xfff0f1f4.toInt() else backgroundStyle.lightBackground
+    val black get() = if (dark) if (pureBlack || backgroundStyle == BackgroundStyle.Automatic) 0xff000000.toInt() else background else backgroundStyle.lightCard
+    val card get() = if (dark) if (pureBlack && backgroundStyle == BackgroundStyle.Automatic) BackgroundStyle.Oled.card else backgroundStyle.card else backgroundStyle.lightCard
+    val surface get() = if (dark) if (pureBlack && backgroundStyle == BackgroundStyle.Automatic) BackgroundStyle.Oled.surface else backgroundStyle.surface else backgroundStyle.lightSurface
     val overlay get() = if (dark) 0xcc050507.toInt() else 0xe6ffffff.toInt()
     val text get() = if (dark) 0xfff7f7f9.toInt() else 0xff202127.toInt()
-    val muted get() = if (backgroundStyle != BackgroundStyle.Automatic) 0xffb0b3be.toInt() else if (dark) 0xff8d8d96.toInt() else 0xff60636e.toInt()
+    val muted get() = if (!dark) 0xff60636e.toInt() else if (backgroundStyle != BackgroundStyle.Automatic) 0xffb0b3be.toInt() else 0xff8d8d96.toInt()
     val border get() = if (dark) 0xff2c2c34.toInt() else 0xffd7d9e0.toInt()
     val divider get() = if (dark) 0x14ffffff else 0x18000000
     val tick get() = if (dark) 0xff585860.toInt() else 0xff858995.toInt()

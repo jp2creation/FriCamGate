@@ -44,10 +44,8 @@ class OnvifActivity : AppCompatActivity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         val appearance = getSharedPreferences("camgate-settings", MODE_PRIVATE)
-        Palette.backgroundStyle = BackgroundStyle.fromPreference(appearance.getString("backgroundStyle", null))
-        Palette.dark = Appearance.isDark(appearance.getString("theme", "system"),
-            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
-        Palette.accent = Appearance.accent(appearance.getString("accent", null))
+        Appearance.loadPalette(appearance, resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = !Palette.dark; isAppearanceLightNavigationBars = !Palette.dark

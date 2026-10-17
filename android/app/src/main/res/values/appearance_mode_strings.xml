@@ -1,0 +1,8 @@
+<resources>
+    <string name="display_mode">Display mode</string>
+    <string name="background_palette">Background palette</string>
+    <string name="background_neutral">Neutral</string>
+    <string name="oled_dark_only">Only applies in dark mode. The setting is retained in light mode.</string>
+    <string name="background_blue">Blue</string>
+    <string name="background_green">Green</string>
+</resources>

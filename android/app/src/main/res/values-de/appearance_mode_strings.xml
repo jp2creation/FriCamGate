@@ -1,0 +1,8 @@
+<resources>
+    <string name="display_mode">Anzeigemodus</string>
+    <string name="background_palette">Hintergrundpalette</string>
+    <string name="background_neutral">Neutral</string>
+    <string name="oled_dark_only">Gilt nur im dunklen Modus. Die Einstellung bleibt im hellen Modus gespeichert.</string>
+    <string name="background_blue">Blau</string>
+    <string name="background_green">Grün</string>
+</resources>

@@ -186,7 +186,7 @@ class SettingsNavigationInstrumentationTest {
                         Palette.dark = dark; Palette.accent = Appearance.accent(accent)
                         render(activity, "renderAppearanceSettings")
                         val switches = views(root(activity)).filterIsInstance<androidx.appcompat.widget.SwitchCompat>()
-                        assertEquals(3, switches.size)
+                        assertEquals(4, switches.size)
                         switches.forEach { toggle ->
                             val value = toggle.isChecked
                             val enabled = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked)
@@ -204,6 +204,31 @@ class SettingsNavigationInstrumentationTest {
                     }
                 } finally { Palette.accent = originalAccent; Palette.dark = originalDark }
             }
+        }
+    }
+
+    @Test fun legacyOledMigratesOnceAndNeverOverridesLightMode() {
+        val testPrefs = context.getSharedPreferences("appearance-migration-fixture", 0)
+        val style = Palette.backgroundStyle; val dark = Palette.dark
+        val oled = Palette.oledBlack; val accent = Palette.accent
+        try {
+            testPrefs.edit().clear().putString("theme", "light").putString("backgroundStyle", "oled").putString("accent", "blue").commit()
+            Appearance.loadPalette(testPrefs, true)
+            assertEquals("automatic", testPrefs.getString("backgroundStyle", null))
+            assertTrue(testPrefs.getBoolean("oledBlack", false))
+            assertFalse(Palette.dark)
+            assertEquals(BackgroundStyle.Automatic.lightBackground, Palette.background)
+            assertEquals(Appearance.accent("blue"), Palette.accent)
+            testPrefs.edit().putString("theme", "dark").commit()
+            Appearance.loadPalette(testPrefs, false)
+            assertEquals(0xff000000.toInt(), Palette.background)
+            testPrefs.edit().putBoolean("oledBlack", false).commit()
+            Appearance.loadPalette(testPrefs, false)
+            assertFalse(Palette.oledBlack)
+            assertEquals(BackgroundStyle.Automatic.background, Palette.background)
+        } finally {
+            testPrefs.edit().clear().commit()
+            Palette.backgroundStyle = style; Palette.dark = dark; Palette.oledBlack = oled; Palette.accent = accent
         }
     }
 

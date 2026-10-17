@@ -23,10 +23,8 @@ class HomeAssistantActivity : AppCompatActivity() {
         }
         super.onCreate(state)
         val appearance = getSharedPreferences("camgate-settings", MODE_PRIVATE)
-        Palette.backgroundStyle = BackgroundStyle.fromPreference(appearance.getString("backgroundStyle", null))
-        Palette.dark = Appearance.isDark(appearance.getString("theme", "system"),
-            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
-        Palette.accent = Appearance.accent(appearance.getString("accent", null))
+        Appearance.loadPalette(appearance, resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         page = runCatching { Page.valueOf(state?.getString("ha-page").orEmpty()) }.getOrDefault(Page.Overview)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
