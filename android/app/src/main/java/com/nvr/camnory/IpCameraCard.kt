@@ -166,15 +166,17 @@ internal class IpCameraCard(context: Context, private val camera: IpCamera,
         sound.isEnabled = true
         current.addListener(object : Player.Listener {
             override fun onRenderedFirstFrame() { if (player === current) overlay.visibility = GONE }
-            override fun onPlayerError(error: PlaybackException) { if (player === current) unavailable() }
+            override fun onPlayerError(error: PlaybackException) {
+                if (player === current && !recoverIpLiveWindow(current, error.errorCode)) unavailable()
+            }
         })
         val source = if (camera.url.startsWith("rtsp://")) {
             val uri = android.net.Uri.parse(camera.url)
             val authenticated = if (camera.username.isEmpty()) camera.url else uri.buildUpon().encodedAuthority(
                 android.net.Uri.encode(camera.username) + ":" + android.net.Uri.encode(camera.password) + "@" + uri.encodedAuthority).build().toString()
             RtspMediaSource.Factory().setForceUseRtpTcp(true).createMediaSource(MediaItem.fromUri(authenticated))
-        } else DefaultMediaSourceFactory(OkHttpDataSource.Factory(client)).createMediaSource(
-            MediaItem.Builder().setUri(camera.url).setMimeType(mime?.takeIf { it in setOf("application/x-mpegurl", "application/vnd.apple.mpegurl", "video/mp4") }).build())
+        } else DefaultMediaSourceFactory(OkHttpDataSource.Factory(client)).setLiveTargetOffsetMs(5_000).createMediaSource(
+            MediaItem.Builder().setUri(camera.url).setMimeType(ipCameraVideoMime(mime)).build())
         current.setMediaSource(source); current.prepare(); current.playWhenReady = visible()
     }
     private fun unavailable() { stop(); failed = true; overlay.showUnavailable(null) }

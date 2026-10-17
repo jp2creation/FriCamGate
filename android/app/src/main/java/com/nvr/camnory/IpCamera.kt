@@ -13,6 +13,21 @@ internal fun ipCameraUrl(value: String): String {
     return uri.toASCIIString()
 }
 
+internal fun ipCameraVideoMime(contentType: String?): String? = when (
+    contentType?.substringBefore(';')?.trim()?.lowercase(java.util.Locale.ROOT)
+) {
+    "application/x-mpegurl", "application/vnd.apple.mpegurl" -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
+    "video/mp4" -> androidx.media3.common.MimeTypes.VIDEO_MP4
+    else -> null
+}
+
+internal fun recoverIpLiveWindow(player: androidx.media3.common.Player, errorCode: Int): Boolean {
+    if (errorCode != androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) return false
+    player.seekToDefaultPosition()
+    player.prepare()
+    return true
+}
+
 internal class IpCamera(val id: String, val name: String, val url: String, val username: String = "", val password: String = "") {
     init {
         require(id.isNotBlank() && id.length <= 160 && name.isNotBlank() && name.length <= 160)

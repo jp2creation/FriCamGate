@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class IpCameraTest {
+    @Test fun expiredLiveWindowsSeekBackToLiveWithoutReleasingThePlayer() {
+        val commands = mutableListOf<String>()
+        val player = java.lang.reflect.Proxy.newProxyInstance(javaClass.classLoader, arrayOf(androidx.media3.common.Player::class.java)) { _, method, _ ->
+            commands.add(method.name)
+            null
+        } as androidx.media3.common.Player
+        assertFalse(recoverIpLiveWindow(player, androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED))
+        assertTrue(commands.isEmpty())
+        assertTrue(recoverIpLiveWindow(player, androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW))
+        assertEquals(listOf("seekToDefaultPosition", "prepare"), commands)
+    }
+    @Test fun hlsServerMimeAliasesUseTheCanonicalPlayerType() {
+        listOf("application/vnd.apple.mpegurl", "application/x-mpegurl", "application/x-mpegURL", " APPLICATION/VND.APPLE.MPEGURL ; charset=utf-8").forEach {
+            assertEquals(androidx.media3.common.MimeTypes.APPLICATION_M3U8, ipCameraVideoMime(it))
+        }
+        assertEquals("video/mp4", ipCameraVideoMime("video/mp4; charset=utf-8"))
+        listOf(null, "", "application/octet-stream", "image/jpeg", "text/html").forEach { assertNull(ipCameraVideoMime(it)) }
+    }
     @Test fun directUrlsNeedNoOnvifEndpoint() {
         assertEquals("http://192.168.0.50:8080/video", ipCameraUrl("192.168.0.50:8080/video"))
         assertEquals("rtsp://192.168.0.50/live", ipCameraUrl("rtsp://192.168.0.50/live"))
