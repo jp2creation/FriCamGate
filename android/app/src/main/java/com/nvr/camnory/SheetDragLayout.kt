@@ -9,7 +9,7 @@ import android.widget.ScrollView
 import kotlin.math.abs
 
 /** Intercept only downward vertical drags once the touched list is at its top. */
-internal class SheetDragLayout(context: Context, private val close: () -> Unit) : LinearLayout(context) {
+internal open class SheetDragLayout(context: Context, private val close: () -> Unit) : LinearLayout(context) {
     var scrollView: ScrollView? = null
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f

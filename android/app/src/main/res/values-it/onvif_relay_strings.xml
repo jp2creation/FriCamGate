@@ -1,0 +1,6 @@
+<resources>
+    <string name="onvif_native_outputs">Uscite ONVIF native</string>
+    <string name="onvif_no_relays">Questa telecamera non dichiara uscite relè DeviceIO compatibili.</string>
+    <string name="onvif_relay_warning">Un relè può controllare luci, sirene o altri dispositivi. Associalo solo se conosci il cablaggio. La ricerca e la scelta non lo attivano.</string>
+    <string name="onvif_relay_state_unknown">La telecamera non fornisce lo stato attuale del relè.</string>
+</resources>

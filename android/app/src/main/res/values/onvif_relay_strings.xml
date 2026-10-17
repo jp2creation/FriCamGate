@@ -1,0 +1,6 @@
+<resources>
+    <string name="onvif_native_outputs">Native ONVIF outputs</string>
+    <string name="onvif_no_relays">This camera does not declare a supported DeviceIO relay output.</string>
+    <string name="onvif_relay_warning">A relay may control a light, siren or another device. Assign its purpose only if you know the wiring. Discovery and assignment do not activate it.</string>
+    <string name="onvif_relay_state_unknown">The camera does not expose the current relay state.</string>
+</resources>

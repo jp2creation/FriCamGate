@@ -44,27 +44,32 @@ internal fun onvifStreamUri(value: String, endpoint: String, credentials: OnvifC
     return URI("rtsp://$userInfo$host${if (uri.port >= 0) ":${uri.port}" else ""}${uri.rawPath.orEmpty()}${uri.rawQuery?.let { "?$it" }.orEmpty()}")
 }
 
+internal enum class OnvifSoapOperation(val method: String, val namespace: String) {
+    Clock("GetSystemDateAndTime", "http://www.onvif.org/ver10/device/wsdl"),
+    Services("GetServices", "http://www.onvif.org/ver10/device/wsdl"),
+    Profiles("GetProfiles", "http://www.onvif.org/ver10/media/wsdl"),
+    Stream("GetStreamUri", "http://www.onvif.org/ver10/media/wsdl"),
+    Relays("GetRelayOutputs", "http://www.onvif.org/ver10/deviceIO/wsdl"),
+    SetRelay("SetRelayOutputState", "http://www.onvif.org/ver10/deviceIO/wsdl")
+}
+
 /** Closed, read-only SOAP surface. No generic operation or mutation API is exposed. */
 internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient.Builder()
     .followRedirects(false).followSslRedirects(false).callTimeout(10, TimeUnit.SECONDS).build()) {
-    private enum class Operation(val method: String, val namespace: String) {
-        Clock("GetSystemDateAndTime", DEVICE), Services("GetServices", DEVICE),
-        Profiles("GetProfiles", MEDIA), Stream("GetStreamUri", MEDIA)
-    }
 
     fun connect(endpoint: String, credentials: OnvifCredentials): OnvifConnection {
         val address = onvifEndpoint(endpoint).toASCIIString()
         val offset = runCatching {
-            val clock = request(address, address, credentials, Operation.Clock, 0).descendant("UTCDateTime")!!
+            val clock = request(address, address, credentials, OnvifSoapOperation.Clock, 0).descendant("UTCDateTime")!!
             val date = clock.descendant("Date")!!
             val time = clock.descendant("Time")!!
             val value = "${date.child("Year")!!.text}-${date.child("Month")!!.text.padStart(2, '0')}-${date.child("Day")!!.text.padStart(2, '0')}T${time.child("Hour")!!.text.padStart(2, '0')}:${time.child("Minute")!!.text.padStart(2, '0')}:${time.child("Second")!!.text.padStart(2, '0')}Z"
             timestampFormat().parse(value)!!.time - System.currentTimeMillis()
         }.getOrDefault(0L)
-        val services = request(address, address, credentials, Operation.Services, offset)
+        val services = request(address, address, credentials, OnvifSoapOperation.Services, offset)
         val media = services.descendants("Service").firstOrNull { it.child("Namespace")?.text == MEDIA }
             ?.child("XAddr")?.text ?: throw IOException("ONVIF Media1 unavailable")
-        val profiles = request(address, media, credentials, Operation.Profiles, offset).descendants("Profiles").mapNotNull {
+        val profiles = request(address, media, credentials, OnvifSoapOperation.Profiles, offset).descendants("Profiles").mapNotNull {
             val token = it.attributes["token"] ?: return@mapNotNull null
             val encoding = it.descendant("VideoEncoderConfiguration")?.child("Encoding")?.text ?: return@mapNotNull null
             OnvifProfile(token, it.child("Name")?.text ?: token, encoding)
@@ -75,7 +80,7 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
 
     fun stream(connection: OnvifConnection, profile: OnvifProfile, credentials: OnvifCredentials): URI {
         require(profile in connection.profiles)
-        val result = request(connection.deviceEndpoint, connection.mediaEndpoint, credentials, Operation.Stream,
+        val result = request(connection.deviceEndpoint, connection.mediaEndpoint, credentials, OnvifSoapOperation.Stream,
             connection.clockOffsetMs, profile.token)
         val uri = result.descendant("Uri")?.text ?: throw IOException("Missing RTSP URI")
         return onvifStreamUri(uri, connection.deviceEndpoint, credentials)
@@ -83,11 +88,31 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
 
     fun cancel() = http.dispatcher.cancelAll()
 
+    private val transport = OnvifSoapTransport(http)
     private fun request(origin: String, endpoint: String, credentials: OnvifCredentials,
-        operation: Operation, offsetMs: Long, token: String? = null): OnvifXmlNode {
+        operation: OnvifSoapOperation, offsetMs: Long, token: String? = null): OnvifXmlNode =
+        transport.request(origin, endpoint, credentials, operation, offsetMs, token)
+
+    companion object {
+        private const val DEVICE = "http://www.onvif.org/ver10/device/wsdl"
+        private const val MEDIA = "http://www.onvif.org/ver10/media/wsdl"
+        private const val SCHEMA = "http://www.onvif.org/ver10/schema"
+        private const val SOAP = "http://www.w3.org/2003/05/soap-envelope"
+        private const val WSSE = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+        private const val WSU = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
+        private const val WSSE_PROFILE = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0"
+        private const val WSSE_ENCODING = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0"
+        private fun timestampFormat() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    }
+}
+
+internal class OnvifSoapTransport(private val http: OkHttpClient) {
+    fun request(origin: String, endpoint: String, credentials: OnvifCredentials,
+        operation: OnvifSoapOperation, offsetMs: Long, token: String? = null, relayActive: Boolean? = null): OnvifXmlNode {
         if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException()
         val target = onvifEndpoint(endpoint)
         require(target.host.equals(URI(origin).host, true)) { "Camera service host mismatch" }
+        require(URI(origin).scheme != "https" || target.scheme == "https") { "Camera service downgrade refused" }
         val out = StringWriter()
         val xml = XmlPullParserFactory.newInstance().newSerializer().apply { setOutput(out) }
         fun start(ns: String, name: String) { xml.startTag(ns, name) }
@@ -97,7 +122,7 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
         xml.setPrefix("wsse", WSSE); xml.setPrefix("wsu", WSU)
         start(SOAP, "Envelope")
         start(SOAP, "Header")
-        if (credentials.username.isNotEmpty() && operation != Operation.Clock) {
+        if (credentials.username.isNotEmpty() && operation != OnvifSoapOperation.Clock) {
             val nonce = ByteArray(20).also { SecureRandom().nextBytes(it) }
             val created = timestampFormat().format(Date(System.currentTimeMillis() + offsetMs))
             val digest = MessageDigest.getInstance("SHA-1").digest(nonce + created.toByteArray(Charsets.UTF_8) + credentials.password.toByteArray(Charsets.UTF_8))
@@ -109,11 +134,15 @@ internal class OnvifReadOnlyClient(private val http: OkHttpClient = OkHttpClient
             end(WSSE, "UsernameToken"); end(WSSE, "Security")
         }
         end(SOAP, "Header"); start(SOAP, "Body"); start(operation.namespace, operation.method)
-        if (operation == Operation.Services) text(DEVICE, "IncludeCapability", "false")
-        if (operation == Operation.Stream) {
+        if (operation == OnvifSoapOperation.Services) text(DEVICE, "IncludeCapability", "false")
+        if (operation == OnvifSoapOperation.Stream) {
             start(MEDIA, "StreamSetup"); text(SCHEMA, "Stream", "RTP-Unicast")
             start(SCHEMA, "Transport"); text(SCHEMA, "Protocol", "RTSP"); end(SCHEMA, "Transport"); end(MEDIA, "StreamSetup")
             text(MEDIA, "ProfileToken", requireNotNull(token))
+        }
+        if (operation == OnvifSoapOperation.SetRelay) {
+            text(operation.namespace, "RelayOutputToken", requireNotNull(token))
+            text(operation.namespace, "LogicalState", if (requireNotNull(relayActive)) "active" else "inactive")
         }
         end(operation.namespace, operation.method); end(SOAP, "Body"); end(SOAP, "Envelope"); xml.flush()
         val body = out.toString().toRequestBody("application/soap+xml; charset=utf-8; action=\"${operation.namespace}/${operation.method}\"".toMediaType())

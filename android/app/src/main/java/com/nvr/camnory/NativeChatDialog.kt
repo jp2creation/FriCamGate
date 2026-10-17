@@ -20,11 +20,20 @@ import okhttp3.OkHttpClient
 /** Chat overlays the current screen; its composer remains outside the scrolling history. */
 internal class NativeChatDialog(context: Context, private val server: FrigateServer, private val client: OkHttpClient) : Dialog(context) {
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
+    private var chatView: NativeChatView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val body = SheetDragLayout(context) { dismiss() }.apply {
+        val body = object : SheetDragLayout(context, { dismiss() }) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val screen = resources.displayMetrics.heightPixels
+                val desired = (chatView?.preferredHeight(View.MeasureSpec.getSize(widthMeasureSpec)) ?: dp(220)) + dp(24) + paddingBottom
+                val limit = minOf((screen * 0.85f).toInt(), View.MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: screen)
+                val height = chatPanelHeight(screen, limit, desired)
+                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            }
+        }.apply {
             tag = "chat-popup"
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
@@ -41,6 +50,7 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
             }, FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER))
         }, LinearLayout.LayoutParams(-1, dp(24)))
         val chat = NativeChatView(context, server.baseUrl, server.token, server.username, client) { dismiss() }
+        chatView = chat
         body.scrollView = chat.messageScroll
         body.addView(chat, LinearLayout.LayoutParams(-1, 0, 1f))
         ViewCompat.setOnApplyWindowInsetsListener(body) { view, insets ->
@@ -67,7 +77,9 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
 
     override fun onStart() {
         super.onStart()
-        val available = context.resources.displayMetrics
-        window?.setLayout(-1, (available.heightPixels * 0.86f).toInt())
+        window?.setLayout(-1, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 }
+
+internal fun chatPanelHeight(screen: Int, available: Int, desired: Int): Int =
+    desired.coerceAtLeast((screen * 0.33f).toInt()).coerceAtMost(minOf(available, (screen * 0.85f).toInt()))

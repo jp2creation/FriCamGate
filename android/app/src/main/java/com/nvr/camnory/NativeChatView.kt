@@ -51,6 +51,11 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
         imeOptions = EditorInfo.IME_ACTION_SEND
     }
     private val sendIcon = ImageView(context)
+    private var clearButton: View? = null
+    internal fun preferredHeight(width: Int): Int {
+        list.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        return list.measuredHeight + dp(180)
+    }
     private val send = FrameLayout(context).apply {
         background = shape(Palette.accent)
         isClickable = true
@@ -70,6 +75,8 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
             addView(FrameLayout(context).apply {
+                clearButton = this
+                tag = "chat-clear"
                 contentDescription = context.getString(R.string.chat_clear)
                 isFocusable = true
                 addView(ImageView(context).apply {
@@ -130,6 +137,7 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
             if (role in listOf("user", "assistant") && content is String && content.isNotBlank()) bubble(content, role == "user")
         }
         if (list.childCount == 0) status.setText(R.string.chat_welcome)
+        clearButton?.visibility = if (list.childCount == 0) View.GONE else View.VISIBLE
         bottom()
     }
 
@@ -145,6 +153,7 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
             addView(label, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 if (user) Gravity.END else Gravity.START))
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        clearButton?.visibility = View.VISIBLE
         return label
     }
 

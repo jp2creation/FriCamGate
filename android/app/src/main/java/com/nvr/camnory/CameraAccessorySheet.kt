@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 /** Discovery and association are read-only. Commands exist only behind the confirmation action. */
 internal class CameraAccessorySheet(context: Context, cameraKey: String, private val cameraName: String,
     private val connection: HomeAssistantConnection?, private val allowed: () -> Boolean,
+    private val nativeCamera: OnvifSavedCamera? = null,
     private val onChanged: () -> Unit = {}
 ) : SelectionBottomSheet(context, cameraName) {
     private val handler = Handler(Looper.getMainLooper())
@@ -25,10 +26,23 @@ internal class CameraAccessorySheet(context: Context, cameraKey: String, private
     private var busy = false
     private var confirmation: AlertDialog? = null
     private var picker: AppearanceChoiceSheet? = null
+    private var nativeSheet: OnvifRelaySheet? = null
 
     override fun createSheetContent(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), dp(20)); rows = this
+        nativeEntry()
         addView(ConnectionFormUi(context).text(context.getString(if (client == null) R.string.accessory_no_ha else R.string.accessory_loading)))
+    }
+
+    private fun nativeEntry() {
+        nativeCamera?.let { camera ->
+            rows.addView(ConnectionFormUi(context).action(context.getString(R.string.onvif_native_outputs), false) {
+                if (!closed && allowed()) {
+                    nativeSheet?.dismiss()
+                    nativeSheet = OnvifRelaySheet(context, camera, allowed, onChanged).also { it.show() }
+                }
+            }.apply { tag = "accessory-native-onvif" })
+        }
     }
 
     override fun onStart() {
@@ -50,6 +64,7 @@ internal class CameraAccessorySheet(context: Context, cameraKey: String, private
 
     private fun render(failed: Boolean = false) {
         rows.removeAllViews()
+        nativeEntry()
         val ui = ConnectionFormUi(context)
         rows.addView(ui.text(context.getString(R.string.accessory_via_ha)))
         if (failed) {
@@ -120,6 +135,7 @@ internal class CameraAccessorySheet(context: Context, cameraKey: String, private
     }
 
     override fun dismiss() {
+        nativeSheet?.dismiss(); nativeSheet = null
         closed = true; confirmation?.dismiss(); picker?.dismiss()
         handler.removeCallbacksAndMessages(null); client?.close(); worker.shutdownNow()
         super.dismiss()

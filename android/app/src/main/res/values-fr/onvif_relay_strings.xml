@@ -1,0 +1,6 @@
+<resources>
+    <string name="onvif_native_outputs">Sorties ONVIF natives</string>
+    <string name="onvif_no_relays">Cette caméra ne déclare pas de sortie relais DeviceIO prise en charge.</string>
+    <string name="onvif_relay_warning">Un relais peut commander une lumière, une sirène ou un autre équipement. Associez sa fonction uniquement si vous connaissez son câblage. La détection et l’association ne l’activent pas.</string>
+    <string name="onvif_relay_state_unknown">La caméra ne fournit pas l’état courant du relais.</string>
+</resources>
