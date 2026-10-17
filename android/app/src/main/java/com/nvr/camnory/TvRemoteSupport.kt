@@ -22,13 +22,13 @@ internal object TvRemoteSupport {
     internal class CameraHalo(private val density: Float) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
         override fun draw(canvas: Canvas) {
-            val color = if (Palette.dark) Color.WHITE else Color.BLACK
-            // A broad, low-opacity falloff avoids a bright, hard selection outline.
+            val color = Palette.accent
+            // A thin readable edge is the focus cue; diffusion is only a supplement.
             for (layer in 0..11) {
                 val inset = (0.5f + layer) * density
                 paint.color = color
-                paint.alpha = (32.0 * kotlin.math.exp(-layer * layer / 24.0)).toInt()
-                paint.strokeWidth = 1.2f * density
+                paint.alpha = if (layer == 0) 185 else (16.0 * kotlin.math.exp(-(layer - 1) * (layer - 1) / 18.0)).toInt()
+                paint.strokeWidth = if (layer == 0) 1f * density else 0.8f * density
                 canvas.drawRoundRect(bounds.left + inset, bounds.top + inset,
                     bounds.right - inset, bounds.bottom - inset,
                     (8f * density - inset).coerceAtLeast(0f), (8f * density - inset).coerceAtLeast(0f), paint)

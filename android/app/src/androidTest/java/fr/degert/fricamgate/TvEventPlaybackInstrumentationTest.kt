@@ -75,6 +75,26 @@ class TvEventPlaybackInstrumentationTest {
                 }
                 assertNull("Recorded video error", failure)
                 assertTrue("Recorded playback must advance", advanced)
+                val hideDeadline = SystemClock.elapsedRealtime() + 6500
+                var hidden = false
+                while (!hidden && SystemClock.elapsedRealtime() < hideDeadline) {
+                    scenario.onActivity { activity ->
+                        val controls = MainActivity::class.java.getDeclaredField("eventPlaybackControls").apply { isAccessible = true }
+                            .get(activity) as androidx.media3.ui.PlayerControlView
+                        hidden = controls.visibility == android.view.View.INVISIBLE
+                    }
+                    if (!hidden) Thread.sleep(100)
+                }
+                assertTrue("TV playback chrome hides without moving the video", hidden)
+                scenario.onActivity { activity ->
+                    val frame = activity.window.decorView.findViewWithTag<android.view.View>("event-player-frame")
+                    val height = frame.height
+                    frame.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN))
+                    val controls = MainActivity::class.java.getDeclaredField("eventPlaybackControls").apply { isAccessible = true }
+                        .get(activity) as androidx.media3.ui.PlayerControlView
+                    assertEquals(android.view.View.VISIBLE, controls.visibility)
+                    assertEquals(height, frame.height)
+                }
                 var pausedAt = 0L
                 scenario.onActivity { activity ->
                     val player = MainActivity::class.java.getDeclaredField("currentPlayer").apply { isAccessible = true }.get(activity) as ExoPlayer

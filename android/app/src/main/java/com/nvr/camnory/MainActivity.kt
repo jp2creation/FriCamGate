@@ -146,6 +146,10 @@ class MainActivity : AppCompatActivity() {
     private var soundEnabled = false
     private var detailSoundRefresh: (() -> Unit)? = null
     private var eventPlaybackControls: androidx.media3.ui.PlayerControlView? = null
+    private var tvEventSelectedId: String? = null
+    private var tvNotificationSelectedId: String? = null
+    private var tvUnreadOnly = false
+    private var tvHistoryOrigin = Tab.Events
     private val homeStreams = mutableListOf<WebSocket>()
     private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
     private var streamsSuspended = false
@@ -1006,6 +1010,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderEventDetail(event: NativeEvent, displayedCameraName: String = event.camera) {
+        if (TelevisionMode.enabled(this) && findViewById<ViewGroup>(android.R.id.content)
+                .findViewWithTag<View>("tv-notifications-browser") != null) tvHistoryOrigin = Tab.Grid
+        else if (TelevisionMode.enabled(this) && findViewById<ViewGroup>(android.R.id.content)
+                .findViewWithTag<View>("event-player-frame") == null) tvHistoryOrigin = Tab.Events
         renderEventDetailAt(event, displayedCameraName, event.startTime ?: 0.0, true)
     }
 
@@ -1088,14 +1096,19 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(16), dp(20), dp(16), dp(120)) }
         scroll.addView(column)
         column.addView(label(getString(R.string.event_playback), 12, Palette.muted))
-        column.addView(label(eventDisplayText(event), 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
-        column.addView(label("$activeCameraLabel - ${event.time}", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
-        column.addView(label(eventSentence(event), 14, Palette.text).apply { setPadding(0, 0, 0, dp(12)) })
+        column.addView(label(eventDisplayText(event), if (TelevisionMode.enabled(this)) 20 else 28, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        val playbackTime = if (TelevisionMode.enabled(this)) event.startTime?.let {
+            java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.MEDIUM)
+                .format(java.util.Date((it * 1000).toLong()))
+        } ?: event.time else event.time
+        column.addView(label("$activeCameraLabel\n$playbackTime".takeIf { TelevisionMode.enabled(this) }
+            ?: "$activeCameraLabel - $playbackTime", 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
+        if (!TelevisionMode.enabled(this)) column.addView(label(eventSentence(event), 14, Palette.text).apply { setPadding(0, 0, 0, dp(12)) })
         event.description?.let { description ->
             column.addView(sectionHeading(getString(R.string.frigate_description)))
-            column.addView(label(description, 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
+            column.addView(label(description, if (TelevisionMode.enabled(this)) 12 else 14, Palette.muted).apply { setPadding(0, dp(4), 0, dp(16)) })
         }
-        column.addView(label(getString(R.string.same_moment), 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        column.addView(label(getString(R.string.same_moment), if (TelevisionMode.enabled(this)) 14 else 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         if (TelevisionMode.enabled(this)) {
@@ -1107,14 +1120,17 @@ class MainActivity : AppCompatActivity() {
                 addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
                 addView(controls, LinearLayout.LayoutParams(-1, -2))
             }
-            body.addView(playback, LinearLayout.LayoutParams(0, -1, 2.3f))
-            column.setPadding(dp(16), dp(16), dp(16), dp(24))
+            body.addView(playback, LinearLayout.LayoutParams(0, -1, 3.3f))
+            column.setPadding(dp(14), dp(12), dp(8), dp(16))
             body.addView(scroll, LinearLayout.LayoutParams(0, -1, 1f))
         }
-        setShell(body, Tab.Events)
+        setShell(body, if (TelevisionMode.enabled(this)) tvHistoryOrigin else Tab.Events)
         if (TelevisionMode.enabled(this)) {
             expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() { renderTvEvents() }
+                override fun handleOnBackPressed() {
+                    if (tvHistoryOrigin == Tab.Grid) renderTvHistory(true, restoreFocus = true)
+                    else renderTvHistory(false, restoreFocus = true)
+                }
             }.also { onBackPressedDispatcher.addCallback(this, it) }
         }
         scroll.post { scroll.scrollTo(0, previousScrollY) }
@@ -1127,6 +1143,42 @@ class MainActivity : AppCompatActivity() {
         }
         currentPlayer?.playWhenReady = playing
         controls.show()
+        if (TelevisionMode.enabled(this)) {
+            installTvPlaybackChrome(playerFrame, controls)
+        }
+    }
+
+    private fun installTvPlaybackChrome(frame: ViewGroup, controls: androidx.media3.ui.PlayerControlView) {
+        val actions = frame.findViewWithTag<View>("event-player-actions")
+        fun reveal() { controls.visibility = View.VISIBLE; controls.show(); actions?.visibility = View.VISIBLE }
+        val hide = object : Runnable {
+            override fun run() {
+                if (!frame.isAttachedToWindow) return
+                val focused = currentFocus
+                fun contains(parent: ViewGroup): Boolean = focused != null && (focused === parent || (0 until parent.childCount).any {
+                    val child = parent.getChildAt(it)
+                    child === focused || child is ViewGroup && contains(child)
+                })
+                if (currentPlayer?.isPlaying == true && !contains(controls) && (actions !is ViewGroup || !contains(actions))) {
+                    controls.visibility = View.INVISIBLE; actions?.visibility = View.GONE
+                }
+                frame.postDelayed(this, 3500)
+            }
+        }
+        frame.isFocusable = true
+        frame.setTag(R.id.tv_remote_action, true)
+        frame.setOnClickListener { reveal(); controls.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus() }
+        frame.setOnKeyListener { _, key, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN && key in listOf(android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                    android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER)) {
+                reveal(); controls.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus(); true
+            } else false
+        }
+        frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) { frame.postDelayed(hide, 3500) }
+            override fun onViewDetachedFromWindow(view: View) { frame.removeCallbacks(hide) }
+        })
+        frame.post { frame.requestFocus(); frame.postDelayed(hide, 3500) }
     }
 
     private fun openEventCameraFullscreen(event: NativeEvent, camera: NativeCamera) {
@@ -2104,69 +2156,70 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
-    private fun renderTvEvents() {
+    private fun renderTvEvents() = renderTvHistory(false)
+
+    private fun renderTvHistory(inbox: Boolean, restoreFocus: Boolean = false) {
+        val browserTag = if (inbox) "tv-notifications-browser" else "tv-events-browser"
+        val previous = findViewById<ViewGroup>(android.R.id.content).findViewWithTag<View>(browserTag)
+        val previousFocus = currentFocus?.tag as? String
+        val restore = restoreFocus || previous != null && previousFocus?.startsWith(if (inbox) "tv-notification:" else "tv-event:") == true
         releasePlayer()
-        val body = vertical().apply { setPadding(dp(16), dp(8), dp(16), dp(12)); tag = "tv-events-browser" }
+        val body = vertical().apply { setPadding(dp(18), dp(8), dp(18), dp(14)); tag = browserTag }
+        val seen = seenAlertIds()
+        val source = (globalResults ?: events).filter { event -> visibleCameras().any { it.name == event.camera } }
+            .sortedByDescending { it.startTime ?: 0.0 }
+        val unread = source.filter { it.id !in seen && (it.startTime == null || it.startTime > seenAlertsCutoffMillis(it) / 1000.0) }.map { it.id }.toSet()
         body.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(label(getString(R.string.events_tab), 24, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(iconBubble(R.drawable.ic_event_filters) {
-                EventFilterSheet(this@MainActivity, eventSearch, visibleCameras().map { it.name to it.friendlyName }) { next ->
-                    eventSearch = next
-                    globalQueryGeneration++
-                    globalLoading = false
-                    globalResults = null
-                    renderTvEvents()
-                }.show()
-            }.apply { contentDescription = getString(R.string.event_filters_title) })
-        })
-        val source = (globalResults ?: events).filter { event -> visibleCameras().any { it.name == event.camera } }
-        val tiles = source.map { event ->
-            vertical().apply {
-                tag = "tv-event:${event.id}"
-                setTag(R.id.tv_camera_tile, true)
-                background = rounded(Palette.card, 8)
-                isClickable = true
-                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                addView(ImageView(this@MainActivity).apply {
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setBackgroundColor(Color.BLACK)
-                    event.thumbnail?.let { setImageBitmap(it) }
-                    if (event.thumbnail == null) {
-                        val image = this
-                        var requested = false
-                        viewTreeObserver.addOnGlobalLayoutListener {
-                            if (image.isShown && !requested) {
-                                requested = true
-                                session?.let { active -> api?.let { transport ->
-                                    transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
-                                        runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
-                                    }
-                                } }
-                            }
-                        }
-                    }
-                }, LinearLayout.LayoutParams(-1, 0, 1f))
-                addView(label(eventDisplayText(event), 14, Palette.text).apply { maxLines = 1; setPadding(dp(10), dp(4), dp(10), 0) })
-                val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera
-                addView(label("$camera · ${event.time}", 12, Palette.muted).apply { maxLines = 1; setPadding(dp(10), 0, dp(10), dp(6)) })
-                setOnClickListener { renderEventDetail(event) }
+            addView(label(getString(if (inbox) R.string.notifications else R.string.events_tab), 23, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
+            if (inbox) {
+                addView(FrameLayout(this@MainActivity).apply { addView(android.widget.CheckBox(this@MainActivity).apply {
+                    text = getString(R.string.tv_unread_only)
+                    textSize = 13f
+                    buttonTintList = android.content.res.ColorStateList(
+                        arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Palette.accent, Palette.muted))
+                    tag = "tv-unread-filter"
+                    isChecked = tvUnreadOnly
+                    setTextColor(if (tvUnreadOnly) Palette.accent else Palette.text)
+                    setOnClickListener { tvUnreadOnly = !tvUnreadOnly; tvNotificationSelectedId = null; renderTvHistory(true)
+                        window.decorView.post { window.decorView.findViewWithTag<View>("tv-unread-filter")?.requestFocus() } }
+                }, FrameLayout.LayoutParams(-2, -1)) }, LinearLayout.LayoutParams(-2, dp(42)).apply { marginEnd = dp(12) })
+                addView(iconBubble(R.drawable.ic_selection_check) {
+                    markAlertsSeen(source.filter { it.id in unread }, advanceCutoff = false)
+                    renderTvHistory(true)
+                    window.decorView.post { window.decorView.findViewWithTag<View>("tv-read-all")?.requestFocus() }
+                }.apply {
+                    tag = "tv-read-all"; contentDescription = getString(R.string.tv_read_loaded)
+                    androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+                    isEnabled = unread.isNotEmpty(); alpha = if (isEnabled) 1f else 0.4f
+                })
             }
-        }
-        if (tiles.isEmpty()) body.addView(emptyMessage(getString(if (globalLoading) R.string.filter_loading else R.string.no_notifications)))
-        else {
-            val grid = TvCameraGrid(this, 3, tiles)
-            body.addView(grid, LinearLayout.LayoutParams(-1, 0, 1f))
-            grid.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> grid.fitViewport(grid.height) }
-        }
+        })
+        body.addView(eventFilterBar())
+        val selected = if (inbox) tvNotificationSelectedId else tvEventSelectedId
+        val history = TvHistoryView(this, source.filter { !inbox || !tvUnreadOnly || it.id in unread }, inbox, unread, selected,
+            title = ::eventDisplayText,
+            camera = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera },
+            thumbnail = { event, image -> session?.let { active -> api?.let { transport ->
+                transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
+                    runOnUiThread { if (image.isAttachedToWindow && bitmap != null) image.setImageBitmap(bitmap) }
+                }
+            } } },
+            onSelect = { if (inbox) tvNotificationSelectedId = it else tvEventSelectedId = it },
+            onOpen = { event -> if (inbox) markAlertSeen(event); tvHistoryOrigin = if (inbox) Tab.Grid else Tab.Events; renderEventDetail(event) })
+        body.addView(history, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (globalLoading) body.addView(label(getString(R.string.filter_loading), 12, Palette.muted))
         if (globalError || globalHasMore) body.addView(secondaryButton(getString(if (globalError) R.string.filter_retry else R.string.filter_more)).apply {
+            isEnabled = !globalLoading
             setOnClickListener { loadGlobalEventPage(reset = globalError && globalResults.isNullOrEmpty()) }
         })
-        setShell(body, Tab.Events)
+        setShell(body, if (inbox) Tab.Grid else Tab.Events)
+        if (restore) history.post { history.focusSelection(selected) }
         if (globalResults == null && !globalLoading) loadGlobalEventPage(reset = true)
     }
 
     private fun renderGlobalEvents() {
+        if (TelevisionMode.enabled(this)) return renderTvHistory(true)
         releasePlayer()
         setShell(PullRefreshLayout(this, globalEventList(globalResults.orEmpty()),
             allowed = { !appLock.locked && !globalLoading && activeTab == Tab.Grid },
@@ -2210,7 +2263,9 @@ class MainActivity : AppCompatActivity() {
         globalQueryGeneration++
         globalLoading = false
         globalResults = null
-        renderGlobalEvents()
+        tvEventSelectedId = null
+        tvNotificationSelectedId = null
+        if (TelevisionMode.enabled(this)) renderTvHistory(activeTab == Tab.Grid) else renderGlobalEvents()
     }
 
     private fun eventFilterBar(): View = horizontal().apply {
@@ -2281,6 +2336,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshGlobalEventResults() {
+        if (TelevisionMode.enabled(this)) {
+            val root = findViewById<ViewGroup>(android.R.id.content)
+            if (root.findViewWithTag<View>("tv-notifications-browser") != null) renderTvHistory(true)
+            else if (root.findViewWithTag<View>("tv-events-browser") != null) renderTvHistory(false)
+            return
+        }
         globalResultsContainer?.let { column ->
             column.removeAllViews()
             populateGlobalEventResults(column, globalResults.orEmpty())
@@ -2934,7 +2995,7 @@ class MainActivity : AppCompatActivity() {
         val cameraByName = cameras.associateBy { it.name }
         sameMomentCameraNames(cameras.map { it.name }, displayedCameraName, visibleNames)
             .mapNotNull { cameraByName[it] }
-            .chunked(2).forEach { camerasInRow ->
+            .chunked(if (TelevisionMode.enabled(this)) 1 else 2).forEach { camerasInRow ->
                 val gridRow = horizontal().apply { setPadding(0, dp(12), 0, 0) }
                 camerasInRow.forEachIndexed { index, camera ->
                 val row = vertical().apply {
@@ -2982,7 +3043,7 @@ class MainActivity : AppCompatActivity() {
                     if (index == 0) marginEnd = dp(10)
                 })
                 }
-                if (camerasInRow.size == 1) gridRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+                if (camerasInRow.size == 1 && !TelevisionMode.enabled(this)) gridRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
                 grid.addView(gridRow)
             }
         return grid

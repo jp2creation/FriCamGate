@@ -15,7 +15,7 @@ import org.junit.Test
 
 /** Uses the real shared shell/tiles with fixture photographs, without connecting cameras. */
 class TvCameraGridInstrumentationTest {
-    @Test fun haloIsDiffuseAndLowOpacityInBothThemes() {
+    @Test fun focusHasVisibleAccentEdgeAndGentleFalloffInBothThemes() {
         val dark = Palette.dark
         try {
             for (theme in listOf(true, false)) {
@@ -25,10 +25,12 @@ class TvCameraGridInstrumentationTest {
                     setBounds(0, 0, 160, 96)
                     draw(android.graphics.Canvas(image))
                 }
-                val near = android.graphics.Color.alpha(image.getPixel(1, 48))
+                val near = android.graphics.Color.alpha(image.getPixel(0, 48))
                 val far = android.graphics.Color.alpha(image.getPixel(8, 48))
-                assertTrue("Halo must remain subtle", near in 1..45)
-                assertTrue("Halo must fade across a broad area", far in 1 until near)
+                assertTrue("A single fine edge must stay readable without a bright frame", near in 160..195)
+                assertEquals("Focus follows the chosen accent", android.graphics.Color.red(Palette.accent), android.graphics.Color.red(image.getPixel(0, 48)))
+                assertTrue("Diffusion must be much fainter than the fine edge", android.graphics.Color.alpha(image.getPixel(2, 48)) in 1..25)
+                assertTrue("Diffusion fades away before obscuring the video", far in 0 until near)
                 assertEquals("The image centre must remain unchanged", 0, android.graphics.Color.alpha(image.getPixel(80, 48)))
                 image.recycle()
             }
@@ -109,6 +111,15 @@ class TvCameraGridInstrumentationTest {
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             instrumentation.waitForIdleSync()
             scenario.onActivity { assertTrue(tiles[2].hasFocus()) }
+            scenario.onActivity {
+                val chip = tiles[2].findViewWithTag<View>("camera-column-name")
+                val pixel = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                val originalBounds = android.graphics.Rect(chip.background.bounds)
+                chip.background.apply { setBounds(0, 0, 100, 100); draw(android.graphics.Canvas(pixel).apply { translate(-50f, -50f) }) }
+                chip.background.bounds = originalBounds
+                assertEquals("Focus must never tint the camera name background", 0, android.graphics.Color.red(pixel.getPixel(0, 0)))
+                pixel.recycle()
+            }
             if (count > 4) {
                 instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 3000

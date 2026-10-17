@@ -1,0 +1,4 @@
+<resources>
+    <string name="tv_unread_only">Non lette</string>
+    <string name="tv_read_loaded">Segna le notifiche caricate come lette</string>
+</resources>

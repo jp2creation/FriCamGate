@@ -25,11 +25,11 @@ class TvEventsInstrumentationTest {
                 fun field(name: String) = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
                 val camera = NativeCamera("fixture", "Allée", true, "fixture", null, null, null, null, null, null, null)
                 field("cameras").set(activity, listOf(camera, camera.copy(name = "fixture-other", friendlyName = "Entrée")))
-                val fixtures = (0 until 9).map { index ->
+                val fixtures = (0 until 12).map { index ->
                     val asset = listOf("driveway", "entrance", "terrace", "workshop")[index % 4]
                     val image = instrumentation.context.assets.open("ha-previews/$asset.jpg").use { BitmapFactory.decodeStream(it) }
                     NativeEvent("fixture-$index", "fixture", "Personne", "person", null, "14:${20 - index}",
-                        1000.0 - index, 1010.0 - index, image)
+                        System.currentTimeMillis() / 1000.0 - 1200 - index * 60, System.currentTimeMillis() / 1000.0 - 1190 - index * 60, image)
                 }
                 field("events").set(activity, fixtures)
                 field("globalResults").set(activity, fixtures)
@@ -64,8 +64,8 @@ class TvEventsInstrumentationTest {
             scenario.onActivity { activity ->
                 val root = activity.window.decorView
                 assertTrue(root.findViewWithTag<View>("tv-event:fixture-6").hasFocus())
-                assertFalse(root.findViewWithTag<View>("tv-event:fixture-0").isShown)
-                val grid = root.findViewWithTag<TvCameraGrid>("tv-camera-grid")
+                assertNull(root.findViewWithTag<View>("tv-event:fixture-0"))
+                val grid = root.findViewWithTag<TvHistoryView>("tv-history-pages")
                 assertEquals(1, grid.currentPage)
             }
             val drawn = java.util.concurrent.CountDownLatch(1)
@@ -108,7 +108,56 @@ class TvEventsInstrumentationTest {
             }
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             instrumentation.waitForIdleSync()
-            scenario.onActivity { assertNotNull(it.window.decorView.findViewWithTag<View>("tv-events-browser")) }
+            scenario.onActivity {
+                assertNotNull(it.window.decorView.findViewWithTag<View>("tv-events-browser"))
+                assertTrue("Back restores the exact event and page", it.window.decorView.findViewWithTag<View>("tv-event:fixture-6").hasFocus())
+                assertEquals(1, it.window.decorView.findViewWithTag<TvHistoryView>("tv-history-pages").currentPage)
+            }
+            scenario.onActivity { activity ->
+                MainActivity::class.java.getDeclaredMethod("renderGlobalEvents").apply { isAccessible = true }.invoke(activity)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val root = activity.window.decorView
+                assertNotNull(root.findViewWithTag<View>("tv-notifications-browser"))
+                assertNotNull(root.findViewWithTag<View>("tv-notification:fixture-4"))
+                assertNull("Only five rows per TV inbox page", root.findViewWithTag<View>("tv-notification:fixture-5"))
+                assertTrue(root.findViewWithTag<View>("tv-notification:fixture-0").requestFocus())
+            }
+            repeat(5) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN) }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val root = activity.window.decorView
+                assertTrue(root.findViewWithTag<View>("tv-notification:fixture-5").hasFocus())
+            }
+            val inboxDrawn = java.util.concurrent.CountDownLatch(1)
+            scenario.onActivity { it.window.decorView.postOnAnimation { inboxDrawn.countDown() } }
+            assertTrue(inboxDrawn.await(3, java.util.concurrent.TimeUnit.SECONDS))
+            instrumentation.uiAutomation.takeScreenshot()?.let { image ->
+                java.io.FileOutputStream(java.io.File(context.cacheDir, "tv-notifications.png")).use {
+                    image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                image.recycle()
+            }
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+            instrumentation.waitForIdleSync()
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val root = activity.window.decorView
+                assertNotNull("Inbox playback returns to inbox", root.findViewWithTag<View>("tv-notifications-browser"))
+                assertTrue(root.findViewWithTag<View>("tv-notification:fixture-5").hasFocus())
+                assertEquals(android.graphics.Color.TRANSPARENT,
+                    (root.findViewWithTag<View>("tv-unread:fixture-5").background as android.graphics.drawable.ColorDrawable).color)
+                root.findViewWithTag<View>("tv-read-all").performClick()
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { it.window.decorView.findViewWithTag<View>("tv-unread-filter").performClick() }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertNull("Read-all then unread filter has no event cells", activity.window.decorView.findViewWithTag<View>("tv-notification:fixture-0"))
+            }
         }
+        context.getSharedPreferences("fricamgate-native", 0).edit().remove("seenAlerts:https://fixture.invalid").commit()
     }
 }

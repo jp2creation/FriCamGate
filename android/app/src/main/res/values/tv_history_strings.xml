@@ -1,0 +1,4 @@
+<resources>
+    <string name="tv_unread_only">Unread</string>
+    <string name="tv_read_loaded">Mark loaded notifications as read</string>
+</resources>

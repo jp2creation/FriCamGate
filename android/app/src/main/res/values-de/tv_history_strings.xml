@@ -1,0 +1,4 @@
+<resources>
+    <string name="tv_unread_only">Ungelesen</string>
+    <string name="tv_read_loaded">Geladene Benachrichtigungen als gelesen markieren</string>
+</resources>

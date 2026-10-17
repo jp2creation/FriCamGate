@@ -1,0 +1,4 @@
+<resources>
+    <string name="tv_unread_only">Non lues</string>
+    <string name="tv_read_loaded">Marquer les notifications chargées comme lues</string>
+</resources>
