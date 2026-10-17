@@ -43,7 +43,7 @@ internal class OnvifCameraStore(private val context: Context, private val storag
         }
     }
     fun save(cameras: List<OnvifSavedCamera>) {
-        if (storageName == "onvif-cameras.enc" && TvProviderStorage.update(context) { TvConfiguration(it.frigate, cameras, it.ha, it.order, it.hidden) }) return
+        if (storageName == "onvif-cameras.enc" && TvProviderStorage.update(context) { TvConfiguration(it.frigate, cameras, it.ha, it.order, it.hidden, it.ip) }) return
         val array = JSONArray()
         cameras.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("endpoint", it.endpoint)
             .put("username", it.credentials.username).put("password", it.credentials.password)

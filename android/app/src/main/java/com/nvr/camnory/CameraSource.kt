@@ -7,7 +7,8 @@ import androidx.appcompat.widget.TooltipCompat
 internal enum class CameraSource(val title: String, val icon: Int) {
     Frigate("Frigate", R.drawable.ic_source_frigate),
     Onvif("ONVIF", R.drawable.ic_source_onvif),
-    HomeAssistant("Home Assistant", R.drawable.ic_source_home_assistant);
+    HomeAssistant("Home Assistant", R.drawable.ic_source_home_assistant),
+    Ip("IP / Webcam", R.drawable.ic_videocam);
 
     fun iconView(context: Context, tint: Int = Palette.text): ImageView = ImageView(context).apply {
         setImageResource(icon)

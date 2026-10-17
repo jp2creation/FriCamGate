@@ -1,0 +1,10 @@
+<resources>
+    <string name="ip_cameras">Telecamera IP / Webcam</string>
+    <string name="ip_add">Aggiungi telecamera</string>
+    <string name="ip_address">Indirizzo del flusso</string>
+    <string name="ip_auth">Nome utente e password</string>
+    <string name="ip_save">Salva</string>
+    <string name="ip_test">Prova video in diretta</string>
+    <string name="ip_invalid">Controlla nome, indirizzo e credenziali.</string>
+    <string name="ip_saved">Telecamera salvata</string>
+</resources>

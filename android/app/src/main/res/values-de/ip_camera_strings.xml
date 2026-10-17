@@ -1,0 +1,10 @@
+<resources>
+    <string name="ip_cameras">IP-Kamera / Webcam</string>
+    <string name="ip_add">Kamera hinzufügen</string>
+    <string name="ip_address">Stream-Adresse</string>
+    <string name="ip_auth">Benutzername und Passwort</string>
+    <string name="ip_save">Speichern</string>
+    <string name="ip_test">Livebild testen</string>
+    <string name="ip_invalid">Name, Stream-Adresse und Zugangsdaten prüfen.</string>
+    <string name="ip_saved">Kamera gespeichert</string>
+</resources>

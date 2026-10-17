@@ -1,0 +1,10 @@
+<resources>
+    <string name="ip_cameras">Câmara IP / Webcam</string>
+    <string name="ip_add">Adicionar câmara</string>
+    <string name="ip_address">Endereço do fluxo</string>
+    <string name="ip_auth">Utilizador e palavra-passe</string>
+    <string name="ip_save">Guardar</string>
+    <string name="ip_test">Testar vídeo em direto</string>
+    <string name="ip_invalid">Verifique o nome, endereço e credenciais.</string>
+    <string name="ip_saved">Câmara guardada</string>
+</resources>

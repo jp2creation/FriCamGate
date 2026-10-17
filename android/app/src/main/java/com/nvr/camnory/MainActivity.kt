@@ -154,6 +154,14 @@ class MainActivity : AppCompatActivity() {
     private val streamRestarts = mutableMapOf<ImageView, () -> Unit>()
     private var streamsSuspended = false
     private val onvifCards = mutableListOf<OnvifLiveCard>()
+    private val ipCards = mutableListOf<IpCameraCard>()
+    private var ipSettingsReturnPage: String? = null
+    private val ipManager = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val page = ipSettingsReturnPage
+        ipSettingsReturnPage = null
+        if (session == null && !hasStandaloneCameras()) renderLogin()
+        else if (page != null) renderSettingsDestination(page) else renderHome()
+    }
     private val homeAssistantCards = mutableListOf<HomeAssistantCameraView>()
     private var homeAssistantFullscreen: android.app.Dialog? = null
     private var homeVisible = false
@@ -328,6 +336,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        ipCards.forEach { it.setActive(false) }
         loginCancellation?.invoke()
         onvifCards.forEach { it.setActive(false) }
         homeAssistantFullscreen?.dismiss()
@@ -407,6 +416,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resumeAfterBackground() {
+        ipCards.forEach { it.setActive(!appLock.locked) }
         onvifCards.forEach { it.setActive(!appLock.locked) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked) }
         if (!appLock.locked) expandedLiveResume?.invoke()
@@ -444,8 +454,8 @@ class MainActivity : AppCompatActivity() {
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
         })
         root.addView(label(getString(R.string.connection_source), 12, Palette.muted).apply { setPadding(0, 0, 0, dp(8)) })
-        val sourceNames = listOf("Frigate", "ONVIF", "Home Assistant")
-        val sourceIcons = listOf(R.drawable.ic_grid, R.drawable.ic_videocam, R.drawable.ic_home)
+        val sourceNames = listOf("Frigate", "ONVIF", "Home Assistant", getString(R.string.ip_cameras))
+        val sourceIcons = listOf(R.drawable.ic_grid, R.drawable.ic_videocam, R.drawable.ic_home, R.drawable.ic_videocam)
         val selector = android.widget.Spinner(this, android.widget.Spinner.MODE_DROPDOWN).apply {
             contentDescription = getString(R.string.connection_source)
             background = ui.outline()
@@ -532,6 +542,12 @@ class MainActivity : AppCompatActivity() {
         formRoot.addView(onvifForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val haForm = HomeAssistantSetupView(this, savedHomeAssistant(), { !appLock.locked }, { renderHome() }, { selector.isEnabled = !it }).apply { visibility = View.GONE }
         formRoot.addView(haForm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val ipForm = vertical().apply {
+            visibility = View.GONE
+            tag = "connection-ip-form"
+            addView(ui.action(getString(R.string.ip_add)) { openIpManager() })
+        }
+        formRoot.addView(ipForm)
         val cancel = {
             onvifGeneration++; onvifClient?.cancel(); onvifClient = null
             cameraConnect.isEnabled = true; cameraStatus.text = ""
@@ -544,6 +560,7 @@ class MainActivity : AppCompatActivity() {
                 frigateForm.visibility = if (position == 0) View.VISIBLE else View.GONE
                 onvifForm.visibility = if (position == 1) View.VISIBLE else View.GONE
                 haForm.visibility = if (position == 2) View.VISIBLE else View.GONE
+                ipForm.visibility = if (position == 3) View.VISIBLE else View.GONE
                 root.requestFocus()
                 (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
                     .hideSoftInputFromWindow(selector.windowToken, 0)
@@ -718,6 +735,7 @@ class MainActivity : AppCompatActivity() {
         }
         setShell(homeContent, Tab.Home, animateIn = true)
         onvifCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
+        ipCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
     }
 
@@ -767,7 +785,8 @@ class MainActivity : AppCompatActivity() {
     private data class DashboardCamera(
         val key: String, val name: String, val source: CameraSource,
         val frigate: NativeCamera? = null, val onvif: OnvifSavedCamera? = null,
-        val haCamera: HomeAssistantCamera? = null, val haConnection: HomeAssistantConnection? = null
+        val haCamera: HomeAssistantCamera? = null, val haConnection: HomeAssistantConnection? = null,
+        val ip: IpCamera? = null
     ) {
         val enabled get() = frigate?.enabled ?: true
     }
@@ -783,7 +802,9 @@ class MainActivity : AppCompatActivity() {
                 DashboardCamera(CameraArrangement.key("ha", connection.baseUrl, camera.entityId), camera.name,
                     CameraSource.HomeAssistant, haCamera = camera, haConnection = connection)
             }
-        }.orEmpty()
+        }.orEmpty() + savedIpCameras().map { camera ->
+            DashboardCamera(CameraArrangement.key("ip", "", camera.id), camera.name, CameraSource.Ip, ip = camera)
+        }
         val byKey = items.associateBy { it.key }
         return CameraArrangement.ordered(items.map { it.key }, cameraArrangement.savedOrder()).mapNotNull { byKey[it] }
     }
@@ -794,6 +815,10 @@ class MainActivity : AppCompatActivity() {
     private fun dashboardCameraView(item: DashboardCamera, layout: HomeCameraLayout): View {
         if (TelevisionMode.enabled(this)) return televisionCameraTile(item)
         val overlay = layout == HomeCameraLayout.Column || tabletLayout().tablet && layout == HomeCameraLayout.TwoColumns
+        item.ip?.let { camera ->
+            return IpCameraCard(this, camera, { renderExpandedLive(item) }, { openIpManager(camera.id) },
+                onAudible = ::silenceForIp, compact = !overlay).also { ipCards.add(it) }
+        }
         item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
             return OnvifLiveCard(this, camera,
@@ -803,6 +828,7 @@ class MainActivity : AppCompatActivity() {
                 accessories = { showAccessories(item.key, item.name) },
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
+                    ipCards.forEach { it.mute() }
                     onvifCards.filter { it !== selected }.forEach { it.mute() }
                     homeAudioGeneration++; soundEnabled = false
                     prefs.edit().putBoolean("soundEnabled", false).apply()
@@ -821,6 +847,8 @@ class MainActivity : AppCompatActivity() {
     private fun televisionCameraTile(item: DashboardCamera): View {
         val video: View = when {
             item.frigate != null -> return cameraCard(item.frigate)
+            item.ip != null -> IpCameraCard(this, item.ip, {}, {}, onAudible = ::silenceForIp, playerOnly = true, fillPreview = true, preload = true)
+                .also { card -> ipCards.add(card); tvCameraSound[item.key] = { card.restorePlaybackSound(it) } }
             item.onvif != null -> OnvifLiveCard(this, item.onvif, fullscreen = {}, manage = {}, playerOnly = true, fillPreview = true, preloadLive = true)
                 .also { card -> onvifCards.add(card); tvCameraSound[item.key] = { card.restorePlaybackSound(it) } }
             else -> HomeAssistantCameraView(this, requireNotNull(item.haConnection), requireNotNull(item.haCamera),
@@ -884,7 +912,23 @@ class MainActivity : AppCompatActivity() {
         sheet.show()
     }
 
-    private fun hasStandaloneCameras() = savedOnvifCameras().isNotEmpty() || savedHomeAssistant()?.cameras?.isNotEmpty() == true
+    private fun hasStandaloneCameras() = savedIpCameras().isNotEmpty() || savedOnvifCameras().isNotEmpty() || savedHomeAssistant()?.cameras?.isNotEmpty() == true
+
+    private fun savedIpCameras() = runCatching { IpCameraStore(this).load() }.getOrElse { toast(getString(R.string.onvif_storage_error)); emptyList() }
+
+    private fun openIpManager(id: String? = null) {
+        if (appLock.locked) return
+        ipSettingsReturnPage = settingsPage.takeIf { activeTab == Tab.Settings }
+        ipManager.launch(Intent(this, IpCameraActivity::class.java).putExtra("cameraId", id))
+    }
+
+    private fun silenceForIp(selected: IpCameraCard) {
+        ipCards.filter { it !== selected }.forEach { it.mute() }
+        onvifCards.forEach { it.mute() }; homeAssistantCards.forEach { it.mute() }
+        homeAudioGeneration++; soundEnabled = false
+        releaseHomeAudioWebView(); currentPlayer?.volume = 0f
+        refreshHomeSoundIcons()
+    }
 
     private fun openHomeAssistantManager() {
         haSettingsReturnPage = settingsPage.takeIf { activeTab == Tab.Settings }
@@ -894,6 +938,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun silenceOtherSources(selected: HomeAssistantCameraView) {
+        ipCards.forEach { it.mute() }
         homeAssistantCards.filter { it !== selected }.forEach { it.mute() }
         onvifCards.forEach { it.mute() }
         homeAudioGeneration++; soundEnabled = false
@@ -1570,6 +1615,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleHomeSound(camera: NativeCamera): Boolean {
+        ipCards.forEach { it.mute() }
         onvifCards.forEach { it.mute() }
         homeAssistantCards.forEach { it.mute() }
         val key = homePlaybackKey(camera)
@@ -1929,6 +1975,13 @@ class MainActivity : AppCompatActivity() {
         var start: () -> Unit = {}
         val sound: View
         when {
+            item.ip != null -> {
+                val card = IpCameraCard(this, item.ip, {}, { openIpManager(item.ip.id) }, onAudible = ::silenceForIp, playerOnly = true)
+                card.restorePlaybackSound(audible)
+                ipCards.add(card); frame.addView(card, frameMatch())
+                sound = card.expandedSoundControl(); readSound = { card.playbackAudible() }
+                start = { card.setActive(true) }
+            }
             item.frigate != null -> {
                 val camera = item.frigate
                 val activeApi = api ?: return renderLogin()
@@ -2022,6 +2075,7 @@ class MainActivity : AppCompatActivity() {
         }.apply { contentDescription = getString(if (TelevisionMode.enabled(this@MainActivity)) R.string.onvif_back else R.string.camera_fullscreen) }, "live-player-actions")
         if (TelevisionMode.enabled(this)) {
             frame.findViewWithTag<LinearLayout>("live-player-actions").addView(iconBubble(R.drawable.ic_settings) {
+                if (item.ip != null) { openIpManager(item.ip.id); return@iconBubble }
                 dismissTransientPopups()
                 val sheet = CameraControlsSheet(this, cameraControlTarget(item),
                     allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) },
@@ -3296,6 +3350,7 @@ class MainActivity : AppCompatActivity() {
         CameraSource.Frigate -> "frigate:${camera.frigate?.let { (api as? MultiFrigateApi)?.serverFor(it.name)?.id } ?: "legacy"}"
         CameraSource.HomeAssistant -> "ha"
         CameraSource.Onvif -> "onvif"
+        CameraSource.Ip -> "ip"
     }
 
     private fun homeSourceOptions(): List<AppearanceSheetOption> {
@@ -3303,8 +3358,9 @@ class MainActivity : AppCompatActivity() {
         return servers.map { AppearanceSheetOption("frigate:${it.id}", "Frigate · ${it.name}") } +
             savedHomeAssistant()?.let {
                 listOf(AppearanceSheetOption("ha", "Home Assistant · ${android.net.Uri.parse(it.baseUrl).host.orEmpty()}"))
-            }.orEmpty() + if (savedOnvifCameras().isNotEmpty())
-                listOf(AppearanceSheetOption("onvif", getString(R.string.home_source_direct))) else emptyList()
+            }.orEmpty() + (if (savedOnvifCameras().isNotEmpty())
+                listOf(AppearanceSheetOption("onvif", getString(R.string.home_source_direct))) else emptyList()) +
+            (if (savedIpCameras().isNotEmpty()) listOf(AppearanceSheetOption("ip", getString(R.string.ip_cameras))) else emptyList())
     }
 
     private fun homeSourceFilter() = HomeSourceFilter(
@@ -3509,7 +3565,7 @@ class MainActivity : AppCompatActivity() {
                     dismissCameraPicker()
                     when {
                         camera.frigate != null -> renderCameraDetail(camera.frigate)
-                        camera.onvif != null -> renderExpandedLive(camera)
+                        camera.onvif != null || camera.ip != null -> renderExpandedLive(camera)
                         else -> openHomeAssistantCamera(requireNotNull(camera.haConnection), requireNotNull(camera.haCamera))
                     }
                 }
@@ -3949,6 +4005,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(settingsGroup(
             settingsNavRow("Frigate", getString(R.string.frigate_servers_detail), { renderServerSettings() }, icon = R.drawable.ic_source_frigate, key = "frigate"),
             settingsNavRow(getString(R.string.onvif_cameras), getString(R.string.settings_onvif_detail), { openOnvifManager() }, icon = R.drawable.ic_source_onvif, key = "onvif"),
+            settingsNavRow(getString(R.string.ip_cameras), "", { openIpManager() }, icon = R.drawable.ic_videocam, key = "ip"),
             settingsNavRow(getString(R.string.ha_cameras), getString(R.string.settings_ha_detail), { openHomeAssistantManager() }, icon = R.drawable.ic_source_home_assistant, key = "ha")
         ))
         column.addView(sectionHeading(getString(R.string.actions)))
@@ -4470,6 +4527,7 @@ class MainActivity : AppCompatActivity() {
                     when {
                         camera.frigate != null -> showCameraOptionsPopup(camera.frigate, anchor)
                         camera.onvif != null -> startActivity(Intent(this, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.onvif.id))
+                        camera.ip != null -> openIpManager(camera.ip.id)
                         else -> showAccessories(camera.key, camera.name, respectAppearance = false)
                     }
                 }
@@ -5038,6 +5096,8 @@ class MainActivity : AppCompatActivity() {
         tvCameraSound.clear()
         onvifCards.forEach { it.setActive(false) }
         onvifCards.clear()
+        ipCards.forEach { it.setActive(false) }
+        ipCards.clear()
         eventPlaybackControls?.player = null
         eventPlaybackControls = null
         detailSoundRefresh = null

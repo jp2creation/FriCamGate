@@ -141,7 +141,8 @@ class SharedTabletTvInstrumentationTest {
         }
         try {
             val server = FrigateServer("test", "Test", "https://example.invalid", "admin", "fixture-token")
-            val initial = TvConfiguration(listOf(server), emptyList(), null, listOf("keep-order"), setOf("keep-hidden"))
+            val initial = TvConfiguration(listOf(server), emptyList(), null, listOf("keep-order"), setOf("keep-hidden"),
+                listOf(IpCamera("ip-fixture", "Fixture", "http://127.0.0.1/video", "viewer", "fixture-secret")))
             TvConfigurationStore(context).save(initial)
             assertEquals(listOf(server), FrigateServerStore(context).load())
             FrigateServerStore(context).save(listOf(server.copy(name = "Changed")))
@@ -149,6 +150,12 @@ class SharedTabletTvInstrumentationTest {
             assertEquals("Changed", updated.frigate.single().name)
             assertEquals(initial.order, updated.order)
             assertEquals(initial.hidden, updated.hidden)
+            assertEquals("fixture-secret", updated.ip.single().password)
+            OnvifCameraStore(context).save(emptyList())
+            HomeAssistantStore(context).save(null)
+            CameraArrangementStore(context).saveOrder(listOf("different-order"))
+            CameraArrangementStore(context).setHidden("another", true)
+            assertEquals("fixture-secret", TvConfigurationStore(context).load()!!.ip.single().password)
             assertFalse(File(directory, "frigate-servers.enc").exists())
             assertFalse(context.getSharedPreferences("fricamgate-native", 0).contains("token"))
         } finally { directory.deleteRecursively() }

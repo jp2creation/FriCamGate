@@ -126,6 +126,7 @@ class TvActivity : AppCompatActivity() {
         val body = root(getString(R.string.tv_import_title))
         body.addView(text(getString(R.string.tv_pair_code, code), 24))
         body.addView(text(getString(R.string.tv_config_summary, imported.frigate.size, imported.onvif.size, imported.ha?.cameras?.size ?: 0), 20).apply { setPadding(0, dp(20), 0, dp(20)) })
+        if (imported.ip.isNotEmpty()) body.addView(text("${getString(R.string.ip_cameras)} : ${imported.ip.size}", 20))
         body.addView(text(getString(R.string.tv_import_warning), 16))
         body.addView(action(getString(R.string.tv_import_accept)) {
             val request = ++generation

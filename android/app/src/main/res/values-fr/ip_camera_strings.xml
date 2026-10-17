@@ -1,0 +1,10 @@
+<resources>
+    <string name="ip_cameras">Caméra IP / Webcam</string>
+    <string name="ip_add">Ajouter une caméra</string>
+    <string name="ip_address">Adresse du flux</string>
+    <string name="ip_auth">Identifiant et mot de passe</string>
+    <string name="ip_save">Enregistrer</string>
+    <string name="ip_test">Tester le direct</string>
+    <string name="ip_invalid">Vérifiez le nom, l’adresse du flux et les identifiants.</string>
+    <string name="ip_saved">Caméra enregistrée</string>
+</resources>
