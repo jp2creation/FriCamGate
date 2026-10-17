@@ -232,6 +232,42 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
+    @Test fun chatPopupPreservesUnderlyingScreenAndRestoresStoredHistory() {
+        val chatPrefs = context.getSharedPreferences("camgate-chat", 0)
+        val base = server.url("/").toString().trimEnd('/')
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$base\nfixture".toByteArray()).joinToString("") { "%02x".format(it) }
+        val previous = chatPrefs.getString(key, null)
+        val history = """[{"role":"user","content":"Where is Bob?"},{"role":"assistant","content":"Fixture answer"}]"""
+        chatPrefs.edit().putString(key, history).commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitDashboard(scenario)
+                scenario.onActivity { activity ->
+                    val content = root(activity).getChildAt(0)
+                    fun popup() = NativeChatDialog(activity, FrigateServer("test", "Test", base, "fixture", "fixture-token", true), okhttp3.OkHttpClient())
+                    val dialog = popup()
+                    dialog.show()
+                    assertSame(content, root(activity).getChildAt(0))
+                    assertEquals(android.view.Gravity.BOTTOM, dialog.window!!.attributes.gravity)
+                    assertNotNull(dialog.window!!.decorView.findViewWithTag<View>("chat-popup"))
+                    assertTrue(views(dialog.window!!.decorView).filterIsInstance<TextView>().any { it.text == "Fixture answer" })
+                    dialog.window!!.decorView.findViewWithTag<View>("chat-popup-close").performClick()
+                    assertFalse(dialog.isShowing)
+                    assertSame(content, root(activity).getChildAt(0))
+                    val reopened = popup()
+                    reopened.show()
+                    assertTrue(views(reopened.window!!.decorView).filterIsInstance<TextView>().any { it.text == "Fixture answer" })
+                    reopened.cancel()
+                    assertFalse(reopened.isShowing)
+                    assertEquals(history, chatPrefs.getString(key, null))
+                }
+            }
+        } finally {
+            chatPrefs.edit().apply { if (previous == null) remove(key) else putString(key, previous) }.commit()
+        }
+    }
+
     @Test fun submenuNavigationAndRecreationKeepSettingsContext() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

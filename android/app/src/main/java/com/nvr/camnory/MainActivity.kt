@@ -131,6 +131,8 @@ class MainActivity : AppCompatActivity() {
     private var activityBriefingSheet: ActivityBriefingSheet? = null
     private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
+    private var chatDialog: NativeChatDialog? = null
+    private var chatServerSheet: SelectionBottomSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -252,6 +254,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        chatDialog?.dismiss(); chatDialog = null
+        chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
@@ -346,6 +350,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        chatDialog?.dismiss(); chatDialog = null
+        chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
@@ -765,11 +771,15 @@ class MainActivity : AppCompatActivity() {
         message.contains("HTTP 401") || message.contains("HTTP 403")
 
     private fun renderLiaChat() {
-        releasePlayer()
+        if (appLock.locked) return
+        dismissTransientPopups()
         val servers = runCatching { frigateServers.load() }.getOrElse { toast(getString(R.string.frigate_storage_error)); return }
         fun open(server: FrigateServer) {
-            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            setShell(NativeChatView(this, server.baseUrl, server.token, server.username, httpClient), Tab.Home)
+            if (appLock.locked || isFinishing || isDestroyed) return
+            val dialog = NativeChatDialog(this, server, httpClient)
+            chatDialog = dialog
+            dialog.setOnDismissListener { if (chatDialog === dialog) chatDialog = null }
+            dialog.show()
         }
         if (servers.isEmpty()) { renderLogin(); return }
         if (servers.size == 1) open(servers.first()) else {
@@ -777,6 +787,8 @@ class MainActivity : AppCompatActivity() {
             lateinit var sheet: SelectionBottomSheet
             servers.forEach { server -> list.addView(settingsNavRow(server.name, server.baseUrl, { sheet.dismiss(); open(server) })) }
             sheet = SelectionBottomSheet(this, getString(R.string.frigate_chat_server), list)
+            chatServerSheet = sheet
+            sheet.setOnDismissListener { if (chatServerSheet === sheet) chatServerSheet = null }
             sheet.show()
         }
     }
@@ -2932,6 +2944,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        chatDialog?.dismiss(); chatDialog = null
+        chatServerSheet?.dismiss(); chatServerSheet = null
         eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         appearanceChoiceSheet?.dismiss()

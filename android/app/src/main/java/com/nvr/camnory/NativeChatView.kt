@@ -22,19 +22,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
-internal class NativeChatView(context: Context, private val baseUrl: String, private val token: String, username: String, client: OkHttpClient) : LinearLayout(context) {
+internal class NativeChatView(context: Context, private val baseUrl: String, private val token: String, username: String, client: OkHttpClient,
+    onClose: (() -> Unit)? = null) : LinearLayout(context) {
     private val api = NativeChatApi(client)
     private val store = context.getSharedPreferences("camgate-chat", Context.MODE_PRIVATE)
     private val historyKey = MessageDigest.getInstance("SHA-256")
         .digest("$baseUrl\n$username".toByteArray()).joinToString("") { "%02x".format(it) }
     private var messages = runCatching { JSONArray(store.getString(historyKey, "[]")) }.getOrDefault(JSONArray())
     private var request: Call? = null
+    private var clearConfirmation: AlertDialog? = null
     private var generation = 0
     private var busy = false
     private val list = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(12)) }
     private val scroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(list) }
+    internal val messageScroll: ScrollView get() = scroll
     private val status = text("", 12, Palette.muted).apply { setPadding(dp(16), dp(4), dp(16), dp(8)) }
     private val input = EditText(context).apply {
+        tag = "chat-message-input"
         hint = context.getString(R.string.chat_message)
         setTextColor(Palette.text)
         setHintTextColor(Palette.muted)
@@ -56,6 +60,7 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
     }
 
     init {
+        tag = "native-chat"
         orientation = VERTICAL
         setBackgroundColor(Palette.background)
         addView(LinearLayout(context).apply {
@@ -72,15 +77,27 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
                     setColorFilter(Palette.muted)
                 }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
                 setOnClickListener {
-                    AlertDialog.Builder(context).setMessage(R.string.chat_clear_confirm)
+                    clearConfirmation?.dismiss()
+                    clearConfirmation = AlertDialog.Builder(context).setMessage(R.string.chat_clear_confirm)
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(R.string.clear) { _, _ ->
                             stop()
                             messages = JSONArray()
                             store.edit().remove(historyKey).apply()
                             renderHistory()
-                        }.show()
+                        }.create().also { dialog ->
+                            dialog.setOnDismissListener { if (clearConfirmation === dialog) clearConfirmation = null }
+                            dialog.show()
+                        }
                 }
+            }, LayoutParams(dp(48), dp(48)))
+            if (onClose != null) addView(android.widget.ImageButton(context).apply {
+                tag = "chat-popup-close"
+                setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                setColorFilter(Palette.muted); setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setPadding(dp(14), dp(14), dp(14), dp(14))
+                contentDescription = context.getString(R.string.chat_close)
+                setOnClickListener { onClose() }
             }, LayoutParams(dp(48), dp(48)))
         })
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
@@ -199,6 +216,7 @@ internal class NativeChatView(context: Context, private val baseUrl: String, pri
     }
 
     override fun onDetachedFromWindow() {
+        clearConfirmation?.dismiss(); clearConfirmation = null
         generation++
         request?.cancel()
         request = null
