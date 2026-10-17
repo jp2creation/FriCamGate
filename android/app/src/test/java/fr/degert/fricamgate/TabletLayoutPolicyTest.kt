@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TabletLayoutPolicyTest {
+    @Test fun tabletWorkspacesNeverApplyToPhonesOrTelevisions() {
+        assertTrue(tabletLayoutPolicy(1200, 750, 750).splitWorkspace)
+        assertEquals(2, tabletLayoutPolicy(1200, 750, 750).historyColumns)
+        assertFalse(tabletLayoutPolicy(750, 1200, 750).splitWorkspace)
+        assertEquals(1, tabletLayoutPolicy(750, 1200, 750).historyColumns)
+        assertFalse(tabletLayoutPolicy(850, 390, 390).splitWorkspace)
+        assertFalse(tabletLayoutPolicy(1200, 750, 750, true).splitWorkspace)
+        assertEquals(1, tabletLayoutPolicy(900, 600, 600).historyColumns)
+        assertFalse(tabletLayoutPolicy(900, 600, 600).splitWorkspace)
+    }
     @Test fun landscapePhoneKeepsThePhoneLayout() {
         val layout = tabletLayoutPolicy(850, 390, 390)
         assertFalse(layout.tablet); assertFalse(layout.navigationRail); assertEquals(0, layout.activityWidthDp)

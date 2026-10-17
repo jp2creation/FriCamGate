@@ -1025,8 +1025,9 @@ class MainActivity : AppCompatActivity() {
         val body = vertical().apply { setBackgroundColor(Palette.background) }
         val playerFrame = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
         val liveImage = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(Palette.surface)
+            val tablet = tabletLayout().tablet && !TelevisionMode.enabled(this@MainActivity)
+            scaleType = if (tablet) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(if (tablet) Palette.black else Palette.surface)
         }
         playerFrame.addView(liveImage, frameMatch())
         activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
@@ -1046,8 +1047,8 @@ class MainActivity : AppCompatActivity() {
             rightMargin = dp(18)
             topMargin = dp(18)
         })
-        body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cameraVideoHeight()))
-        body.addView(
+        playerFrame.tag = "camera-player-frame"
+        val toolbar =
             cameraToolbar(
                 camera = camera,
                 showEventsList = showEventsList,
@@ -1057,7 +1058,6 @@ class MainActivity : AppCompatActivity() {
                 onToggleEvents = { renderCameraDetail(camera, timelineDayMillis, timelineEvents, currentFocusSec, !showEventsList) },
                 onSettings = { anchor -> showCameraOptionsPopup(camera, anchor) }
             )
-        )
         val detailContent = if (showEventsList) {
             cameraEventList(camera, timelineEvents ?: events)
         } else {
@@ -1066,8 +1066,23 @@ class MainActivity : AppCompatActivity() {
                 currentFocusIsLive = isLive
             }
         }
-        body.addView(detailContent, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        if (tabletLayout().splitWorkspace) {
+            body.orientation = LinearLayout.HORIZONTAL
+            body.tag = "tablet-camera-workspace"
+            body.addView(vertical().apply {
+                addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(toolbar, LinearLayout.LayoutParams(-1, -2))
+            }, LinearLayout.LayoutParams(0, -1, 1.35f))
+            body.addView(detailContent, LinearLayout.LayoutParams(0, -1, 1f))
+        } else {
+            body.addView(playerFrame, LinearLayout.LayoutParams(-1, cameraVideoHeight()))
+            body.addView(toolbar)
+            body.addView(detailContent, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
         setShell(body, Tab.Cameras, showHeader = false)
+        if (tabletLayout().tablet && !TelevisionMode.enabled(this)) reflowShell = {
+            renderCameraDetail(camera, timelineDayMillis, timelineEvents, currentFocusSec, showEventsList)
+        }
         startMjpegStream(activeApi, activeSession.token, camera, liveImage, live)
         if (currentFocusIsLive) ensureLiveAudio(camera)
     }
@@ -1174,20 +1189,25 @@ class MainActivity : AppCompatActivity() {
         column.addView(label(getString(R.string.same_moment), if (TelevisionMode.enabled(this)) 14 else 18, Palette.text).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) })
         column.addView(syncCameraGrid(event, activeCameraName))
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        if (TelevisionMode.enabled(this)) {
+        if (TelevisionMode.enabled(this) || tabletLayout().splitWorkspace) {
             body.removeView(playerFrame)
             body.removeView(controls)
             body.removeView(scroll)
             body.orientation = LinearLayout.HORIZONTAL
+            if (!TelevisionMode.enabled(this)) body.tag = "tablet-event-workspace"
             val playback = vertical().apply {
                 addView(playerFrame, LinearLayout.LayoutParams(-1, 0, 1f))
                 addView(controls, LinearLayout.LayoutParams(-1, -2))
             }
-            body.addView(playback, LinearLayout.LayoutParams(0, -1, 3.3f))
+            body.addView(playback, LinearLayout.LayoutParams(0, -1, if (TelevisionMode.enabled(this)) 3.3f else 2.1f))
             column.setPadding(dp(14), dp(12), dp(8), dp(16))
             body.addView(scroll, LinearLayout.LayoutParams(0, -1, 1f))
         }
         setShell(body, if (TelevisionMode.enabled(this)) tvHistoryOrigin else Tab.Events)
+        if (tabletLayout().tablet && !TelevisionMode.enabled(this)) reflowShell = {
+            val position = (currentPlayer?.currentPosition ?: 0L) / 1000.0 + (event.startTime ?: 0.0)
+            renderEventDetailAt(event, displayedCameraName, position, currentPlayer?.playWhenReady ?: playing)
+        }
         if (TelevisionMode.enabled(this)) {
             expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
@@ -1775,6 +1795,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun eventStrip(): View {
         if (events.isEmpty()) return emptyMessage(getString(R.string.no_recent_events))
+        val tablet = tabletLayout().tablet && !TelevisionMode.enabled(this)
+        val thumbnailWidth = if (tablet) ((resources.configuration.screenWidthDp - 48) / 3).coerceIn(160, 260) else 140
         val scroll = appHorizontalScrollView()
         val row = horizontal().apply { setPadding(0, 0, 0, dp(4)) }
         scroll.addView(row)
@@ -1793,9 +1815,24 @@ class MainActivity : AppCompatActivity() {
             }
             loadEventPreviewAnimated(event, thumb)
             thumbFrame.addView(thumb, frameMatch())
-            card.addView(thumbFrame, LinearLayout.LayoutParams(dp(140), dp(78)))
-            card.addView(label(event.time, 13, Palette.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
-            row.addView(card, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) })
+            card.addView(thumbFrame, LinearLayout.LayoutParams(dp(thumbnailWidth), dp(thumbnailWidth * 9 / 16)))
+            card.addView(label(event.time, 13, Palette.muted).apply { gravity = if (tablet) Gravity.START else Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
+            if (tablet) card.addView(label("${eventDisplayText(event)} · ${cameraLabel(event.camera)}", 12, Palette.text).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(4), 0, 0)
+            })
+            row.addView(card, LinearLayout.LayoutParams(dp(if (tablet) thumbnailWidth else 150), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) })
+        }
+        if (tablet) return vertical().apply {
+            addView(horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(label(getString(R.string.recent_activity), 16, Palette.text).apply {
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(toolbarIcon(R.drawable.ic_chevron_right, Palette.accent) { renderGlobalEvents() }.apply {
+                    contentDescription = getString(R.string.notifications_history)
+                }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            })
+            addView(scroll)
         }
         return scroll
     }
@@ -2436,7 +2473,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(78))
         }
         val column = vertical().apply { setPadding(dp(18), dp(8), dp(18), dp(120)) }
-        scroll.addView(column, responsiveScrollParams(720))
+        scroll.addView(column, if (tabletLayout().tablet) FrameLayout.LayoutParams(-1, -2) else responsiveScrollParams(720))
         column.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(14), 0, dp(14))
@@ -2493,10 +2530,16 @@ class MainActivity : AppCompatActivity() {
             column.addView(emptyMessage(getString(R.string.no_notifications)))
             if (!globalHasMore) return
         }
-        globalEvents.forEach { event ->
-            column.addView(globalEventRow(event).apply { minimumHeight = dp(100) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(10)
-            })
+        globalEvents.chunked(tabletLayout().historyColumns).forEach { batch ->
+            column.addView(horizontal().apply {
+                tag = "history-row"
+                batch.forEachIndexed { index, event ->
+                    addView(globalEventRow(event).apply { minimumHeight = dp(100) }, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                        if (index > 0) marginStart = dp(12)
+                    })
+                }
+                if (batch.size < tabletLayout().historyColumns) addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f).apply { marginStart = dp(12) })
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
         }
         if (globalHasMore || globalLoading) column.addView(secondaryButton(getString(if (globalLoading) R.string.filter_loading else R.string.filter_more)).apply {
             isEnabled = !globalLoading
@@ -3233,7 +3276,7 @@ class MainActivity : AppCompatActivity() {
             tag = "tablet-landscape-shell"
             addView(navigation, LinearLayout.LayoutParams(dp(if (TelevisionMode.enabled(this@MainActivity)) 104 else 88), -1))
             addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
-            addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+            addView(if (activeTab == Tab.Settings) tabletSettingsWorkspace(content) else content, LinearLayout.LayoutParams(0, -1, 1f))
         }, LinearLayout.LayoutParams(-1, 0, 1f)) else {
             root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
             root.addView(navigation, LinearLayout.LayoutParams(-1, dp(72)))
@@ -3244,13 +3287,59 @@ class MainActivity : AppCompatActivity() {
             navigation.findViewWithTag<View>("navigation-${activeTab.name}")?.requestFocus()
         }
         reflowShell = {
-            (content.parent as? ViewGroup)?.removeView(content)
-            setShell(content, activeTab, showHeader)
+            if (!tv && tabletLayout().tablet && activeTab == Tab.Settings) renderSettingsDestination(settingsPage)
+            else if (!tv && tabletLayout().tablet && activeTab == Tab.Grid) renderGlobalEvents()
+            else {
+                (content.parent as? ViewGroup)?.removeView(content)
+                setShell(content, activeTab, showHeader)
+            }
         }
         ViewCompat.requestApplyInsets(root)
         if (animateIn) {
             root.alpha = 0f
             root.animate().alpha(1f).setDuration(if (reducedMotion) 0L else 220L).start()
+        }
+    }
+
+    private fun tabletSettingsWorkspace(content: View): View {
+        if (!tabletLayout().splitWorkspace) return content
+        val sections = listOf(
+            Triple("connections", R.string.settings_connections, R.drawable.ic_settings_link),
+            Triple("cameras", R.string.cameras, R.drawable.ic_videocam),
+            Triple("notifications", R.string.notifications, R.drawable.ic_bell_header),
+            Triple("appearance", R.string.appearance, R.drawable.ic_settings_palette),
+            Triple("language", R.string.language, R.drawable.ic_settings_globe),
+            Triple("security", R.string.security, R.drawable.ic_settings_lock),
+            Triple("updates", R.string.updates, R.drawable.ic_refresh),
+            Triple("about", R.string.about, R.drawable.ic_info)
+        )
+        val selected = when (settingsPage) { "server", "transfer" -> "connections"; "licenses" -> "about"; else -> settingsPage }
+        if (content is android.widget.ScrollView) content.getChildAt(0)?.layoutParams = FrameLayout.LayoutParams(-1, -2)
+        return horizontal().apply {
+            tag = "tablet-settings-workspace"
+            addView(appScrollView().apply {
+                addView(vertical().apply {
+                    setPadding(dp(16), dp(12), dp(16), dp(12))
+                    addView(sectionHeading(getString(R.string.settings)))
+                    sections.forEach { (key, title, icon) ->
+                        addView(horizontal().apply {
+                            tag = "tablet-settings-$key"
+                            gravity = Gravity.CENTER_VERTICAL
+                            minimumHeight = dp(56)
+                            setPadding(dp(12), dp(8), dp(12), dp(8))
+                            isSelected = selected == key
+                            if (isSelected) background = rounded(Palette.card, 6)
+                            addView(ImageView(context).apply {
+                                setImageResource(icon); setColorFilter(if (selected == key) Palette.accent else Palette.muted)
+                            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) })
+                            addView(label(getString(title), 14, if (isSelected) Palette.text else Palette.muted), LinearLayout.LayoutParams(0, -2, 1f))
+                            setOnClickListener { renderSettingsDestination(key) }
+                        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
+                    }
+                }, FrameLayout.LayoutParams(-1, -2))
+            }, LinearLayout.LayoutParams(dp(224), -1))
+            addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
+            addView(content, LinearLayout.LayoutParams(0, -1, 1f))
         }
     }
 
@@ -3544,6 +3633,8 @@ class MainActivity : AppCompatActivity() {
             val item = FrameLayout(this).apply {
                 tag = "navigation-${tab.name}"
                 isClickable = true
+                isSelected = tab == activeTab
+                if (rail && !tv && isSelected) background = rounded(Palette.accent, 8)
                 contentDescription = getString(when (tab) {
                     Tab.Home -> R.string.home
                     Tab.Cameras -> R.string.cameras
@@ -3566,7 +3657,7 @@ class MainActivity : AppCompatActivity() {
             }
             iconHolder.addView(ImageView(this).apply {
                 setImageResource(tab.iconRes)
-                setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
+                setColorFilter(if (tab == activeTab && rail && !tv) Color.WHITE else if (tab == activeTab) Palette.accent else Palette.text)
                 alpha = if (tab == activeTab) 1f else 0.86f
             }, FrameLayout.LayoutParams(dp(25), dp(25), Gravity.CENTER))
             if (tv) {
@@ -3586,11 +3677,13 @@ class MainActivity : AppCompatActivity() {
             } else if (tablet) item.addView(vertical().apply {
                 gravity = Gravity.CENTER
                 addView(iconHolder, LinearLayout.LayoutParams(dp(48), dp(38)))
-                addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), if (TelevisionMode.enabled(this@MainActivity)) 12 else 10, if (tab == activeTab) Palette.accent else Palette.muted).apply {
+                addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), if (TelevisionMode.enabled(this@MainActivity)) 12 else 10, if (tab == activeTab && rail) Color.WHITE else if (tab == activeTab) Palette.accent else Palette.muted).apply {
                     maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(-1, -2))
             }, frameMatch()) else item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
-            row.addView(item, if (rail && !tv) LinearLayout.LayoutParams(-1, dp(76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(item, if (rail && !tv) LinearLayout.LayoutParams(-1, dp(72)).apply {
+                setMargins(dp(8), dp(4), dp(8), dp(4))
+            } else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
     }
@@ -3985,6 +4078,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         if (TelevisionMode.enabled(this)) return renderAppearanceSettings()
+        if (tabletLayout().splitWorkspace) return renderConnectionsSettings()
         settingsPage = "main"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
@@ -4041,6 +4135,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun navigateSettingsBack() {
         if (TelevisionMode.enabled(this) && settingsPage !in setOf("server", "licenses")) return renderHome()
+        if (tabletLayout().splitWorkspace && settingsPage == "connections") return renderHome()
         when (settingsPage) {
             "server" -> renderConnectionsSettings()
             "licenses" -> renderAboutSettings()
@@ -5410,7 +5505,10 @@ class MainActivity : AppCompatActivity() {
             val keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             chatNavigation?.visibility = if (keyboardVisible) View.GONE else View.VISIBLE
             val safe = if (TelevisionMode.enabled(this)) dp(18) else 0
-            view.setPadding(safe, safe, safe, safe + if (chatNavigation != null) maxOf(bars.bottom, ime.bottom) else bars.bottom)
+            val tablet = tabletLayout().tablet && !TelevisionMode.enabled(this)
+            val top = if (tablet) bars.top else safe
+            view.setPadding(if (tablet) bars.left else safe, top, if (tablet) bars.right else safe,
+                safe + if (chatNavigation != null) maxOf(bars.bottom, ime.bottom) else bars.bottom)
             insets
         }
     }
