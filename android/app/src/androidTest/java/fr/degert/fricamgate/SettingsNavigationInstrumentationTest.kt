@@ -143,6 +143,38 @@ class SettingsNavigationInstrumentationTest {
         }
     }
 
+    @Test fun eventFilterPanelAppliesOnlyOnConfirmationAndResetIsLocal() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                val initial = EventSearch(camera = "front", kind = EventKind.Person, hours = 24)
+                var applied: EventSearch? = null
+                val sheet = EventFilterSheet(activity, initial, listOf("front" to "Devant")) { applied = it }
+                sheet.show()
+                sheet.window!!.decorView.findViewWithTag<View>("event-filter-type").performClick()
+                val choices = EventFilterSheet::class.java.getDeclaredField("choice").apply { isAccessible = true }.get(sheet) as AppearanceChoiceSheet
+                choices.window!!.decorView.findViewWithTag<View>("appearance-option-event-type-Vehicle").performClick()
+                assertNull(applied)
+                sheet.window!!.decorView.findViewWithTag<android.widget.EditText>("event-filter-name").setText(" Céline ")
+                sheet.window!!.decorView.findViewWithTag<View>("event-filter-apply").performClick()
+                assertFalse(sheet.isShowing)
+                assertEquals(initial.copy(kind = EventKind.Vehicle, name = "Céline"), applied)
+                applied = null
+                val canceled = EventFilterSheet(activity, initial, listOf("front" to "Devant")) { applied = it }
+                canceled.show()
+                canceled.window!!.decorView.findViewWithTag<View>("event-filter-reset").performClick()
+                assertNull(applied)
+                canceled.cancel()
+                assertNull(applied)
+                val reset = EventFilterSheet(activity, initial, listOf("front" to "Devant")) { applied = it }
+                reset.show()
+                reset.window!!.decorView.findViewWithTag<View>("event-filter-reset").performClick()
+                reset.window!!.decorView.findViewWithTag<View>("event-filter-apply").performClick()
+                assertEquals(EventSearch(), applied)
+            }
+        }
+    }
+
     @Test fun submenuNavigationAndRecreationKeepSettingsContext() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

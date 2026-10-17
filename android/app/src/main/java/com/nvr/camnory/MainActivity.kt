@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private var cameraPickerSheet: SelectionBottomSheet? = null
     private var activityBriefingSheet: ActivityBriefingSheet? = null
     private var homeSourceSheet: AppearanceChoiceSheet? = null
+    private var eventFilterSheet: EventFilterSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -253,6 +254,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         super.onStop()
@@ -333,6 +335,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         dismissAlertsPopup()
@@ -1754,56 +1757,37 @@ class MainActivity : AppCompatActivity() {
         renderGlobalEvents()
     }
 
-    private fun eventFilterBar(): View = appHorizontalScrollView().apply {
-        val row = horizontal().apply { setPadding(0, 0, 0, dp(10)) }
-        addView(row)
-        fun menu(title: String, values: List<String>, checked: Int, select: (Int) -> Unit) {
-            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity).setTitle(title)
-                .setSingleChoiceItems(values.toTypedArray(), checked) { dialog, index -> dialog.dismiss(); select(index) }
-                .setNegativeButton(android.R.string.cancel, null).show()
-        }
-        fun filter(title: String, action: () -> Unit) {
-            row.addView(secondaryButton(title).apply {
-                isAllCaps = false
-                textSize = 12f * Appearance.textScale(appearancePrefs.getString("textSize", null))
-                setPadding(dp(12), 0, dp(12), 0)
-                setOnClickListener { action() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)).apply { rightMargin = dp(8) })
-        }
-        val options = visibleCameras()
-        filter(options.firstOrNull { it.name == eventSearch.camera }?.friendlyName ?: getString(R.string.all_cameras)) {
-            menu(getString(R.string.cameras), listOf(getString(R.string.all_cameras)) + options.map { it.friendlyName },
-                options.indexOfFirst { it.name == eventSearch.camera } + 1) { index ->
-                changeEventSearch(eventSearch.copy(camera = options.getOrNull(index - 1)?.name))
+    private fun eventFilterBar(): View = horizontal().apply {
+        tag = "event-filter-bar"; gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, 0, 0, dp(10))
+        val criteria = listOfNotNull(
+            eventSearch.camera?.let { camera -> visibleCameras().firstOrNull { it.name == camera }?.friendlyName ?: camera },
+            eventSearch.kind.takeIf { it != EventKind.Any }?.let { getString(it.titleRes) }, eventSearch.name,
+            eventSearch.hours?.let { getString(when (it) { 24 -> R.string.filter_day; 168 -> R.string.filter_week; else -> R.string.filter_month }) })
+        addView(label(criteria.joinToString(" · ").ifBlank { getString(R.string.event_filters_none) }, 12, Palette.muted).apply {
+            maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(FrameLayout(context).apply {
+            tag = "event-filter-open"; isFocusable = true; isClickable = true
+            contentDescription = getString(R.string.event_filters_title)
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_event_filters)
+                setColorFilter(if (eventSearch.activeFilterCount > 0) Palette.accent else Palette.text)
+            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            if (eventSearch.activeFilterCount > 0) addView(label(eventSearch.activeFilterCount.toString(), 9, Color.WHITE).apply {
+                tag = "event-filter-count"; gravity = Gravity.CENTER; background = rounded(Palette.accent, 8)
+            }, FrameLayout.LayoutParams(dp(16), dp(16), Gravity.TOP or Gravity.END).apply { topMargin = dp(3) })
+            setOnClickListener {
+                dismissTransientPopups()
+                val sheet = EventFilterSheet(this@MainActivity, eventSearch, visibleCameras().map { it.name to it.friendlyName }) { next ->
+                    if (next != eventSearch) changeEventSearch(next)
+                }
+                eventFilterSheet = sheet
+                sheet.setOnDismissListener { if (eventFilterSheet === sheet) eventFilterSheet = null }
+                sheet.show()
             }
-        }
-        filter(getString(eventSearch.kind.titleRes)) {
-            val kinds = EventKind.values()
-            menu(getString(R.string.filter_type), kinds.map { getString(it.titleRes) }, kinds.indexOf(eventSearch.kind)) {
-                changeEventSearch(eventSearch.copy(kind = kinds[it]))
-            }
-        }
-        filter(eventSearch.name ?: getString(R.string.filter_name)) {
-            val input = editText(getString(R.string.filter_name), eventSearch.name.orEmpty())
-            input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            val body = vertical().apply {
-                setPadding(dp(20), dp(8), dp(20), dp(8))
-                addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
-            }
-            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity).setTitle(R.string.filter_name)
-                .setView(body).setPositiveButton(android.R.string.ok) { _, _ ->
-                    changeEventSearch(eventSearch.copy(name = input.text.toString().trim().takeIf { it.isNotEmpty() }))
-                }.setNeutralButton(R.string.clear) { _, _ -> changeEventSearch(eventSearch.copy(name = null)) }
-                .setNegativeButton(android.R.string.cancel, null).show().also { input.requestFocus() }
-        }
-        val periods = listOf(null, 24, 168, 720)
-        val titles = listOf(R.string.filter_any_time, R.string.filter_day, R.string.filter_week, R.string.filter_month)
-        filter(getString(titles[periods.indexOf(eventSearch.hours).coerceAtLeast(0)])) {
-            menu(getString(R.string.filter_period), titles.map { getString(it) }, periods.indexOf(eventSearch.hours)) {
-                changeEventSearch(eventSearch.copy(hours = periods[it]))
-            }
-        }
-        if (eventSearch != EventSearch()) filter(getString(R.string.filter_reset)) { changeEventSearch(EventSearch()) }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
     }
 
     private fun globalEventList(sourceEvents: List<NativeEvent>): View {
@@ -1826,7 +1810,7 @@ class MainActivity : AppCompatActivity() {
                 addView(label(getString(R.string.notifications), 25, Palette.text).apply {
                     typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 })
-                addView(label(getString(R.string.all_cameras), 12, Palette.muted).apply {
+                addView(label(visibleCameras().firstOrNull { it.name == eventSearch.camera }?.friendlyName ?: getString(R.string.all_cameras), 12, Palette.muted).apply {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -2925,6 +2909,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        eventFilterSheet?.dismiss(); eventFilterSheet = null
         homeSourceSheet?.dismiss(); homeSourceSheet = null
         appearanceChoiceSheet?.dismiss()
         appearanceChoiceSheet = null

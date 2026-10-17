@@ -1,0 +1,5 @@
+<resources>
+    <string name="event_filters_title">Filtrer les notifications</string>
+    <string name="event_filters_apply">Afficher les résultats</string>
+    <string name="event_filters_none">Aucun filtre</string>
+</resources>

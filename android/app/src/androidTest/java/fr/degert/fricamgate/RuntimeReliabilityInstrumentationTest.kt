@@ -343,10 +343,11 @@ class RuntimeReliabilityInstrumentationTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withText(R.string.cameras)).check(matches(isDisplayed()))
             scenario.onActivity { activity -> MainActivity::class.java.getDeclaredMethod("renderGlobalEvents").apply { isAccessible = true }.invoke(activity) }
-            onView(withText(R.string.filter_name)).perform(androidx.test.espresso.action.ViewActions.click())
-            onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.EditText::class.java))
-                .perform(androidx.test.espresso.action.ViewActions.replaceText("Bob"))
-            onView(withText(android.R.string.ok)).perform(androidx.test.espresso.action.ViewActions.click())
+            onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("event-filter-open" as Any)))
+                .perform(androidx.test.espresso.action.ViewActions.click())
+            onView(androidx.test.espresso.matcher.ViewMatchers.withTagValue(org.hamcrest.Matchers.`is`("event-filter-name" as Any)))
+                .perform(androidx.test.espresso.action.ViewActions.replaceText("Bob"), androidx.test.espresso.action.ViewActions.closeSoftKeyboard())
+            onView(withText(R.string.event_filters_apply)).perform(androidx.test.espresso.action.ViewActions.click())
             assertTrue(requested.await(5, TimeUnit.SECONDS))
             var displayed = false
             for (attempt in 0..60) {
