@@ -102,7 +102,7 @@ class OnvifCameraSettingsActivity : AppCompatActivity() {
             addView(ui.text(getString(R.string.device_readonly_note)))
         }
         section(getString(R.string.camera_native_controls)) {
-            addView(CameraControlsView(this@OnvifCameraSettingsActivity, CameraControlTarget(saved.name, onvif = saved), ::permitted).also { controls = it })
+            addView(CameraControlsView(this@OnvifCameraSettingsActivity, CameraControlTarget(saved.name, onvif = saved), allowed = ::permitted).also { controls = it })
         }
         section(getString(R.string.device_services)) {
             state.services.forEach { fact("ONVIF", it) }

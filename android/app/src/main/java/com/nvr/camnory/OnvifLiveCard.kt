@@ -97,6 +97,7 @@ internal class OnvifLiveCard(
             }
         } else if (columnMode) {
             fun action(icon: Int, description: Int, click: (View) -> Unit) = ImageButton(context).apply {
+                CameraButton.forIcon(icon)?.let { cameraButton(it) }
                 setImageResource(icon); setColorFilter(Palette.text)
                 contentDescription = context.getString(description)
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
@@ -108,6 +109,7 @@ internal class OnvifLiveCard(
                 action(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
                 action(R.drawable.ic_settings, R.string.settings) { (accessories ?: manage)() },
                 action(R.drawable.ic_list, R.string.settings) { showMenu(it) }.apply {
+                    cameraButton(CameraButton.More)
                     tag = "onvif-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
                 }
             )), FrameLayout.LayoutParams(-1, -1))
@@ -125,6 +127,7 @@ internal class OnvifLiveCard(
             }, LayoutParams(0, -2, 1f))
             addView(ImageButton(context).apply {
                 tag = "onvif-camera-overflow"
+                visibility = if (CameraButton.More.visible(context)) View.VISIBLE else View.GONE
                 setImageResource(R.drawable.ic_more_vertical); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
                 contentDescription = context.getString(R.string.camera_options, camera.name)
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
@@ -149,6 +152,7 @@ internal class OnvifLiveCard(
             background = GradientDrawable().apply { setColor(Palette.card); cornerRadius = dp(8).toFloat(); setStroke(dp(1), Palette.divider) }
         }
         actions.forEachIndexed { index, (icon, title, action) ->
+            if (!CameraButton.iconVisible(context, icon)) return@forEachIndexed
             rows.addView(LinearLayout(context).apply {
                 tag = "onvif-camera-action-$index"
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)

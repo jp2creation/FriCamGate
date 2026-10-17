@@ -1,0 +1,5 @@
+<resources>
+    <string name="camera_buttons_title">Kamera-Schaltflächen</string>
+    <string name="camera_button_more">Weitere Optionen</string>
+    <string name="camera_settings_name">Einstellungen für %1$s</string>
+</resources>

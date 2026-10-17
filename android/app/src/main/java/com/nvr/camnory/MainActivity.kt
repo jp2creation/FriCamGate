@@ -745,12 +745,13 @@ class MainActivity : AppCompatActivity() {
         return CameraControlTarget(camera.name, frigate = server, frigateCamera = router?.nativeName(native) ?: native)
     }
 
-    private fun showAccessories(key: String, name: String) {
+    private fun showAccessories(key: String, name: String, respectAppearance: Boolean = true) {
         if (appLock.locked) return
         dismissTransientPopups()
         val item = dashboardCameras().firstOrNull { it.key == key } ?: return
         val sheet = CameraControlsSheet(this, cameraControlTarget(item).copy(name = name),
-            allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) })
+            allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) },
+            respectAppearance = respectAppearance)
         accessorySheet = sheet
         sheet.setOnDismissListener { if (accessorySheet === sheet) accessorySheet = null }
         sheet.show()
@@ -1587,7 +1588,7 @@ class MainActivity : AppCompatActivity() {
             topMargin = dp(10)
         })
         val controls = mutableListOf<View>().apply {
-            add(homeSoundBubble(camera))
+            add(homeSoundBubble(camera).cameraButton(CameraButton.Sound))
             if (camera.audioEnabled == true) {
                 add(iconBubble(R.drawable.ic_mic, alphaValue = 0.85f) {
                     toast(getString(R.string.micro_unavailable))
@@ -1640,6 +1641,8 @@ class MainActivity : AppCompatActivity() {
             addView(toolbarIcon(R.drawable.ic_more_vertical, tint = Palette.text) { anchor ->
                 showGridCameraActions(camera, anchor)
             }.apply {
+                visibility = if (CameraButton.More.visible(context) && listOf(CameraButton.Sound, CameraButton.Fullscreen,
+                    CameraButton.Settings, CameraButton.Events).any { it.visible(context) }) View.VISIBLE else View.GONE
                 val description = getString(R.string.camera_options, camera.friendlyName)
                 contentDescription = description
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
@@ -1668,7 +1671,7 @@ class MainActivity : AppCompatActivity() {
             Triple(R.drawable.ic_settings, getString(R.string.settings), { showCameraOptionsPopup(camera, anchor) }),
             Triple(R.drawable.ic_list, getString(R.string.events_tab), { renderCameraDetail(camera, showEventsList = true) })
         )
-        showHomeViewMenu(anchor, actions.map { (icon, title, action) ->
+        showHomeViewMenu(anchor, actions.filter { CameraButton.iconVisible(this, it.first) }.map { (icon, title, action) ->
             homeMenuRow(icon, title, false) { action() }
         })
     }
@@ -3239,7 +3242,7 @@ class MainActivity : AppCompatActivity() {
         }
         card.addView(disabledCameraOptionRow(getString(R.string.microphone), getString(R.string.api_unavailable)))
         dashboardCameras().firstOrNull { it.frigate?.name == camera.name }?.let { item ->
-            card.addView(CameraControlsView(this, cameraControlTarget(item)) {
+            card.addView(CameraControlsView(this, cameraControlTarget(item), respectAppearance = activeTab != Tab.Settings) {
                 !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
             })
         }
@@ -3632,6 +3635,17 @@ class MainActivity : AppCompatActivity() {
             contentDescription = getString(R.string.reduce_motion)
             setOnCheckedChangeListener { _, checked -> appearancePrefs.edit().putBoolean("reducedMotion", checked).apply() }
         }))
+        column.addView(sectionHeading(getString(R.string.camera_buttons_title)))
+        CameraButton.values().forEach { button ->
+            column.addView(preferenceToggleRow(getString(button.titleRes), "", SwitchCompat(this).apply {
+                tag = "appearance-camera-button:${button.preference}"
+                contentDescription = getString(button.titleRes)
+                isChecked = button.visible(this@MainActivity)
+                setOnCheckedChangeListener { _, checked ->
+                    appearancePrefs.edit().putBoolean("cameraButton:${button.preference}", checked).apply()
+                }
+            }))
+        }
         column.addView(sectionHeading(getString(R.string.appearance_details)))
         column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating",
             ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
@@ -3660,6 +3674,7 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val edit = appearancePrefs.edit()
+                    CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
                     listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
@@ -3884,7 +3899,7 @@ class MainActivity : AppCompatActivity() {
         addView(vertical().apply {
             setPadding(0, 0, dp(12), 0)
             addView(settingsTitleLabel(title).apply { maxLines = 2 })
-            addView(label(detail, 13, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
+            if (detail.isNotBlank()) addView(label(detail, 13, Palette.muted).apply { setPadding(0, dp(6), 0, 0) })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(toggle)
     }.also {
@@ -3924,17 +3939,10 @@ class MainActivity : AppCompatActivity() {
                     when {
                         camera.frigate != null -> showCameraOptionsPopup(camera.frigate, anchor)
                         camera.onvif != null -> startActivity(Intent(this, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.onvif.id))
-                        else -> androidx.appcompat.app.AlertDialog.Builder(this).setTitle(camera.name)
-                            .setMessage("Home Assistant\n${camera.haCamera?.entityId.orEmpty()}")
-                            .setPositiveButton(android.R.string.ok, null).show()
+                        else -> showAccessories(camera.key, camera.name, respectAppearance = false)
                     }
                 }
             }))
-        }
-        if (all.isNotEmpty()) {
-            column.addView(sectionHeading(getString(R.string.builtin_title)))
-            all.forEach { camera -> column.addView(settingsNavRow(camera.name, camera.source.title,
-                { showAccessories(camera.key, camera.name) }, icon = R.drawable.ic_settings)) }
         }
         setShell(scroll, Tab.Settings)
     }
@@ -4611,6 +4619,7 @@ class MainActivity : AppCompatActivity() {
     ): View {
         return FrameLayout(this).apply {
             isClickable = onClick != null
+            CameraButton.forIcon(iconRes)?.let { cameraButton(it) }
             if (onClick != null) setOnClickListener { onClick(it) }
             background = rounded(Palette.overlay, 22)
             addView(ImageView(context).apply {

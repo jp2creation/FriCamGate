@@ -22,7 +22,8 @@ internal data class CameraControlTarget(val name: String, val onvif: OnvifSavedC
 }
 
 /** Same controls for every source. No manual bindings, generic relays, scripts or household alarms. */
-internal class CameraControlsView(context: Context, private val target: CameraControlTarget, private val allowed: () -> Boolean)
+internal class CameraControlsView(context: Context, private val target: CameraControlTarget,
+    private val respectAppearance: Boolean = false, private val allowed: () -> Boolean)
     : LinearLayout(context) {
     private val ui = ConnectionFormUi(context)
     private val handler = Handler(Looper.getMainLooper())
@@ -58,6 +59,7 @@ internal class CameraControlsView(context: Context, private val target: CameraCo
     private fun render() {
         removeAllViews()
         listOf("light" to R.string.accessory_light, "siren" to R.string.accessory_siren).forEach { (domain, label) ->
+            if (respectAppearance && !(if (domain == "light") CameraButton.Light else CameraButton.Siren).visible(context)) return@forEach
             val entity = entities.singleOrNull { it.domain == domain }
             val usable = !loading && entity?.enabled != null && entity.canOn && entity.canOff
             val toggle = SwitchCompat(context).apply {
@@ -82,6 +84,7 @@ internal class CameraControlsView(context: Context, private val target: CameraCo
                 addView(toggle)
             }, LayoutParams(-1, -2))
         }
+        if (!respectAppearance || CameraButton.Ptz.visible(context)) {
         addView(ui.action(context.getString(R.string.ptz_title), false) {
             if (!closed && !busy && allowed() && capabilities?.available == true) {
                 val driver = target.ptzDriver() ?: return@action
@@ -93,6 +96,7 @@ internal class CameraControlsView(context: Context, private val target: CameraCo
             alpha = if (isEnabled) 1f else 0.4f
         })
         if (capabilities?.available != true) addView(ui.text(context.getString(if (loading) R.string.builtin_checking else R.string.builtin_unavailable)))
+        }
     }
     private fun confirm(entity: CameraAccessory, enabled: Boolean) {
         if (closed || busy || !allowed()) return
@@ -126,13 +130,14 @@ internal class CameraControlsView(context: Context, private val target: CameraCo
     override fun onDetachedFromWindow() { close(); super.onDetachedFromWindow() }
 }
 
-internal class CameraControlsSheet(context: Context, private val target: CameraControlTarget, private val allowed: () -> Boolean)
+internal class CameraControlsSheet(context: Context, private val target: CameraControlTarget,
+    private val allowed: () -> Boolean, private val respectAppearance: Boolean = false)
     : SelectionBottomSheet(context, target.name) {
     override val maxHeightFraction = 0.70f
     private var controls: CameraControlsView? = null
     override fun createSheetContent(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), dp(16))
-        addView(CameraControlsView(context, target, allowed).also { controls = it })
+        addView(CameraControlsView(context, target, respectAppearance, allowed).also { controls = it })
         target.onvif?.let { camera -> addView(ConnectionFormUi(context).action(context.getString(R.string.camera_all_settings), false) {
             if (allowed()) {
                 context.startActivity(android.content.Intent(context, OnvifCameraSettingsActivity::class.java).putExtra("cameraId", camera.id)); dismiss()

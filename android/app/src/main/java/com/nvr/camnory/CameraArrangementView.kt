@@ -48,6 +48,14 @@ internal class CameraArrangementView(
                         text = camera.source.title; textSize = 11f; setTextColor(Palette.muted)
                     })
                 }, LayoutParams(0, -2, 1f))
+                if (onOpen != null) addView(ImageButton(context).apply {
+                    tag = "camera-settings:${camera.key}"
+                    setImageResource(R.drawable.ic_settings); setColorFilter(Palette.text)
+                    setBackgroundColor(Color.TRANSPARENT); setPadding(dp(12), dp(12), dp(12), dp(12))
+                    contentDescription = context.getString(R.string.camera_settings_name, camera.name)
+                    TooltipCompat.setTooltipText(this, contentDescription)
+                    setOnClickListener { onOpen.invoke(camera.key, it) }
+                }, LayoutParams(dp(48), dp(48)))
                 addView(SwitchCompat(context).apply {
                     applyAccentTint()
                     tag = "camera-visibility:${camera.key}"

@@ -29,7 +29,7 @@ internal class CameraColumnOverlay(context: Context, name: String, source: Camer
         }
         val controls = LinearLayout(context).apply {
             tag = "camera-column-controls"; gravity = Gravity.CENTER
-            buttons.forEach { button ->
+            buttons.filter { (it.getTag(R.id.camera_button_kind) as? CameraButton)?.visible(context) != false }.forEach { button ->
                 button.background = GradientDrawable().apply { setColor(if (tablet) android.graphics.Color.TRANSPARENT else Palette.overlay); cornerRadius = dp(22).toFloat() }
                 if (button is android.widget.ImageButton) button.setPadding(dp(9), dp(9), dp(9), dp(9))
                 addView(button, LinearLayout.LayoutParams(dp(if (tablet) 44 else 40), dp(if (tablet) 48 else 40)).apply { marginStart = dp(if (tablet) 0 else 6) })

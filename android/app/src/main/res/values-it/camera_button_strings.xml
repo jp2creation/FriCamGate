@@ -1,0 +1,5 @@
+<resources>
+    <string name="camera_buttons_title">Pulsanti delle telecamere</string>
+    <string name="camera_button_more">Altre opzioni</string>
+    <string name="camera_settings_name">Impostazioni di %1$s</string>
+</resources>
