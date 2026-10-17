@@ -2474,10 +2474,16 @@ class MainActivity : AppCompatActivity() {
         EventFacts(event.objectLabel, event.subLabel, event.description),
         cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' '), event.startTime)
 
-    private fun activityBriefingStyle() = ActivityBriefingStyle.fromPreference(appearancePrefs.getString("activityBriefingStyle", null))
+    private fun activityBriefingStyle(): ActivityBriefingStyle {
+        val legacyVisible = if (appearancePrefs.contains("showActivityBriefing")) appearancePrefs.getBoolean("showActivityBriefing", true) else null
+        val style = ActivityBriefingStyle.fromPreference(appearancePrefs.getString("activityBriefingStyle", null), legacyVisible)
+        if (legacyVisible != null) appearancePrefs.edit().putString("activityBriefingStyle", style.preference)
+            .remove("showActivityBriefing").apply()
+        return style
+    }
 
     private fun recentActivitySummary(): View? {
-        if (!getSharedPreferences("camgate-settings", MODE_PRIVATE).getBoolean("showActivityBriefing", true)) return null
+        if (activityBriefingStyle() == ActivityBriefingStyle.Hidden) return null
         val activeSession = session ?: return null
         val allowed = visibleCameras().map { it.name }.toSet()
         val now = System.currentTimeMillis() / 1000.0
@@ -3535,6 +3541,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderAppearanceSettings() {
+        activityBriefingStyle()
         settingsPage = "appearance"
         releasePlayer()
         val scroll = appScrollView().apply {
@@ -3679,14 +3686,6 @@ class MainActivity : AppCompatActivity() {
         column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating",
             ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
         column.addView(settingsGroup(choice(R.string.camera_layout, homeLayoutPreference(), if (tabletLayout().tablet) "two_columns" else "column", HomeCameraLayout.values().map { it.preference to it.titleRes })))
-        column.addView(preferenceToggleRow(getString(R.string.activity_show_button), getString(R.string.activity_shortcut_detail), SwitchCompat(this).apply {
-            tag = "show-activity-briefing"
-            contentDescription = getString(R.string.activity_show_button)
-            isChecked = appearancePrefs.getBoolean("showActivityBriefing", true)
-            setOnCheckedChangeListener { _, checked ->
-                appearancePrefs.edit().putBoolean("showActivityBriefing", checked).apply()
-            }
-        }))
         column.addView(preferenceToggleRow(getString(R.string.camera_source_icons), getString(R.string.camera_source_icons_detail), SwitchCompat(this).apply {
             tag = "show-camera-source-icons"
             contentDescription = getString(R.string.camera_source_icons)
@@ -3931,7 +3930,6 @@ class MainActivity : AppCompatActivity() {
             setImageResource(when (toggle.tag) {
                 "appearance-oled-black" -> R.drawable.ic_image
                 "appearance-reduced-motion" -> R.drawable.ic_pause_outline
-                "show-activity-briefing" -> R.drawable.ic_activity_wave
                 "show-camera-source-icons" -> R.drawable.ic_settings_link
                 else -> R.drawable.ic_settings
             })

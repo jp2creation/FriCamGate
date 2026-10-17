@@ -154,7 +154,7 @@ class SettingsNavigationInstrumentationTest {
                     MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java)
                         .apply { isAccessible = true }.invoke(activity, null)
                     val entries = views(root(activity)).filter { it.tag == "activity-briefing-entry" }
-                    assertEquals(if (style == ActivityBriefingStyle.Bell) 0 else 1, entries.size)
+                    assertEquals(if (style == ActivityBriefingStyle.Bell || style == ActivityBriefingStyle.Hidden) 0 else 1, entries.size)
                     entries.firstOrNull()?.let { entry ->
                         if (style == ActivityBriefingStyle.Floating) assertTrue(entry.layoutParams is android.widget.FrameLayout.LayoutParams)
                         else assertTrue(entry.layoutParams is android.widget.LinearLayout.LayoutParams)
@@ -168,9 +168,12 @@ class SettingsNavigationInstrumentationTest {
                     MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java)
                         .apply { isAccessible = true }.invoke(activity, null)
                     assertNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
+                    assertEquals("hidden", preferences.getString("activityBriefingStyle", null))
+                    assertFalse(preferences.contains("showActivityBriefing"))
                 }
                 render(activity, "renderAppearanceSettings")
                 assertNotNull(root(activity).findViewWithTag<View>("appearance-activityBriefingStyle"))
+                assertNull(root(activity).findViewWithTag<View>("show-activity-briefing"))
             }
         }
     }
@@ -196,14 +199,18 @@ class SettingsNavigationInstrumentationTest {
                 assertFalse(sheet.isShowing)
                 assertNotNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
                 render(activity, "renderAppearanceSettings")
-                val toggle = root(activity).findViewWithTag<androidx.appcompat.widget.SwitchCompat>("show-activity-briefing")
-                assertTrue(toggle.isChecked)
-                toggle.isChecked = false
-                assertFalse(context.getSharedPreferences("camgate-settings", 0).getBoolean("showActivityBriefing", true))
+                assertNull(root(activity).findViewWithTag<View>("show-activity-briefing"))
+                root(activity).findViewWithTag<View>("appearance-activityBriefingStyle").performClick()
+                val choiceField = MainActivity::class.java.getDeclaredField("appearanceChoiceSheet").apply { isAccessible = true }
+                (choiceField.get(activity) as AppearanceChoiceSheet).window!!.decorView
+                    .findViewWithTag<View>("appearance-option-activityBriefingStyle-hidden").performClick()
+                assertEquals("hidden", context.getSharedPreferences("camgate-settings", 0).getString("activityBriefingStyle", null))
                 MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
                 assertNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
                 render(activity, "renderAppearanceSettings")
-                root(activity).findViewWithTag<androidx.appcompat.widget.SwitchCompat>("show-activity-briefing").isChecked = true
+                root(activity).findViewWithTag<View>("appearance-activityBriefingStyle").performClick()
+                (choiceField.get(activity) as AppearanceChoiceSheet).window!!.decorView
+                    .findViewWithTag<View>("appearance-option-activityBriefingStyle-floating").performClick()
                 MainActivity::class.java.getDeclaredMethod("renderHome", String::class.java).apply { isAccessible = true }.invoke(activity, null)
                 assertNotNull(root(activity).findViewWithTag<View>("activity-briefing-entry"))
             }

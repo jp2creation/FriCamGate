@@ -1,4 +1,5 @@
 <resources>
+    <string name="activity_style_hidden">Ausgeblendet</string>
     <string name="activity_style">Zugang zur Aktivitätsübersicht</string>
     <string name="activity_style_icon">Eigenes Symbol</string>
     <string name="activity_style_bell">Unter der Glocke</string>

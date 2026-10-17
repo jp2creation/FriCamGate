@@ -1,4 +1,5 @@
 <resources>
+    <string name="activity_style_hidden">Hidden</string>
     <string name="activity_style">Activity summary shortcut</string>
     <string name="activity_style_icon">Dedicated icon</string>
     <string name="activity_style_bell">Under the bell</string>

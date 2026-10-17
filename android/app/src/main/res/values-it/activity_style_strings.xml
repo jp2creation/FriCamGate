@@ -1,4 +1,5 @@
 <resources>
+    <string name="activity_style_hidden">Nascosto</string>
     <string name="activity_style">Accesso al riepilogo attività</string>
     <string name="activity_style_icon">Icona dedicata</string>
     <string name="activity_style_bell">Sotto la campanella</string>
