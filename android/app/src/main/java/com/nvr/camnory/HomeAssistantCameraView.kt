@@ -38,7 +38,8 @@ internal class HomeAssistantCameraView(
     private val onAudible: (HomeAssistantCameraView) -> Unit,
     private val fullscreenMode: Boolean = false,
     private val columnMode: Boolean = false,
-    private val accessories: (() -> Unit)? = null
+    private val accessories: (() -> Unit)? = null,
+    private val playerOnly: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: java.util.concurrent.ExecutorService? = null
@@ -104,7 +105,7 @@ internal class HomeAssistantCameraView(
         }
         progress = ProgressBar(context).apply { visibility = View.GONE; indeterminateTintList = android.content.res.ColorStateList.valueOf(Palette.accent) }
         frame.addView(progress, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
-        if (!fullscreenMode) {
+        if (!fullscreenMode || playerOnly) {
             play.setColorFilter(Color.WHITE)
             play.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xb3000000.toInt()) }
             frame.addView(play, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
@@ -118,7 +119,7 @@ internal class HomeAssistantCameraView(
                     tag = "ha-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
                 }
             )), FrameLayout.LayoutParams(-1, -1))
-        } else addView(LinearLayout(context).apply {
+        } else if (!playerOnly) addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
             addView(CameraSource.HomeAssistant.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
@@ -132,7 +133,7 @@ internal class HomeAssistantCameraView(
                 contentDescription = context.getString(R.string.camera_options, camera.name)
             }, LayoutParams(dp(48), dp(48)))
         }, LayoutParams(-1, dp(48)))
-        if (fullscreenMode) addView(LinearLayout(context).apply {
+        if (fullscreenMode && !playerOnly) addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER
             addView(play); addView(sound); addView(retry)
             addView(icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() })
@@ -143,6 +144,9 @@ internal class HomeAssistantCameraView(
         }
     }
     fun cachedPreview(): Bitmap? = (image.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+    fun expandedSoundControl(): View = sound
+    fun playbackAudible() = !muted
+    fun restorePlaybackSound(enabled: Boolean) { muted = !enabled; applyMute() }
 
     private fun showInformation() {
         information = androidx.appcompat.app.AlertDialog.Builder(context).setTitle(camera.name)
@@ -258,7 +262,7 @@ internal class HomeAssistantCameraView(
     fun startLive() {
         if (!visible() || live) return
         stopTransport()
-        live = true; play.isEnabled = false; if (!fullscreenMode) play.visibility = View.GONE
+        live = true; play.isEnabled = false; if (!fullscreenMode || playerOnly) play.visibility = View.GONE
         progress.visibility = View.VISIBLE; setState(R.string.connecting)
         val request = generation
         val api = HomeAssistantClient(connection.baseUrl, connection.token).also { client = it }
@@ -388,7 +392,7 @@ internal class HomeAssistantCameraView(
         handler.removeCallbacks(timeout); play.isEnabled = true; sound.isEnabled = true
         play.setImageResource(R.drawable.ic_pause_outline)
         play.contentDescription = context.getString(R.string.ha_stop_live)
-        progress.visibility = View.GONE; if (!fullscreenMode) play.visibility = View.GONE
+        progress.visibility = View.GONE; if (!fullscreenMode || playerOnly) play.visibility = View.GONE
         setState(R.string.ha_live)
     }
     private fun buffering() {
@@ -398,7 +402,7 @@ internal class HomeAssistantCameraView(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         state.maxWidth = (w - dp(12)).coerceAtLeast(0)
-        if (!fullscreenMode) play.visibility = if (!live && w >= dp(150)) View.VISIBLE else View.GONE
+        if (!fullscreenMode || playerOnly) play.visibility = if (!live && w >= dp(150)) View.VISIBLE else View.GONE
         state.visibility = if (w < dp(150) && progress.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }

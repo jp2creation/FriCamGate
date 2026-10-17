@@ -187,6 +187,10 @@ class MainActivity : AppCompatActivity() {
     private var restoredSettingsPage: String? = null
     private var settingsScrollY = 0
     private var settingsBackCallback: androidx.activity.OnBackPressedCallback? = null
+    private var expandedLiveBack: androidx.activity.OnBackPressedCallback? = null
+    private var expandedLiveReflow: (() -> Unit)? = null
+    private var expandedLiveResume: (() -> Unit)? = null
+    private var expandedLiveImmersive = false
     private var onvifSettingsReturnPage: String? = null
     private var haSettingsReturnPage: String? = null
     private var appearanceScrollY = 0
@@ -297,7 +301,7 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
-        if (homeVisible) renderHome() else reflowShell?.invoke()
+        if (homeVisible) renderHome() else (expandedLiveReflow ?: reflowShell)?.invoke()
     }
 
     override fun onPause() {
@@ -377,6 +381,7 @@ class MainActivity : AppCompatActivity() {
     private fun resumeAfterBackground() {
         onvifCards.forEach { it.setActive(!appLock.locked) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked) }
+        if (!appLock.locked) expandedLiveResume?.invoke()
         if (playbackResume.consume(currentPlayer)) currentPlayer?.playWhenReady = true
         if (streamsSuspended) {
             streamsSuspended = false
@@ -704,7 +709,7 @@ class MainActivity : AppCompatActivity() {
         item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
             return OnvifLiveCard(this, camera,
-                fullscreen = { openOnvifManager(camera.id, fullscreen = true) },
+                fullscreen = { renderExpandedLive(item) },
                 manage = { openOnvifManager(camera.id, manage = true) },
                 columnMode = overlay,
                 accessories = { showAccessories(item.key, item.name) },
@@ -767,33 +772,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHomeAssistantCamera(connection: HomeAssistantConnection, camera: HomeAssistantCamera) {
-        if (appLock.locked || homeAssistantFullscreen != null) return
-        homeAssistantCards.forEach { it.setActive(false) }
-        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val full = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
-        val card = HomeAssistantCameraView(this, connection, camera, { dialog.dismiss() }, { silenceOtherSources(it) }, true)
-        silenceOtherSources(card)
-        full.addView(card, frameMatch())
-        full.addView(iconBubble(R.drawable.ic_arrow_back) { dialog.dismiss() }.apply {
-            contentDescription = getString(R.string.onvif_back)
-        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START or Gravity.TOP).apply { leftMargin = dp(12); topMargin = dp(24) })
-        dialog.setContentView(full)
-        dialog.setOnDismissListener {
-            card.setActive(false); homeAssistantFullscreen = null
-            if (homeVisible && !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
-                homeAssistantCards.forEach { it.setActive(true) }
-        }
-        homeAssistantFullscreen = dialog
-        dialog.show()
-        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        dialog.window?.let { fullscreenWindow ->
-            androidx.core.view.WindowCompat.getInsetsController(fullscreenWindow, full).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        }
-        card.setActive(true)
-        card.doOnLayout { card.startLive() }
+        renderExpandedLive(DashboardCamera(CameraArrangement.key("ha", connection.baseUrl, camera.entityId),
+            camera.name, CameraSource.HomeAssistant, haCamera = camera, haConnection = connection))
     }
 
     private fun savedOnvifCameras(): List<OnvifSavedCamera> = runCatching { OnvifCameraStore(this).load() }
@@ -917,11 +897,11 @@ class MainActivity : AppCompatActivity() {
         val showingEventCamera = activeCameraName == event.camera
 
         val body = vertical().apply { setBackgroundColor(Palette.background) }
-        val playerFrame = FrameLayout(this).apply {
+        val playerFrame = ExpandedVideoFrame(this).apply {
             tag = "event-player-frame"
             setBackgroundColor(Palette.black)
         }
-        val fallback = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        val fallback = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
         playerFrame.addView(fallback, frameMatch())
         if (showingEventCamera) {
             event.thumbnail?.let { fallback.setImageBitmap(it) }
@@ -949,23 +929,15 @@ class MainActivity : AppCompatActivity() {
             setShutterBackgroundColor(Color.TRANSPARENT)
         }
         playerFrame.addView(playerView, frameMatch())
-        val playerActions = horizontal().apply {
-            tag = "event-player-actions"
-            addView(soundToggleButton().apply {
+        playerFrame.addPlaybackActions(soundToggleButton().apply {
                 contentDescription = getString(R.string.playback_sound)
-            }, LinearLayout.LayoutParams(dp(44), dp(44)))
-            addView(iconBubble(R.drawable.ic_fullscreen) {
+            }, iconBubble(R.drawable.ic_fullscreen) {
                 val dialog = eventFullscreenDialog
                 if (dialog != null) dialog.dismiss()
                 else displayedCamera?.let { openEventCameraFullscreen(event, it) }
             }.apply {
                 contentDescription = getString(R.string.camera_fullscreen)
-            }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(6) })
-        }
-        playerFrame.addView(playerActions, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = dp(12)
-            bottomMargin = dp(10)
-        })
+            }, "event-player-actions")
         body.addView(playerFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
         val controls = layoutInflater.inflate(R.layout.event_playback_controls, body, false) as androidx.media3.ui.PlayerControlView
         controls.setBackgroundColor(Palette.background)
@@ -1699,46 +1671,90 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCameraFullscreen(camera: NativeCamera) {
-        val activeSession = session ?: return renderLogin()
-        val activeApi = api ?: return renderLogin()
+        renderExpandedLive(DashboardCamera(frigateCameraKey(camera.name), camera.friendlyName,
+            CameraSource.Frigate, frigate = camera))
+    }
+
+    private fun renderExpandedLive(item: DashboardCamera, immersive: Boolean = false, audible: Boolean = false) {
+        if (appLock.locked) return
         releasePlayer()
-        val root = FrameLayout(this).apply { setBackgroundColor(Palette.black) }
-        val image = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(Palette.black)
+        val frame = ExpandedVideoFrame(this).apply { tag = "live-player-frame" }
+        var readSound: () -> Boolean = { soundEnabled }
+        var start: () -> Unit = {}
+        val sound: View
+        when {
+            item.frigate != null -> {
+                val camera = item.frigate
+                val activeApi = api ?: return renderLogin()
+                val token = session?.token ?: return renderLogin()
+                val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                val live = liveBadge().apply { visibility = View.GONE }
+                frame.addView(image, frameMatch())
+                frame.addView(live, FrameLayout.LayoutParams(-2, dp(24), Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(12); marginEnd = dp(12)
+                })
+                sound = homeSoundBubble(camera)
+                start = {
+                    startMjpegStream(activeApi, token, camera, image, live)
+                    ensureLiveAudio(camera)
+                }
+            }
+            item.onvif != null -> {
+                val card = OnvifLiveCard(this, item.onvif, fullscreen = {}, manage = {}, playerOnly = true)
+                card.restorePlaybackSound(audible)
+                onvifCards.add(card)
+                frame.addView(card, frameMatch())
+                sound = card.expandedSoundControl()
+                readSound = { card.playbackAudible() }
+                start = { card.setActive(true) }
+            }
+            else -> {
+                val card = HomeAssistantCameraView(this, requireNotNull(item.haConnection),
+                    requireNotNull(item.haCamera), fullscreen = {}, onAudible = { silenceOtherSources(it) },
+                    fullscreenMode = true, playerOnly = true)
+                card.restorePlaybackSound(audible)
+                homeAssistantCards.add(card)
+                frame.addView(card, frameMatch())
+                sound = card.expandedSoundControl()
+                readSound = { card.playbackAudible() }
+                start = { card.setActive(true); card.startLive() }
+                expandedLiveResume = { card.startLive() }
+            }
         }
-        root.addView(image, frameMatch())
-        activeApi.loadBitmap(activeSession.token, activeApi.latestFrameUrl(camera.name)) { bitmap ->
-            runOnUiThread { bitmap?.let { image.setImageBitmap(it) } }
+        frame.addPlaybackActions(sound, iconBubble(R.drawable.ic_fullscreen) {
+            renderExpandedLive(item, !immersive, readSound())
+        }.apply { contentDescription = getString(R.string.camera_fullscreen) }, "live-player-actions")
+        if (immersive) {
+            setContentView(frame)
+            expandedLiveImmersive = true
+            androidx.core.view.WindowCompat.getInsetsController(window, frame).apply {
+                hide(WindowInsetsCompat.Type.systemBars())
+                systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            val body = vertical().apply {
+                setBackgroundColor(Palette.background)
+                addView(frame, LinearLayout.LayoutParams(-1, dp(260)))
+                addView(horizontal().apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(20), dp(16), dp(16))
+                    addView(iconBubble(R.drawable.ic_arrow_back) { renderHome() }.apply {
+                        contentDescription = getString(R.string.onvif_back)
+                    }, LinearLayout.LayoutParams(dp(44), dp(44)))
+                    addView(TextView(context).apply {
+                        text = item.name; textSize = 24f; setTextColor(Palette.text)
+                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+                })
+            }
+            setShell(body, Tab.Home)
         }
-        val live = liveBadge().apply { visibility = View.GONE }
-        root.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(24), Gravity.END or Gravity.TOP).apply {
-            rightMargin = dp(18)
-            topMargin = dp(38)
-        })
-        root.addView(roundButton("<").apply {
-            textSize = 26f
-            setOnClickListener { renderHome() }
-        }, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.START or Gravity.TOP).apply {
-            leftMargin = dp(16)
-            topMargin = dp(28)
-        })
-        root.addView(chip(camera.friendlyName), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32), Gravity.START or Gravity.BOTTOM).apply {
-            leftMargin = dp(18)
-            bottomMargin = dp(20)
-        })
-        root.addView(horizontal().apply {
-            gravity = Gravity.CENTER
-            addView(homeSoundBubble(camera))
-            addView(iconBubble(R.drawable.ic_settings) { anchor -> showCameraOptionsPopup(camera, anchor) })
-            addView(iconBubble(R.drawable.ic_list) { renderCameraDetail(camera) })
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46), Gravity.END or Gravity.BOTTOM).apply {
-            rightMargin = dp(14)
-            bottomMargin = dp(18)
-        })
-        setContentView(root)
-        startMjpegStream(activeApi, activeSession.token, camera, image, live)
-        ensureLiveAudio(camera)
+        expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (immersive) renderExpandedLive(item, false, readSound()) else renderHome()
+            }
+        }.also { onBackPressedDispatcher.addCallback(this, it) }
+        expandedLiveReflow = { renderExpandedLive(item, immersive, readSound()) }
+        frame.doOnLayout { if (!appLock.locked) start() }
     }
 
     private fun cameraToolbar(
@@ -2976,7 +2992,7 @@ class MainActivity : AppCompatActivity() {
                     dismissCameraPicker()
                     when {
                         camera.frigate != null -> renderCameraDetail(camera.frigate)
-                        camera.onvif != null -> openOnvifManager(camera.onvif.id, fullscreen = true)
+                        camera.onvif != null -> renderExpandedLive(camera)
                         else -> openHomeAssistantCamera(requireNotNull(camera.haConnection), requireNotNull(camera.haCamera))
                     }
                 }
@@ -4403,6 +4419,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        if (expandedLiveImmersive) {
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                .show(WindowInsetsCompat.Type.systemBars())
+            expandedLiveImmersive = false
+        }
+        expandedLiveBack?.remove(); expandedLiveBack = null
+        expandedLiveReflow = null
+        expandedLiveResume = null
         loginCancellation?.invoke(); loginCancellation = null
         homeVisible = false
         homeAssistantFullscreen?.dismiss()

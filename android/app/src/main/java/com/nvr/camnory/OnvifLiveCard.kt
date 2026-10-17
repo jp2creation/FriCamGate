@@ -30,7 +30,8 @@ internal class OnvifLiveCard(
     private val manage: () -> Unit,
     private val onAudible: (OnvifLiveCard) -> Unit = {},
     private val columnMode: Boolean = false,
-    private val accessories: (() -> Unit)? = null
+    private val accessories: (() -> Unit)? = null,
+    private val playerOnly: Boolean = false
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService? = null
@@ -59,12 +60,12 @@ internal class OnvifLiveCard(
         clipToOutline = true
         val frame = object : FrameLayout(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
+                super.onMeasure(widthMeasureSpec, if (playerOnly) heightMeasureSpec else MeasureSpec.makeMeasureSpec(if (columnMode && !resources.configuration.tabletLayoutPolicy().tablet) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }
         preview = (LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
-        if (resources.configuration.tabletLayoutPolicy().tablet) {
+        if (resources.configuration.tabletLayoutPolicy().tablet && !playerOnly) {
             frame.setOnClickListener { fullscreen() }
             preview.setOnClickListener { fullscreen() }
         }
@@ -86,8 +87,15 @@ internal class OnvifLiveCard(
         frame.addView(liveBadge, FrameLayout.LayoutParams(-2, dp(if (columnMode) 24 else 22), Gravity.TOP or Gravity.END).apply {
             topMargin = dp(if (columnMode) 10 else 5); rightMargin = topMargin
         })
-        addView(frame, LayoutParams(-1, -2))
-        if (columnMode) {
+        addView(frame, LayoutParams(-1, if (playerOnly) -1 else -2))
+        if (playerOnly) {
+            overlaySound = ImageButton(context).apply {
+                setImageResource(R.drawable.ic_volume_off); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
+                setPadding(dp(11), dp(11), dp(11), dp(11)); isEnabled = false
+                contentDescription = context.getString(R.string.playback_sound)
+                setOnClickListener { toggleSound() }
+            }
+        } else if (columnMode) {
             fun action(icon: Int, description: Int, click: (View) -> Unit) = ImageButton(context).apply {
                 setImageResource(icon); setColorFilter(Palette.text)
                 contentDescription = context.getString(description)
@@ -192,6 +200,9 @@ internal class OnvifLiveCard(
     fun cameraId(): String = camera.id
 
     fun mute() { muted = true; player?.volume = 0f; updateSound() }
+    fun expandedSoundControl(): View = requireNotNull(overlaySound)
+    fun playbackAudible() = !muted
+    fun restorePlaybackSound(enabled: Boolean) { muted = !enabled; player?.volume = if (enabled) 1f else 0f; updateSound() }
     fun setActive(value: Boolean) {
         if (value && !active) { retries = 0; failed = false }
         active = value
