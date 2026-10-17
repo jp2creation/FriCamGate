@@ -102,15 +102,19 @@ class SharedTabletTvInstrumentationTest {
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 val views = descendants(activity.window.decorView)
-                assertTrue(views.any { it.tag == "tablet-landscape-shell" })
-                assertTrue(views.any { it.tag == "tablet-navigation-rail" })
+                assertTrue(views.any { it.tag == "tv-horizontal-header" })
+                assertTrue(views.any { it.tag == "tv-top-navigation" })
+                assertFalse(views.any { it.tag == "tablet-navigation-rail" || it.tag == "bottom-navigation" })
+                assertFalse(views.any { it.tag == "navigation-Cameras" })
+                val navigation = listOf("Home", "Events", "Grid", "Settings").map { tab -> views.first { it.tag == "navigation-$tab" } }
+                assertTrue(navigation.zipWithNext().all { (left, right) -> left.left < right.left && left.top == right.top })
                 val settings = views.first { it.tag == "navigation-Settings" }
                 assertTrue(settings.isFocusable)
                 assertTrue(settings.requestFocus())
                 assertTrue(settings.hasFocus())
                 assertTrue(views.count { it.isClickable && it.isFocusable } >= 8)
             }
-            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 assertNotNull(activity.currentFocus)

@@ -129,6 +129,43 @@ class TvEventPlaybackInstrumentationTest {
                     }
                     image.recycle()
                 }
+                scenario.onActivity { activity ->
+                    for (name in listOf("events", "globalResults")) MainActivity::class.java.getDeclaredField(name)
+                        .apply { isAccessible = true }.set(activity, listOf(qualifiedEvent))
+                    MainActivity::class.java.getDeclaredMethod("renderTvEvents").apply { isAccessible = true }.invoke(activity)
+                    assertNull("Focus/selection alone must not start a recording", MainActivity::class.java.getDeclaredField("currentPlayer")
+                        .apply { isAccessible = true }.get(activity))
+                    assertTrue(activity.window.decorView.findViewWithTag<android.view.View>("tv-history-preview-frame").performClick())
+                }
+                val inlineDeadline = SystemClock.elapsedRealtime() + 25000
+                var inlineAdvanced = false
+                while (!inlineAdvanced && SystemClock.elapsedRealtime() < inlineDeadline) {
+                    scenario.onActivity { activity ->
+                        val player = MainActivity::class.java.getDeclaredField("currentPlayer").apply { isAccessible = true }.get(activity) as ExoPlayer
+                        assertNull("EN1 inline recording must decode", player.playerError)
+                        inlineAdvanced = player.currentPosition >= 1500 && player.videoSize.width >= 1920
+                    }
+                    if (!inlineAdvanced) Thread.sleep(100)
+                }
+                assertTrue("EN1 contextual preview must play the real recording", inlineAdvanced)
+                scenario.onActivity { activity ->
+                    val field = MainActivity::class.java.getDeclaredField("currentPlayer").apply { isAccessible = true }
+                    val player = field.get(activity)
+                    MainActivity::class.java.getDeclaredMethod("refreshGlobalEventResults").apply { isAccessible = true }.invoke(activity)
+                    assertSame("History refresh must not interrupt EN1 playback", player, field.get(activity))
+                }
+                report("EN1 inline recording advances in original resolution")
+                val drawn = CountDownLatch(1)
+                scenario.onActivity { activity -> activity.window.decorView.postOnAnimation {
+                    activity.window.decorView.postOnAnimation { drawn.countDown() }
+                } }
+                assertTrue(drawn.await(3, TimeUnit.SECONDS))
+                instrumentation.uiAutomation.takeScreenshot()?.let { image ->
+                    java.io.FileOutputStream(java.io.File(context.cacheDir, "tv-en1-real-playback.png")).use {
+                        image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    image.recycle()
+                }
             }
             assertArrayEquals(before, stored.readBytes())
         } finally { client.dispatcher.cancelAll(); client.connectionPool.evictAll() }

@@ -13,7 +13,7 @@ import org.junit.Test
 
 /** The TV event browser is exercised with photographs, not real event playback. */
 class TvEventsInstrumentationTest {
-    @Test fun remoteBrowsesSixEventsPerPage() {
+    @Test fun cinemaFilmstripAndInboxHaveContextualPlayback() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         assumeTrue(TelevisionMode.enabled(context))
@@ -38,7 +38,7 @@ class TvEventsInstrumentationTest {
                     .apply { isAccessible = true }.newInstance("https://fixture.invalid", "fixture", "fixture"))
                 field("api").set(activity, object : FrigateNativeApi("https://fixture.invalid", okhttp3.OkHttpClient()) {
                     override fun loadBitmap(token: String, url: String, callback: (android.graphics.Bitmap?) -> Unit) {
-                        callback(fixtures.first().thumbnail)
+                        callback((fixtures.firstOrNull { it.id in android.net.Uri.parse(url).pathSegments } ?: fixtures.first()).thumbnail)
                     }
                     override fun eventVodUrl(eventId: String) = "file:///nonexistent-fixture.mp4"
                     override fun eventClipUrl(eventId: String) = "file:///nonexistent-fixture.mp4"
@@ -58,12 +58,11 @@ class TvEventsInstrumentationTest {
                 assertNotNull(root.findViewWithTag<View>("tv-events-browser"))
                 assertTrue(root.findViewWithTag<View>("tv-event:fixture-0").requestFocus())
             }
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+            repeat(5) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT) }
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 val root = activity.window.decorView
-                assertTrue(root.findViewWithTag<View>("tv-event:fixture-6").hasFocus())
+                assertTrue(root.findViewWithTag<View>("tv-event:fixture-5").hasFocus())
                 assertNull(root.findViewWithTag<View>("tv-event:fixture-0"))
                 val grid = root.findViewWithTag<TvHistoryView>("tv-history-pages")
                 assertEquals(1, grid.currentPage)
@@ -83,19 +82,14 @@ class TvEventsInstrumentationTest {
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
-                val frame = activity.window.decorView.findViewWithTag<View>("event-player-frame")
+                val frame = activity.window.decorView.findViewWithTag<View>("tv-history-preview-frame")
                 assertNotNull(frame)
                 val playback = frame.parent as android.widget.LinearLayout
                 val body = playback.parent as android.widget.LinearLayout
                 assertEquals(android.widget.LinearLayout.HORIZONTAL, body.orientation)
                 assertTrue("Video must dominate the TV event layout", playback.width > body.getChildAt(1).width)
                 assertTrue(frame.height > 100)
-                val related = activity.window.decorView.findViewWithTag<ViewGroup>("event-related-camera:fixture-other")
-                assertNotNull(related)
-                assertTrue(related.isClickable)
-                fun clickableCount(view: View): Int = (if (view.isClickable) 1 else 0) +
-                    if (view is ViewGroup) (0 until view.childCount).sumOf { clickableCount(view.getChildAt(it)) } else 0
-                assertEquals("TV related camera has one whole-tile action, no fullscreen button", 1, clickableCount(related))
+                assertNotNull("Playback remains within EN1 browser", activity.window.decorView.findViewWithTag<View>("tv-events-browser"))
             }
             val detailDrawn = java.util.concurrent.CountDownLatch(1)
             scenario.onActivity { it.window.decorView.postOnAnimation { detailDrawn.countDown() } }
@@ -110,8 +104,19 @@ class TvEventsInstrumentationTest {
             instrumentation.waitForIdleSync()
             scenario.onActivity {
                 assertNotNull(it.window.decorView.findViewWithTag<View>("tv-events-browser"))
-                assertTrue("Back restores the exact event and page", it.window.decorView.findViewWithTag<View>("tv-event:fixture-6").hasFocus())
+                assertTrue("Back restores the exact event and page", it.window.decorView.findViewWithTag<View>("tv-event:fixture-5").hasFocus())
                 assertEquals(1, it.window.decorView.findViewWithTag<TvHistoryView>("tv-history-pages").currentPage)
+            }
+            scenario.onActivity { activity ->
+                val actions = activity.window.decorView.findViewWithTag<ViewGroup>("tv-history-preview-actions")
+                assertTrue(actions.getChildAt(1).performClick())
+            }
+            instrumentation.waitForIdleSync()
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertNotNull("Fullscreen Back restores EN1", activity.window.decorView.findViewWithTag<View>("tv-events-browser"))
+                assertTrue(activity.window.decorView.findViewWithTag<View>("tv-event:fixture-5").hasFocus())
             }
             scenario.onActivity { activity ->
                 MainActivity::class.java.getDeclaredMethod("renderGlobalEvents").apply { isAccessible = true }.invoke(activity)
@@ -123,6 +128,9 @@ class TvEventsInstrumentationTest {
                 assertNotNull(root.findViewWithTag<View>("tv-notification:fixture-4"))
                 assertNull("Only five rows per TV inbox page", root.findViewWithTag<View>("tv-notification:fixture-5"))
                 assertTrue(root.findViewWithTag<View>("tv-notification:fixture-0").requestFocus())
+                val split = root.findViewWithTag<android.widget.LinearLayout>("tv-inbox-split")
+                assertEquals(2, split.childCount)
+                assertTrue("Inbox and its preview fit side by side", split.getChildAt(1).left > split.getChildAt(0).left)
             }
             repeat(5) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN) }
             instrumentation.waitForIdleSync()

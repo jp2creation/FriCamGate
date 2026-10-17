@@ -27,9 +27,9 @@ internal class TvHistoryView(
     private val onSelect: (String) -> Unit,
     private val onOpen: (NativeEvent) -> Unit
 ) : LinearLayout(context) {
-    private val columns = if (inbox) 1 else 3
+    private val columns = tvHistoryColumns(inbox)
     private val textScale = Appearance.textScale(context.getSharedPreferences("camgate-settings", Context.MODE_PRIVATE).getString("textSize", null))
-    private val rowsPerPage = if (inbox) (if (textScale > 1.1f) 4 else 5) else 2
+    private val rowsPerPage = tvHistoryRows(inbox, textScale)
     private val pages = tvHistoryPages(events, columns * rowsPerPage, ::dayKey)
     private val caption = label("", 12, Palette.muted)
     private val content = LinearLayout(context).apply { orientation = VERTICAL }
@@ -88,10 +88,12 @@ internal class TvHistoryView(
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         if (position % columns < columns - 1 && position < cells.lastIndex) cells[position + 1].requestFocus()
+                        else if (!inbox && currentPage < pages.lastIndex) { showPage(currentPage + 1); cells.firstOrNull()?.requestFocus() }
                         else return@setOnKeyListener false
                     }
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
                         if (position % columns > 0) cells[position - 1].requestFocus()
+                        else if (!inbox && currentPage > 0) { showPage(currentPage - 1); cells.lastOrNull()?.requestFocus() }
                         else return@setOnKeyListener false
                     }
                     else -> return@setOnKeyListener false
@@ -130,9 +132,9 @@ internal class TvHistoryView(
                     tag = "tv-unread:${event.id}"
                     setBackgroundColor(if (event.id in unread) Palette.accent else android.graphics.Color.TRANSPARENT)
                 }, LayoutParams(dp(3), -1))
-                addView(image, LayoutParams(dp(104), -1))
+                addView(image, LayoutParams(dp(76), -1))
                 addView(metadata, LayoutParams(0, -1, 1f))
-                addView(ImageView(context).apply { setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted) }, LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(14) })
+                addView(ImageView(context).apply { setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted) }, LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(8) })
             } else {
                 addView(image, LayoutParams(-1, 0, 1f))
                 addView(metadata, LayoutParams(-1, (dp(48) * textScale).toInt()))

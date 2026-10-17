@@ -1182,6 +1182,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openEventCameraFullscreen(event: NativeEvent, camera: NativeCamera) {
+        openEventCameraFullscreen(event, camera, null)
+    }
+
+    private fun openEventCameraFullscreen(event: NativeEvent, camera: NativeCamera, onReturn: (() -> Unit)?) {
         if (eventFullscreenDialog != null) return
         val playing = currentPlayer?.playWhenReady ?: true
         val baseSec = currentPlaybackKey?.takeIf { it.startsWith("recording:") }
@@ -1203,7 +1207,9 @@ class MainActivity : AppCompatActivity() {
         val full = vertical().apply { setBackgroundColor(Palette.black) }
         full.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         full.addView(controls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-        val close = iconBubble(R.drawable.ic_fullscreen) { dialog.dismiss() }.apply {
+        var returnToBrowser = false
+        dialog.setOnCancelListener { returnToBrowser = true }
+        val close = iconBubble(R.drawable.ic_fullscreen) { returnToBrowser = true; dialog.dismiss() }.apply {
             contentDescription = getString(android.R.string.cancel)
         }
         frame.addView(close, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START or Gravity.TOP).apply {
@@ -1218,6 +1224,7 @@ class MainActivity : AppCompatActivity() {
             parent.addView(frame, frameIndex, frameParams)
             parent.addView(controls, controlsIndex, controlsParams)
             eventFullscreenDialog = null
+            if (returnToBrowser) onReturn?.invoke()
         }
         eventFullscreenDialog = dialog
         dialog.show()
@@ -2169,9 +2176,9 @@ class MainActivity : AppCompatActivity() {
         val source = (globalResults ?: events).filter { event -> visibleCameras().any { it.name == event.camera } }
             .sortedByDescending { it.startTime ?: 0.0 }
         val unread = source.filter { it.id !in seen && (it.startTime == null || it.startTime > seenAlertsCutoffMillis(it) / 1000.0) }.map { it.id }.toSet()
-        body.addView(horizontal().apply {
+        if (inbox) body.addView(horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(label(getString(if (inbox) R.string.notifications else R.string.events_tab), 23, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(eventFilterBar(), LinearLayout.LayoutParams(0, -1, 1f))
             if (inbox) {
                 addView(FrameLayout(this@MainActivity).apply { addView(android.widget.CheckBox(this@MainActivity).apply {
                     text = getString(R.string.tv_unread_only)
@@ -2194,10 +2201,31 @@ class MainActivity : AppCompatActivity() {
                     isEnabled = unread.isNotEmpty(); alpha = if (isEnabled) 1f else 0.4f
                 })
             }
-        })
-        body.addView(eventFilterBar())
+        }, LinearLayout.LayoutParams(-1, dp(44)))
         val selected = if (inbox) tvNotificationSelectedId else tvEventSelectedId
-        val history = TvHistoryView(this, source.filter { !inbox || !tvUnreadOnly || it.id in unread }, inbox, unread, selected,
+        val filtered = source.filter { !inbox || !tvUnreadOnly || it.id in unread }
+        val preview = TvEventPreview(this, inbox, ::eventDisplayText,
+            camera = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera },
+            thumbnail = { event, image, valid -> session?.let { active -> api?.let { transport ->
+                transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
+                    runOnUiThread { if (valid() && bitmap != null) image.setImageBitmap(bitmap) }
+                }
+            } } }, sound = soundToggleButton(), onStop = { releaseCurrentPlayer() },
+            onPlay = { event, video, image, controls ->
+                session?.let { active -> api?.let { transport ->
+                    if (inbox) {
+                        markAlertSeen(event)
+                        body.findViewWithTag<View>("tv-unread:${event.id}")?.setBackgroundColor(Color.TRANSPARENT)
+                    }
+                    eventPlaybackControls = controls
+                    startClipPlayer(transport, active.token, event, video, image)
+                } }
+            }, onFullscreen = { event -> cameras.firstOrNull { it.name == event.camera }?.let {
+                if (inbox) markAlertSeen(event)
+                tvHistoryOrigin = if (inbox) Tab.Grid else Tab.Events
+                openEventCameraFullscreen(event, it) { renderTvHistory(inbox, restoreFocus = true) }
+            } })
+        val history = TvHistoryView(this, filtered, inbox, unread, selected,
             title = ::eventDisplayText,
             camera = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera },
             thumbnail = { event, image -> session?.let { active -> api?.let { transport ->
@@ -2205,15 +2233,37 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { if (image.isAttachedToWindow && bitmap != null) image.setImageBitmap(bitmap) }
                 }
             } } },
-            onSelect = { if (inbox) tvNotificationSelectedId = it else tvEventSelectedId = it },
-            onOpen = { event -> if (inbox) markAlertSeen(event); tvHistoryOrigin = if (inbox) Tab.Grid else Tab.Events; renderEventDetail(event) })
-        body.addView(history, LinearLayout.LayoutParams(-1, 0, 1f))
+            onSelect = { id ->
+                if (inbox) tvNotificationSelectedId = id else tvEventSelectedId = id
+                filtered.firstOrNull { it.id == id }?.let { preview.select(it) }
+            },
+            onOpen = { event ->
+                preview.select(event); preview.play()
+            })
+        if (inbox) body.addView(horizontal().apply {
+            tag = "tv-inbox-split"
+            addView(history, LinearLayout.LayoutParams(0, -1, 0.45f).apply { marginEnd = dp(16) })
+            addView(preview, LinearLayout.LayoutParams(0, -1, 0.55f))
+        }, LinearLayout.LayoutParams(-1, 0, 1f)) else {
+            body.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
+            body.addView(history, LinearLayout.LayoutParams(-1, dp(128)).apply { topMargin = dp(8) })
+        }
+        (filtered.firstOrNull { it.id == selected } ?: filtered.firstOrNull())?.let { preview.select(it) }
+        preview.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
         if (globalLoading) body.addView(label(getString(R.string.filter_loading), 12, Palette.muted))
         if (globalError || globalHasMore) body.addView(secondaryButton(getString(if (globalError) R.string.filter_retry else R.string.filter_more)).apply {
             isEnabled = !globalLoading
             setOnClickListener { loadGlobalEventPage(reset = globalError && globalResults.isNullOrEmpty()) }
         })
         setShell(body, if (inbox) Tab.Grid else Tab.Events)
+        expandedLiveBack = object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentPlayer != null) { releaseCurrentPlayer(); renderTvHistory(inbox, restoreFocus = true) }
+                else if (currentFocus?.tag != "navigation-${if (inbox) "Grid" else "Events"}")
+                    window.decorView.findViewWithTag<View>("navigation-${if (inbox) "Grid" else "Events"}")?.requestFocus()
+                else renderHome()
+            }
+        }.also { onBackPressedDispatcher.addCallback(this, it) }
         if (restore) history.post { history.focusSelection(selected) }
         if (globalResults == null && !globalLoading) loadGlobalEventPage(reset = true)
     }
@@ -2253,7 +2303,7 @@ class MainActivity : AppCompatActivity() {
                 }.onFailure { globalError = true }
                 if (activeTab == Tab.Grid) refreshGlobalEventResults()
                 else if (activeTab == Tab.Events && findViewById<ViewGroup>(android.R.id.content)
-                    .findViewWithTag<View>("tv-events-browser") != null) renderTvEvents()
+                    .findViewWithTag<View>("tv-events-browser") != null) refreshGlobalEventResults()
             }
         }
     }
@@ -2270,7 +2320,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun eventFilterBar(): View = horizontal().apply {
         tag = "event-filter-bar"; gravity = Gravity.CENTER_VERTICAL
-        setPadding(0, 0, 0, dp(10))
+        setPadding(0, 0, 0, dp(if (TelevisionMode.enabled(this@MainActivity)) 0 else 10))
         val criteria = listOfNotNull(
             eventSearch.camera?.let { camera -> visibleCameras().firstOrNull { it.name == camera }?.friendlyName ?: camera },
             eventSearch.kind.takeIf { it != EventKind.Any }?.let { getString(it.titleRes) }, eventSearch.name,
@@ -2298,7 +2348,7 @@ class MainActivity : AppCompatActivity() {
                 sheet.setOnDismissListener { if (eventFilterSheet === sheet) eventFilterSheet = null }
                 sheet.show()
             }
-        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        }, LinearLayout.LayoutParams(dp(if (TelevisionMode.enabled(this@MainActivity)) 40 else 48), dp(if (TelevisionMode.enabled(this@MainActivity)) 40 else 48)))
     }
 
     private fun globalEventList(sourceEvents: List<NativeEvent>): View {
@@ -2337,6 +2387,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshGlobalEventResults() {
         if (TelevisionMode.enabled(this)) {
+            // Incoming history pages must not tear down the recording being watched.
+            if (currentPlayer != null) return
             val root = findViewById<ViewGroup>(android.R.id.content)
             if (root.findViewWithTag<View>("tv-notifications-browser") != null) renderTvHistory(true)
             else if (root.findViewWithTag<View>("tv-events-browser") != null) renderTvHistory(false)
@@ -3055,10 +3107,26 @@ class MainActivity : AppCompatActivity() {
         releaseLoadingAnimations()
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
-        if (showHeader) root.addView(appHeader())
+        val tv = TelevisionMode.enabled(this)
+        if (showHeader && !tv) root.addView(appHeader())
         val rail = tabletLayout().navigationRail
         val navigation = bottomNav(activeTab, rail)
-        if (rail) root.addView(horizontal().apply {
+        if (tv) {
+            root.addView(horizontal().apply {
+                tag = "tv-horizontal-header"; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(4), dp(16), dp(4))
+                addView(brandWordmark(140), LinearLayout.LayoutParams(dp(140), dp(48)).apply { marginEnd = dp(24) })
+                addView(navigation, LinearLayout.LayoutParams(0, -1, 1f))
+                if (showHeaderChat()) addView(chatButton().apply { tag = "header-chat" }, LinearLayout.LayoutParams(dp(42), dp(42)))
+                if (showHeaderAlerts()) addView(alertsButton().apply { tag = "header-alerts" }, LinearLayout.LayoutParams(dp(42), dp(42)))
+                if (content.tag == "tv-events-browser") {
+                    val filters = eventFilterBar().findViewWithTag<View>("event-filter-open")
+                    (filters.parent as? ViewGroup)?.removeView(filters)
+                    addView(filters, LinearLayout.LayoutParams(dp(40), dp(40)))
+                }
+            }, LinearLayout.LayoutParams(-1, dp(56)))
+            root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else if (rail) root.addView(horizontal().apply {
             tag = "tablet-landscape-shell"
             addView(navigation, LinearLayout.LayoutParams(dp(if (TelevisionMode.enabled(this@MainActivity)) 104 else 88), -1))
             addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
@@ -3336,12 +3404,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun bottomNav(activeTab: Tab, rail: Boolean = false): View {
         val tablet = tabletLayout().tablet
-        val row = (if (rail) vertical() else horizontal()).apply {
-            tag = if (rail) "tablet-navigation-rail" else "bottom-navigation"
-            gravity = if (rail) Gravity.TOP else Gravity.CENTER
+        val tv = TelevisionMode.enabled(this)
+        val row = (if (rail && !tv) vertical() else horizontal()).apply {
+            tag = if (tv) "tv-top-navigation" else if (rail) "tablet-navigation-rail" else "bottom-navigation"
+            gravity = if (rail && !tv) Gravity.TOP else Gravity.CENTER
             background = rounded(Palette.black, 0)
         }
-        Tab.values().forEach { tab ->
+        (if (tv) listOf(Tab.Home, Tab.Events, Tab.Grid, Tab.Settings) else Tab.values().toList()).forEach { tab ->
             if (TelevisionMode.enabled(this) && tab == Tab.Cameras) return@forEach
             if (session == null && tab in listOf(Tab.Grid, Tab.Events)) return@forEach
             val item = FrameLayout(this).apply {
@@ -3350,7 +3419,7 @@ class MainActivity : AppCompatActivity() {
                 contentDescription = getString(when (tab) {
                     Tab.Home -> R.string.home
                     Tab.Cameras -> R.string.cameras
-                    Tab.Grid -> R.string.grid_tab
+                    Tab.Grid -> if (tv) R.string.notifications else R.string.grid_tab
                     Tab.Events -> R.string.events_tab
                     Tab.Settings -> R.string.settings
                 })
@@ -3372,14 +3441,28 @@ class MainActivity : AppCompatActivity() {
                 setColorFilter(if (tab == activeTab) Palette.accent else Palette.text)
                 alpha = if (tab == activeTab) 1f else 0.86f
             }, FrameLayout.LayoutParams(dp(25), dp(25), Gravity.CENTER))
-            if (tablet) item.addView(vertical().apply {
+            if (tv) {
+                item.addView(horizontal().apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), 0, dp(8), 0)
+                    addView(ImageView(context).apply {
+                        setImageResource(if (tab == Tab.Grid) R.drawable.ic_bell_header else tab.iconRes)
+                        setColorFilter(if (tab == activeTab) Palette.accent else Palette.muted)
+                    }, LinearLayout.LayoutParams(dp(21), dp(21)).apply { marginEnd = dp(8) })
+                    addView(label(item.contentDescription.toString(), 13, if (tab == activeTab) Palette.text else Palette.muted).apply {
+                        maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                }, frameMatch())
+                if (tab == activeTab) item.addView(View(this).apply { setBackgroundColor(Palette.accent) },
+                    FrameLayout.LayoutParams(-1, dp(2), Gravity.BOTTOM).apply { marginStart = dp(12); marginEnd = dp(12) })
+            } else if (tablet) item.addView(vertical().apply {
                 gravity = Gravity.CENTER
                 addView(iconHolder, LinearLayout.LayoutParams(dp(48), dp(38)))
                 addView(label(if (tab == Tab.Grid) getString(R.string.notifications) else item.contentDescription.toString(), if (TelevisionMode.enabled(this@MainActivity)) 12 else 10, if (tab == activeTab) Palette.accent else Palette.muted).apply {
                     maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(-1, -2))
             }, frameMatch()) else item.addView(iconHolder, FrameLayout.LayoutParams(dp(58), dp(54), Gravity.CENTER))
-            row.addView(item, if (rail) LinearLayout.LayoutParams(-1, dp(if (TelevisionMode.enabled(this)) 82 else 76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(item, if (rail && !tv) LinearLayout.LayoutParams(-1, dp(76)) else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         return row
     }
