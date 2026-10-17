@@ -1,0 +1,5 @@
+<resources>
+    <string name="tv_settings_display">Anzeige</string>
+    <string name="tv_settings_cameras">Kameras und Kategorien</string>
+    <string name="tv_settings_sound">Ton und Wiedergabe</string>
+</resources>

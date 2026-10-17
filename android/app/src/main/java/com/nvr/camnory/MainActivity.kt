@@ -3186,6 +3186,31 @@ class MainActivity : AppCompatActivity() {
         dismissTransientPopups()
         val root = vertical().apply { setBackgroundColor(Palette.background) }
         val tv = TelevisionMode.enabled(this)
+        if (tv && activeTab == Tab.Settings) {
+            val selected = when (settingsPage) { "server" -> "connections"; "licenses" -> "about"; else -> settingsPage }
+            val sections = listOf(
+                TvSettingsSection("connections", getString(R.string.settings_connections), R.drawable.ic_settings_link) { renderConnectionsSettings() },
+                TvSettingsSection("cameras", getString(R.string.tv_settings_cameras), R.drawable.ic_videocam) { renderCameraSettings() },
+                TvSettingsSection("appearance", getString(R.string.tv_settings_display), R.drawable.ic_layout_selector) { renderAppearanceSettings() },
+                TvSettingsSection("sound", getString(R.string.tv_settings_sound), R.drawable.ic_volume) { renderTvSoundSettings() },
+                TvSettingsSection("transfer", getString(R.string.transfer_title), R.drawable.ic_settings_link) { renderTvTransferSettings() },
+                TvSettingsSection("notifications", getString(R.string.notifications), R.drawable.ic_bell_header) { renderNotificationSettings() },
+                TvSettingsSection("language", getString(R.string.language), R.drawable.ic_settings_globe) { renderLanguageSettings() },
+                TvSettingsSection("security", getString(R.string.security), R.drawable.ic_settings_lock) { renderSecuritySettings() },
+                TvSettingsSection("updates", getString(R.string.updates), R.drawable.ic_refresh) { renderUpdatesSettings() },
+                TvSettingsSection("about", getString(R.string.about), R.drawable.ic_info) { renderAboutSettings() }
+            )
+            root.addView(TvSettingsView(this, brandWordmark(150), getString(R.string.settings), content,
+                sections, selected, getString(R.string.onvif_back)) { renderHome() }, LinearLayout.LayoutParams(-1, -1))
+            keepAboveSystemNavigation(root)
+            setContentView(root)
+            reflowShell = {
+                (content.parent as? ViewGroup)?.removeView(content)
+                setShell(content, activeTab, showHeader)
+            }
+            ViewCompat.requestApplyInsets(root)
+            return
+        }
         if (showHeader && !tv) root.addView(appHeader())
         val rail = tabletLayout().navigationRail
         val navigation = bottomNav(activeTab, rail)
@@ -3959,6 +3984,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSettings() {
+        if (TelevisionMode.enabled(this)) return renderAppearanceSettings()
         settingsPage = "main"
         releasePlayer()
         val scroll = appScrollView().apply { setBackgroundColor(Palette.background) }
@@ -4007,11 +4033,14 @@ class MainActivity : AppCompatActivity() {
             "cameras" -> renderCameraSettings()
             "about" -> renderAboutSettings()
             "licenses" -> renderLicensesSettings()
+            "sound" -> if (TelevisionMode.enabled(this)) renderTvSoundSettings() else renderSettings()
+            "transfer" -> if (TelevisionMode.enabled(this)) renderTvTransferSettings() else renderConnectionsSettings()
             else -> renderSettings()
         }
     }
 
     private fun navigateSettingsBack() {
+        if (TelevisionMode.enabled(this) && settingsPage !in setOf("server", "licenses")) return renderHome()
         when (settingsPage) {
             "server" -> renderConnectionsSettings()
             "licenses" -> renderAboutSettings()
@@ -4046,6 +4075,25 @@ class MainActivity : AppCompatActivity() {
             restoredSettingsPage = "connections"
             loadDashboard(getString(R.string.reloaded))
         }, showChevron = false, icon = R.drawable.ic_refresh)))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderTvTransferSettings() {
+        val (scroll, column) = newSettingsPage("transfer", getString(R.string.transfer_title))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.transfer_title), getString(R.string.tv_transfer_detail), {
+            if (!appLock.locked) startActivity(Intent(this, TvTransferActivity::class.java))
+        }, icon = R.drawable.ic_settings_link, key = "tv-transfer")))
+        setShell(scroll, Tab.Settings)
+    }
+
+    private fun renderTvSoundSettings() {
+        val (scroll, column) = newSettingsPage("sound", getString(R.string.tv_settings_sound))
+        column.addView(preferenceToggleRow(getString(R.string.playback_sound), "", SwitchCompat(this).apply {
+            tag = "tv-settings-playback-sound"
+            contentDescription = getString(R.string.playback_sound)
+            isChecked = soundEnabled
+            setOnCheckedChangeListener { _, checked -> if (checked != soundEnabled) toggleSound() }
+        }))
         setShell(scroll, Tab.Settings)
     }
 
@@ -4106,8 +4154,8 @@ class MainActivity : AppCompatActivity() {
         val appearancePreview = AppearancePreviewView(this, appearancePreviewBitmap).apply {
             tag = "appearance-preview"
         }
-        column.addView(appearancePreview, LinearLayout.LayoutParams(-1, dp(166)).apply { bottomMargin = dp(12) })
-        if (appearancePreviewBitmap == null && previewEvent != null) {
+        if (!TelevisionMode.enabled(this)) column.addView(appearancePreview, LinearLayout.LayoutParams(-1, dp(166)).apply { bottomMargin = dp(12) })
+        if (!TelevisionMode.enabled(this) && appearancePreviewBitmap == null && previewEvent != null) {
             val previewApi = api
             val previewSession = session
             if (previewApi != null && previewSession != null) {
@@ -4166,6 +4214,71 @@ class MainActivity : AppCompatActivity() {
                 "homeCameraLayout", "tabletCameraLayout", "tvCameraLayout" -> R.drawable.ic_layout_selector
                 else -> R.drawable.ic_settings
             }).apply { tag = "appearance-$key" }
+        }
+        fun resetAppearanceButton() = secondaryButton(getString(R.string.appearance_reset)).apply {
+            tag = "appearance-reset"
+            setOnClickListener {
+                dismissTransientPopups()
+                val sheet = ConfirmationSheet(this@MainActivity, getString(R.string.appearance_reset), getString(R.string.appearance_reset_confirm)) {
+                    val edit = appearancePrefs.edit()
+                    CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
+                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion", "showHomeEvents", "showHomeCameraToolbar", "showHeaderChat", "showHeaderAlerts").forEach { edit.remove(it) }
+                    edit.apply()
+                    refreshAppearance()
+                }
+                appearanceResetSheet = sheet
+                sheet.setOnDismissListener { if (appearanceResetSheet === sheet) appearanceResetSheet = null }
+                sheet.show()
+            }
+        }
+        if (TelevisionMode.enabled(this)) {
+            fun toggle(key: String, title: Int, enabled: Boolean, tagValue: String = "appearance-$key") = preferenceToggleRow(getString(title), "", SwitchCompat(this).apply {
+                tag = tagValue; contentDescription = getString(title); isChecked = enabled
+                setOnCheckedChangeListener { _, checked ->
+                    appearancePrefs.edit().putBoolean(key, checked).apply()
+                    if (key == "oledBlack" || key == "showCameraSourceIcons") refreshAppearance()
+                }
+            })
+            val accents = horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, dp(12), 0)
+                addView(ImageView(context).apply { setImageResource(R.drawable.ic_settings_palette); setColorFilter(Palette.text) }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) })
+                addView(settingsTitleLabel(getString(R.string.accent_color)), LinearLayout.LayoutParams(0, -2, 1f))
+                val selected = appearancePrefs.getString("accent", "red").let { if (it == "pink") "red" else it }
+                listOf("red" to R.string.accent_red, "blue" to R.string.accent_blue, "green" to R.string.accent_green, "violet" to R.string.accent_violet, "ochre" to R.string.accent_ochre).forEach { (value, title) ->
+                    addView(FrameLayout(context).apply {
+                        tag = "appearance-accent-$value"; contentDescription = getString(title)
+                        isFocusable = true; isSelected = selected == value
+                        setOnClickListener { appearancePrefs.edit().putString("accent", value).apply(); refreshAppearance() }
+                        addView(View(context).apply { background = rounded(Appearance.accent(value), 12, if (selected == value) Palette.text else Color.TRANSPARENT, if (selected == value) 2 else 0) }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+                    }, LinearLayout.LayoutParams(dp(36), dp(44)))
+                }
+            }
+            column.addView(settingsGroup(
+                choice(R.string.display_mode, "theme", "system", listOf("system" to R.string.system_language, "dark" to R.string.theme_dark, "light" to R.string.theme_light)),
+                accents,
+                choice(R.string.camera_layout, "tvCameraLayout", "2x2", TvGridLayout.values().map { it.preference to it.titleRes }),
+                toggle("showHomeEvents", R.string.home_recent_events, showHomeEvents(), "appearance-home-events"),
+                toggle("showHomeCameraToolbar", R.string.home_camera_toolbar, showHomeToolbar(), "appearance-home-camera-toolbar"),
+                toggle("showHeaderChat", R.string.appearance_header_chat, showHeaderChat()),
+                toggle("showHeaderAlerts", R.string.appearance_header_alerts, showHeaderAlerts())
+            ))
+            column.addView(sectionHeading(getString(R.string.appearance_ambience)))
+            column.addView(settingsGroup(choice(R.string.background_palette, "backgroundStyle", "automatic", BackgroundStyle.values().filter { it != BackgroundStyle.Oled }.map { it.preference to it.titleRes })))
+            column.addView(toggle("oledBlack", R.string.background_oled, appearancePrefs.getBoolean("oledBlack", false), "appearance-oled-black"))
+            column.addView(settingsGroup(choice(R.string.text_size, "textSize", "standard", listOf("small" to R.string.size_small, "standard" to R.string.size_standard, "large" to R.string.size_large))))
+            column.addView(toggle("reducedMotion", R.string.reduce_motion, reducedMotion, "appearance-reduced-motion"))
+            column.addView(toggle("showCameraSourceIcons", R.string.camera_source_icons, cameraArrangement.showSourceIcons, "show-camera-source-icons"))
+            column.addView(settingsGroup(settingsNavRow(getString(R.string.camera_buttons_title), "", {
+                dismissTransientPopups()
+                val sheet = CameraButtonsSheet(this)
+                cameraButtonsSheet = sheet
+                sheet.setOnDismissListener { if (cameraButtonsSheet === sheet) cameraButtonsSheet = null }
+                sheet.show()
+            }, icon = R.drawable.ic_videocam).apply { tag = "appearance-camera-buttons" }))
+            column.addView(settingsGroup(choice(R.string.activity_style, "activityBriefingStyle", "floating", ActivityBriefingStyle.values().map { it.preference to it.titleRes })))
+            column.addView(resetAppearanceButton())
+            setShell(scroll, Tab.Settings)
+            return
         }
         column.addView(sectionHeading(getString(R.string.appearance_ambience)))
         column.addView(settingsGroup(
@@ -4266,23 +4379,10 @@ class MainActivity : AppCompatActivity() {
             isChecked = cameraArrangement.showSourceIcons
             setOnCheckedChangeListener { _, checked ->
                 appearancePrefs.edit().putBoolean("showCameraSourceIcons", checked).apply()
-                column.findViewWithTag<AppearancePreviewView>("appearance-preview").invalidate()
+                column.findViewWithTag<AppearancePreviewView>("appearance-preview")?.invalidate()
             }
         }))
-        column.addView(secondaryButton(getString(R.string.appearance_reset)).apply { setOnClickListener {
-            dismissTransientPopups()
-            val sheet = ConfirmationSheet(this@MainActivity, getString(R.string.appearance_reset),
-                getString(R.string.appearance_reset_confirm)) {
-                    val edit = appearancePrefs.edit()
-                    CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
-                    listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion", "showHomeEvents", "showHomeCameraToolbar", "showHeaderChat", "showHeaderAlerts").forEach { edit.remove(it) }
-                    edit.apply()
-                    refreshAppearance()
-                }
-            appearanceResetSheet = sheet
-            sheet.setOnDismissListener { if (appearanceResetSheet === sheet) appearanceResetSheet = null }
-            sheet.show()
-        }; tag = "appearance-reset" })
+        column.addView(resetAppearanceButton())
         val restoreY = appearanceScrollY
         setShell(scroll, Tab.Settings)
         scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -4497,7 +4597,8 @@ class MainActivity : AppCompatActivity() {
     private fun preferenceToggleRow(title: String, detail: String, toggle: SwitchCompat): View = horizontal().apply {
         toggle.applyAccentTint()
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(14), dp(16), dp(12), dp(16))
+        val tv = TelevisionMode.enabled(this@MainActivity)
+        setPadding(dp(14), dp(if (tv) 7 else 16), dp(12), dp(if (tv) 7 else 16))
         background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
         addView(ImageView(context).apply {
             tag = "settings-row-icon"
@@ -4651,6 +4752,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true, icon: Int? = R.drawable.ic_settings, key: String? = null): View {
+        if (TelevisionMode.enabled(this)) return horizontal().apply {
+            if (key != null) tag = "settings-entry-$key"
+            gravity = Gravity.CENTER_VERTICAL; isClickable = true; isFocusable = true
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            contentDescription = if (detail.isBlank()) title else "$title. $detail"
+            setOnClickListener { onClick() }
+            if (icon != null) addView(ImageView(context).apply {
+                tag = "settings-row-icon"; setImageResource(icon); setColorFilter(Palette.text)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) })
+            addView(settingsTitleLabel(title).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
+            if (detail.isNotBlank()) addView(label(detail, 13, Palette.muted).apply {
+                maxLines = 2; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.END
+                setPadding(dp(12), 0, dp(12), 0)
+            }, LinearLayout.LayoutParams(0, -2, 0.7f))
+            if (showChevron) addView(ImageView(context).apply { setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted) }, LinearLayout.LayoutParams(dp(16), dp(16)))
+        }
         return FrameLayout(this).apply {
             if (key != null) tag = "settings-entry-$key"
             isClickable = true
@@ -4782,6 +4900,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun settingsPageHeader(title: String): View {
+        if (TelevisionMode.enabled(this)) return pageTitle(if (settingsPage == "appearance") getString(R.string.tv_settings_display) else title)
         return horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(settingsBackButton(), LinearLayout.LayoutParams(dp(44), dp(44)).apply {
@@ -4817,7 +4936,8 @@ class MainActivity : AppCompatActivity() {
                         rightMargin = dp(14)
                     })
                 }
-                row.minimumHeight = dp(settingsMenuRowHeightDp())
+                row.minimumHeight = dp(if (TelevisionMode.enabled(this@MainActivity)) 44 else settingsMenuRowHeightDp())
+                if (TelevisionMode.enabled(this@MainActivity)) row.background = null
                 addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
         }.also {
