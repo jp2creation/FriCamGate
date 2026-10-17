@@ -32,7 +32,7 @@ internal class IpCameraStore(private val context: Context, private val storageNa
     fun load(): List<IpCamera> = (if (storageName == "ip-cameras.enc") TvProviderStorage.read(context)?.ip else null) ?: store.load()?.ip.orEmpty()
     fun save(cameras: List<IpCamera>) {
         require(cameras.size <= 200 && cameras.map { it.id }.distinct().size == cameras.size)
-        if (storageName == "ip-cameras.enc" && TvProviderStorage.update(context) { TvConfiguration(it.frigate, it.onvif, it.ha, it.order, it.hidden, cameras) }) return
+        if (storageName == "ip-cameras.enc" && TvProviderStorage.update(context) { it.copy(ip = cameras) }) return
         store.save(TvConfiguration(emptyList(), emptyList(), null, emptyList(), emptySet(), cameras))
     }
 }

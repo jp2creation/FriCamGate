@@ -22,22 +22,28 @@ class TvActivity : AppCompatActivity() {
     private var receiver: TvPairingReceiver? = null
     private var pendingBytes: ByteArray? = null
     private var mode = "home"
+    private lateinit var lock: BiometricAppLock
+    private var invitationSheet: SelectionBottomSheet? = null
+    private var importedConfiguration = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         TelevisionMode.adoptAppearance(this)
         super.onCreate(savedInstanceState)
+        lock = BiometricAppLock(this) { if (intent.action == "com.nvr.camnory.TV_PAIR") startPairing() else showHome() }
         TvRemoteSupport.start(application)
         val appearance = getSharedPreferences("camgate-settings", MODE_PRIVATE)
-        Appearance.loadPalette(appearance, true)
+        Appearance.loadPalette(appearance, resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { if (mode == "home") finish() else showHome() }
         })
     }
     override fun onResume() {
         super.onResume()
-        if (intent.action == "com.nvr.camnory.TV_PAIR") startPairing() else showHome()
+        lock.onForeground()
+        if (!lock.locked) { if (intent.action == "com.nvr.camnory.TV_PAIR") startPairing() else showHome() }
     }
     private fun clear() {
+        invitationSheet?.dismiss(); invitationSheet = null
         generation++
         receiver?.close(); receiver = null
         pendingBytes?.fill(0); pendingBytes = null
@@ -54,7 +60,8 @@ class TvActivity : AppCompatActivity() {
     }
     private fun launchSharedApplication() {
         startActivity(Intent(this, MainActivity::class.java).apply {
-            if (intent.action == "com.nvr.camnory.TV_SETTINGS") action = intent.action
+            if (importedConfiguration) action = "com.nvr.camnory.CONFIG_IMPORTED"
+            else if (intent.action == "com.nvr.camnory.TV_SETTINGS") action = intent.action
         })
         finish()
     }
@@ -65,10 +72,11 @@ class TvActivity : AppCompatActivity() {
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(Palette.background)
             setPadding(dp(32), dp(18), dp(32), dp(18))
-            addView(BrandWordmarkView(this@TvActivity, 180, darkBackground = true), LinearLayout.LayoutParams(dp(180), dp(60)))
+            addView(BrandWordmarkView(this@TvActivity, 180, darkBackground = Palette.dark), LinearLayout.LayoutParams(dp(180), dp(60)))
             addView(text(title, 22))
         }
-        setContentView(body)
+        setContentView(ScrollView(this).apply { setBackgroundColor(Palette.background); addView(body) })
+        if (::lock.isInitialized) lock.protectContent()
         TvRemoteSupport.install(window.decorView)
         return body
     }
@@ -80,6 +88,7 @@ class TvActivity : AppCompatActivity() {
         setOnClickListener { click() }
     }
     private fun startPairing() {
+        if (lock.locked) return
         clear(); mode = "pair"
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val body = root(getString(R.string.tv_pair))
@@ -102,22 +111,36 @@ class TvActivity : AppCompatActivity() {
                     val page = root(getString(R.string.tv_pair))
                     val qr = BarcodeEncoder().encodeBitmap(pairing.ticket.qr(), BarcodeFormat.QR_CODE, 768, 768)
                     page.addView(LinearLayout(this).apply {
+                        orientation = if (resources.configuration.screenWidthDp < 700) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
                         addView(ImageView(this@TvActivity).apply { setImageBitmap(qr); contentDescription = getString(R.string.tv_pair) }, LinearLayout.LayoutParams(dp(280), dp(280)))
                         addView(LinearLayout(this@TvActivity).apply {
                             orientation = LinearLayout.VERTICAL; setPadding(dp(28), 0, 0, 0)
                             addView(text(getString(R.string.tv_pair_code, pairing.ticket.code()), 28))
                             addView(text(getString(R.string.tv_pair_instructions), 18).apply { setPadding(0, dp(20), 0, dp(20)) })
+                            addView(action(getString(R.string.transfer_manual)) {
+                                val content = LinearLayout(this@TvActivity).apply {
+                                    orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), dp(20))
+                                    addView(text(getString(R.string.transfer_code_hint), 15))
+                                    addView(text(pairing.ticket.manualCode(), 14).apply { tag = "transfer-complete-code" })
+                                }
+                                invitationSheet?.dismiss()
+                                invitationSheet = SelectionBottomSheet(this@TvActivity, getString(R.string.transfer_invitation), content).also {
+                                    it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                                    it.show()
+                                }
+                            })
                             addView(action(getString(android.R.string.cancel)) { showHome() }.apply { requestFocus() })
-                        }, LinearLayout.LayoutParams(0, -2, 1f))
-                    }, LinearLayout.LayoutParams(-1, 0, 1f))
+                        }, if (resources.configuration.screenWidthDp < 700) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f))
+                    }, LinearLayout.LayoutParams(-1, -2))
                     pairing.start()
                 }.onFailure { showHome(getString(R.string.tv_network_required)) }
             }
         }
     }
     private fun proposal(bytes: ByteArray) {
-        val imported = runCatching { TvConfiguration.decode(bytes) }.getOrNull()
+        if (lock.locked) { bytes.fill(0); return }
+        val imported = runCatching { ConfigurationTransfer.decode(bytes) }.getOrNull()
             ?: run { bytes.fill(0); showHome(getString(R.string.tv_pair_failed)); return }
         val code = receiver?.ticket?.code().orEmpty()
         receiver?.close(); receiver = null
@@ -125,25 +148,31 @@ class TvActivity : AppCompatActivity() {
         mode = "proposal"
         val body = root(getString(R.string.tv_import_title))
         body.addView(text(getString(R.string.tv_pair_code, code), 24))
-        body.addView(text(getString(R.string.tv_config_summary, imported.frigate.size, imported.onvif.size, imported.ha?.cameras?.size ?: 0), 20).apply { setPadding(0, dp(20), 0, dp(20)) })
-        if (imported.ip.isNotEmpty()) body.addView(text("${getString(R.string.ip_cameras)} : ${imported.ip.size}", 20))
-        body.addView(text(getString(R.string.tv_import_warning), 16))
+        imported.config?.let { config -> body.addView(text(getString(R.string.tv_config_summary, config.frigate.size, config.onvif.size, config.ha?.cameras?.size ?: 0), 18)) }
+        body.addView(text(getString(R.string.transfer_summary, imported.config?.order?.size ?: 0, imported.catalog?.categories?.size ?: 0,
+            getString(if (imported.appearance != null) R.string.transfer_yes else R.string.transfer_no)), 20).apply { setPadding(0, dp(16), 0, dp(16)) })
+        val replace = CheckBox(this).apply {
+            tag = "transfer-replace"; text = getString(R.string.transfer_replace); textSize = 16f; setTextColor(Palette.text)
+            buttonTintList = android.content.res.ColorStateList.valueOf(Palette.accent)
+        }
+        body.addView(text(getString(R.string.transfer_merge), 16))
+        body.addView(replace)
+        body.addView(text(getString(R.string.transfer_consent), 14))
+        val error = text("", 16).apply { setTextColor(Palette.accent) }
+        body.addView(error)
         body.addView(action(getString(R.string.tv_import_accept)) {
+            if (lock.locked) return@action
             val request = ++generation
-            mode = "saving"
-            body.removeAllViews(); body.addView(text(getString(R.string.tv_sending), 20))
-            worker.execute {
-                val result = runCatching { TvConfigurationStore(this).save(imported) }
-                bytes.fill(0)
-                runOnUiThread {
-                    if (request == generation) {
-                        showHome(if (result.isFailure) getString(R.string.tv_pair_failed) else null)
-                    }
-                }
+            // Small local writes stay on the foreground gate: backgrounding cannot commit a stale proposal.
+            val result = runCatching { TransferImport.apply(this, imported, replace.isChecked) }
+            if (request == generation) {
+                result.onSuccess { bytes.fill(0); importedConfiguration = true; showHome() }
+                    .onFailure { error.text = getString(R.string.transfer_conflict) }
             }
         }.apply { tag = "tv-import-accept" })
         body.addView(action(getString(android.R.string.cancel)) { showHome() }.apply { requestFocus() })
     }
+    override fun onPause() { lock.onBackground(); super.onPause() }
     override fun onStop() { clear(); super.onStop() }
     override fun onDestroy() { clear(); worker.shutdownNow(); super.onDestroy() }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

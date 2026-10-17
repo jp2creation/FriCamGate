@@ -39,6 +39,29 @@ internal object TvRemoteSupport {
         @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
     private var started = false
+    fun linkForm(root: View) {
+        if (!TelevisionMode.enabled(root.context)) return
+        val fields = mutableListOf<View>()
+        fun collect(view: View) {
+            if (view.visibility != View.VISIBLE || !view.isEnabled) return
+            if (view is EditText || view.isClickable && view.isFocusable) fields.add(view)
+            else if (view is ViewGroup) repeat(view.childCount) { collect(view.getChildAt(it)) }
+        }
+        collect(root)
+        fields.forEach { if (it.id == View.NO_ID) it.id = View.generateViewId() }
+        fields.forEachIndexed { index, view ->
+            val up = fields.getOrNull(index - 1) ?: view
+            val down = fields.getOrNull(index + 1) ?: view
+            view.nextFocusUpId = up.id; view.nextFocusDownId = down.id
+            if (view is EditText) view.setOnKeyListener { _, key, event ->
+                val destination = when (key) { android.view.KeyEvent.KEYCODE_DPAD_UP -> up; android.view.KeyEvent.KEYCODE_DPAD_DOWN -> down; else -> null }
+                if (destination == null) false else {
+                    if (event.action == android.view.KeyEvent.ACTION_DOWN) destination.requestFocus()
+                    true
+                }
+            }
+        }
+    }
     fun start(application: Application) {
         if (started || !TelevisionMode.enabled(application)) return
         started = true

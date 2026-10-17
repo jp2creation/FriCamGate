@@ -13,8 +13,9 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List<OnvifSavedCamera>,
-    val ha: HomeAssistantConnection?, val order: List<String>, val hidden: Set<String>, val ip: List<IpCamera> = emptyList()) {
+internal data class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List<OnvifSavedCamera>,
+    val ha: HomeAssistantConnection?, val order: List<String>, val hidden: Set<String>, val ip: List<IpCamera> = emptyList(),
+    val selection: Map<String, Set<String>> = emptyMap()) {
     override fun toString() = "TvConfiguration([redacted])"
     fun encode(): ByteArray {
         val servers = JSONArray()
@@ -26,9 +27,12 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
         val assistant = ha?.let { connection -> JSONObject().put("url", connection.baseUrl).put("token", connection.token).put("localRoute", connection.localRoute?.json())
             .put("cameras", JSONArray().apply { connection.cameras.forEach { put(JSONObject()
                 .put("id", it.entityId).put("name", it.name)) } }) }
-        return JSONObject().put("version", if (ip.isEmpty()) 1 else 2).put("frigate", servers).put("onvif", cameras)
+        return JSONObject().put("version", if (selection.isNotEmpty()) 3 else if (ip.isEmpty()) 1 else 2).put("frigate", servers).put("onvif", cameras)
             .put("ha", assistant ?: JSONObject.NULL).put("order", JSONArray(order)).put("hidden", JSONArray(hidden.toList()))
-            .apply { if (ip.isNotEmpty()) put("ip", JSONArray().apply { ip.forEach { put(it.json()) } }) }
+            .apply {
+                if (ip.isNotEmpty() || selection.isNotEmpty()) put("ip", JSONArray().apply { ip.forEach { put(it.json()) } })
+                if (selection.isNotEmpty()) put("selection", JSONObject().apply { selection.forEach { (url, names) -> put(url, JSONArray(names.toList())) } })
+            }
             .toString().toByteArray(Charsets.UTF_8).also { require(it.size <= MAX_BYTES) }
     }
     companion object {
@@ -43,9 +47,9 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
             require(bytes.size in 2..MAX_BYTES)
             val root = JSONObject(String(bytes, Charsets.UTF_8))
             val version = root.getInt("version")
-            require(version in 1..2)
-            require(root.keys().asSequence().toSet() == setOf("version", "frigate", "onvif", "ha", "order", "hidden") + if (version == 2) setOf("ip") else emptySet())
-            val ip = if (version == 2) array(root, "ip", 200).let { a -> (0 until a.length()).map { IpCamera.decode(a.getJSONObject(it)) } } else emptyList()
+            require(version in 1..3)
+            require(root.keys().asSequence().toSet() == setOf("version", "frigate", "onvif", "ha", "order", "hidden") + (if (version >= 2) setOf("ip") else emptySet()) + (if (version == 3) setOf("selection") else emptySet()))
+            val ip = if (version >= 2) array(root, "ip", 200).let { a -> (0 until a.length()).map { IpCamera.decode(a.getJSONObject(it)) } } else emptyList()
             require(ip.map { it.id }.distinct().size == ip.size)
             val servers = array(root, "frigate", 20).let { a -> (0 until a.length()).map { index ->
                 val o = a.getJSONObject(index)
@@ -72,7 +76,14 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
                 HomeAssistantConnection(homeAssistantBaseUrl(text(o, "url", 4096)), text(o, "token", 32768)
                     .also { require('\r' !in it && '\n' !in it) }, haCameras, LocalServerRoute.decode(o.optJSONObject("localRoute")))
             }
-            return TvConfiguration(servers, cameras, ha, strings(root, "order"), strings(root, "hidden").toSet(), ip)
+            val selection = if (version == 3) root.getJSONObject("selection").let { scopes ->
+                require(scopes.length() <= 20)
+                scopes.keys().asSequence().associateWith { url ->
+                    require(servers.any { it.baseUrl == url })
+                    strings(scopes, url).toSet().also { require(it.isNotEmpty() && it.all { name -> name.isNotBlank() && name.length <= 512 && name.none { c -> c.code < 32 } }) }
+                }
+            } else emptyMap()
+            return TvConfiguration(servers, cameras, ha, strings(root, "order"), strings(root, "hidden").toSet(), ip, selection)
         }
         fun fromPhone(context: Context): TvConfiguration {
             TvProviderStorage.read(context)?.let { return it }

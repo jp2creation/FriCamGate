@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Device transfer</string>
+    <string name="transfer_receive">Receive on this device</string>
+    <string name="transfer_manual">Enter a complete invitation</string>
+    <string name="transfer_invitation">Complete invitation code</string>
+    <string name="transfer_choose">Choose what to transfer</string>
+    <string name="transfer_all">Everything</string>
+    <string name="transfer_appearance_only">Appearance only</string>
+    <string name="transfer_cameras_only">Cameras only</string>
+    <string name="transfer_custom">Custom</string>
+    <string name="transfer_appearance">Theme and appearance</string>
+    <string name="transfer_categories">Categories and assignments</string>
+    <string name="transfer_selection">Camera selection</string>
+    <string name="transfer_summary">%1$d cameras · %2$d categories · appearance: %3$s</string>
+    <string name="transfer_yes">yes</string>
+    <string name="transfer_no">no</string>
+    <string name="transfer_review">Review transfer</string>
+    <string name="transfer_consent">The required connection credentials will be included. Their server permissions remain unchanged. No siren, light, microphone or PTZ command will be sent. Both devices need Camnory 0.3.13 or newer for selective transfers.</string>
+    <string name="transfer_merge">Add without deleting existing cameras</string>
+    <string name="transfer_replace">Replace the transferred sections</string>
+    <string name="transfer_conflict">These connections cannot be combined. Nothing was changed. Check the sources or explicitly choose replacement.</string>
+    <string name="transfer_inventory_failed">Some cameras could not be listed. Retry before sending cameras, or transfer appearance only.</string>
+    <string name="transfer_code_hint">The six-digit number is for verification. Manual entry requires the complete invitation shown below.</string>
+    <string name="transfer_ready">Ready to receive</string>
+</resources>

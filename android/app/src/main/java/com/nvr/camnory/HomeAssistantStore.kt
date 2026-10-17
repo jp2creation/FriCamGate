@@ -39,7 +39,7 @@ internal class HomeAssistantStore(private val context: Context) {
             }, LocalServerRoute.decode(value.optJSONObject("localRoute")))
     }
     fun save(connection: HomeAssistantConnection?) {
-        if (TvProviderStorage.update(context) { TvConfiguration(it.frigate, it.onvif, connection, it.order, it.hidden, it.ip) }) return
+        if (TvProviderStorage.update(context) { it.copy(ha = connection) }) return
         if (connection == null) { file.delete(); return }
         require(connection.cameras.size <= 200 && connection.cameras.all { validHomeAssistantCamera(it.entityId) })
         val cameras = JSONArray()

@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Transferencia entre dispositivos</string>
+    <string name="transfer_receive">Recibir en este dispositivo</string>
+    <string name="transfer_manual">Introducir una invitación completa</string>
+    <string name="transfer_invitation">Código completo de invitación</string>
+    <string name="transfer_choose">Elegir qué transferir</string>
+    <string name="transfer_all">Transferir todo</string>
+    <string name="transfer_appearance_only">Solo apariencia</string>
+    <string name="transfer_cameras_only">Solo cámaras</string>
+    <string name="transfer_custom">Personalizado</string>
+    <string name="transfer_appearance">Tema y apariencia</string>
+    <string name="transfer_categories">Categorías y asignaciones</string>
+    <string name="transfer_selection">Selección de cámaras</string>
+    <string name="transfer_summary">%1$d cámaras · %2$d categorías · apariencia: %3$s</string>
+    <string name="transfer_yes">sí</string>
+    <string name="transfer_no">no</string>
+    <string name="transfer_review">Revisar transferencia</string>
+    <string name="transfer_consent">Se incluirán las credenciales necesarias. Los permisos del servidor no cambian. No se enviarán órdenes de sirena, luz, micrófono ni PTZ. Ambos dispositivos necesitan Camnory 0.3.13 o posterior.</string>
+    <string name="transfer_merge">Añadir sin eliminar las cámaras existentes</string>
+    <string name="transfer_replace">Reemplazar las secciones transferidas</string>
+    <string name="transfer_conflict">No se pueden combinar estas conexiones. No se ha cambiado nada. Comprueba las fuentes o elige reemplazar.</string>
+    <string name="transfer_inventory_failed">No se pudieron listar algunas cámaras. Reintenta o transfiere solo la apariencia.</string>
+    <string name="transfer_code_hint">El número de seis cifras sirve para verificar. La entrada manual necesita la invitación completa que aparece abajo.</string>
+    <string name="transfer_ready">Listo para recibir</string>
+</resources>

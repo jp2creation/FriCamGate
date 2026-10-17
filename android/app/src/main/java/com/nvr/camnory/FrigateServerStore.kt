@@ -59,7 +59,7 @@ internal class FrigateServerStore(private val context: Context) {
     }
     fun save(servers: List<FrigateServer>) = synchronized(LOCK) {
         validate(servers)
-        if (TvProviderStorage.update(context) { TvConfiguration(servers, it.onvif, it.ha, it.order, it.hidden, it.ip) }) return@synchronized
+        if (TvProviderStorage.update(context) { it.copy(frigate = servers, selection = it.selection.filterKeys { url -> servers.any { s -> s.baseUrl == url } }) }) return@synchronized
         val array = JSONArray()
         servers.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("baseUrl", frigateServerUrl(it.baseUrl))
             .put("username", it.username).put("token", it.token).put("legacy", it.legacy).put("localRoute", it.localRoute?.json())) }

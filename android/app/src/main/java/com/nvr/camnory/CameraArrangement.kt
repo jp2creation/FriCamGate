@@ -29,7 +29,7 @@ internal class CameraArrangementStore(private val context: Context) {
 
     fun saveOrder(order: List<String>) {
         if (TvProviderStorage.update(context) { config ->
-            TvConfiguration(config.frigate, config.onvif, config.ha, (order + config.order.filter { it !in order }).distinct(), config.hidden, config.ip)
+            config.copy(order = (order + config.order.filter { it !in order }).distinct())
         }) return
         // Keep absent cameras so a temporary disconnect does not reset their position.
         val retained = savedOrder().filter { it !in order }
@@ -41,7 +41,7 @@ internal class CameraArrangementStore(private val context: Context) {
     fun setHidden(key: String, hidden: Boolean) {
         if (TvProviderStorage.update(context) { config ->
             val keys = config.hidden.toMutableSet().apply { if (hidden) add(key) else remove(key) }
-            TvConfiguration(config.frigate, config.onvif, config.ha, config.order, keys, config.ip)
+            config.copy(hidden = keys)
         }) return
         val keys = prefs.getStringSet("hiddenSourceCameras", emptySet()).orEmpty().toMutableSet()
         if (hidden) keys.add(key) else keys.remove(key)

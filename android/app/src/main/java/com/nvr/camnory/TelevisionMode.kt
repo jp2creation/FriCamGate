@@ -24,10 +24,10 @@ internal object TelevisionMode {
 
 /** Share the TV's existing encrypted source, never copy it into the phone stores. */
 internal object TvProviderStorage {
-    fun read(context: Context): TvConfiguration? = if (TelevisionMode.enabled(context))
-        TvConfigurationStore(context).load() ?: TvConfiguration(emptyList(), emptyList(), null, emptyList(), emptySet()) else null
+    fun read(context: Context): TvConfiguration? = TvConfigurationStore(context).load()
+        ?: if (TelevisionMode.enabled(context)) TvConfiguration(emptyList(), emptyList(), null, emptyList(), emptySet()) else null
     fun update(context: Context, change: (TvConfiguration) -> TvConfiguration): Boolean {
-        if (!TelevisionMode.enabled(context)) return false
+        if (!TelevisionMode.enabled(context) && read(context) == null) return false
         val store = TvConfigurationStore(context)
         store.update(change)
         return true

@@ -1,5 +1,20 @@
 # Android TV Preview: Local Configuration Transfer
 
+## 0.3.13 Selective Transfer
+
+The historical v1 contract below describes the original full-TV-only import.
+Version 0.3.13 adds a bounded `transfer: 1` envelope around the compatible
+configuration codecs, optional catalog metadata and allowlisted appearance.
+Receiver confirmation defaults to merge; replacement affects only included
+sections. Phone/tablet receivers use the same encrypted provider store after
+acceptance. No automatic synchronization or alarm/control state transfer.
+Frigate subsets persist in configuration schema 3 and filter dashboard/history
+and notification candidates, without narrowing source-token permissions.
+QR tickets are unchanged. The CTV1 manual invitation packs the same endpoint,
+certificate pin and secret; the six-digit code remains a visual comparison.
+New selective proposals require both endpoints on 0.3.13 or later. Old full
+configuration payloads are still accepted. No cloud or discovery service added.
+
 ## Contract
 
 - One application ID and signer, separate TV launcher activity.

@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Transfert entre appareils</string>
+    <string name="transfer_receive">Recevoir sur cet appareil</string>
+    <string name="transfer_manual">Saisir une invitation complète</string>
+    <string name="transfer_invitation">Code complet de l’invitation</string>
+    <string name="transfer_choose">Choisir quoi transférer</string>
+    <string name="transfer_all">Tout transférer</string>
+    <string name="transfer_appearance_only">Apparence uniquement</string>
+    <string name="transfer_cameras_only">Caméras uniquement</string>
+    <string name="transfer_custom">Personnalisé</string>
+    <string name="transfer_appearance">Thème et apparence</string>
+    <string name="transfer_categories">Catégories et affectations</string>
+    <string name="transfer_selection">Sélection des caméras</string>
+    <string name="transfer_summary">Caméras : %1$d · Catégories : %2$d · Apparence : %3$s</string>
+    <string name="transfer_yes">oui</string>
+    <string name="transfer_no">non</string>
+    <string name="transfer_review">Vérifier le transfert</string>
+    <string name="transfer_consent">Les identifiants de connexion nécessaires seront inclus. Leurs droits sur les serveurs restent inchangés. Aucune commande de sirène, lumière, micro ou PTZ ne sera envoyée. Les deux appareils doivent disposer de Camnory 0.3.13 ou ultérieur pour le transfert sélectif.</string>
+    <string name="transfer_merge">Ajouter sans supprimer les caméras existantes</string>
+    <string name="transfer_replace">Remplacer les rubriques transférées</string>
+    <string name="transfer_conflict">Ces connexions ne peuvent pas être fusionnées. Rien n’a été modifié. Vérifie les sources ou choisis explicitement le remplacement.</string>
+    <string name="transfer_inventory_failed">Certaines caméras n’ont pas pu être listées. Réessaie avant d’envoyer les caméras, ou transfère uniquement l’apparence.</string>
+    <string name="transfer_code_hint">Le numéro à six chiffres sert à vérifier l’association. La saisie manuelle nécessite l’invitation complète affichée ci-dessous.</string>
+    <string name="transfer_ready">Prêt à recevoir</string>
+</resources>

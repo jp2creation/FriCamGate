@@ -164,9 +164,11 @@ internal object CameraNotifications {
             val hidden = prefs.getStringSet("hiddenCameras:$baseUrl", emptySet()).orEmpty()
             val localized = localizedContext(context)
             val policy = policy(context)
+            val transferredSelection = TvProviderStorage.read(context)?.selection?.get(baseUrl)
             val now = Calendar.getInstance()
             val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
             newCameraAlerts(candidates, afterMillis / 1000.0 - 30.0, hidden, posted)
+                .filter { transferredSelection == null || it.camera in transferredSelection }
                 .filter { policy.accepts(server.qualify(it.camera), it.facts.label, minute) }
                 .filter { !CameraArrangementStore(context).hidden(CameraArrangement.key("frigate", baseUrl, it.camera)) }
                 .takeLast(20).forEach { alert ->

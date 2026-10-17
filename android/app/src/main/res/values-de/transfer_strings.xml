@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Geräteübertragung</string>
+    <string name="transfer_receive">Auf diesem Gerät empfangen</string>
+    <string name="transfer_manual">Vollständige Einladung eingeben</string>
+    <string name="transfer_invitation">Vollständiger Einladungscode</string>
+    <string name="transfer_choose">Übertragung auswählen</string>
+    <string name="transfer_all">Alles übertragen</string>
+    <string name="transfer_appearance_only">Nur Darstellung</string>
+    <string name="transfer_cameras_only">Nur Kameras</string>
+    <string name="transfer_custom">Benutzerdefiniert</string>
+    <string name="transfer_appearance">Design und Darstellung</string>
+    <string name="transfer_categories">Kategorien und Zuordnungen</string>
+    <string name="transfer_selection">Kameraauswahl</string>
+    <string name="transfer_summary">%1$d Kameras · %2$d Kategorien · Darstellung: %3$s</string>
+    <string name="transfer_yes">ja</string>
+    <string name="transfer_no">nein</string>
+    <string name="transfer_review">Übertragung prüfen</string>
+    <string name="transfer_consent">Die erforderlichen Zugangsdaten werden übertragen. Serverrechte bleiben unverändert. Keine Sirenen-, Licht-, Mikrofon- oder PTZ-Befehle werden gesendet. Beide Geräte benötigen Camnory 0.3.13 oder neuer.</string>
+    <string name="transfer_merge">Hinzufügen, ohne vorhandene Kameras zu löschen</string>
+    <string name="transfer_replace">Übertragene Bereiche ersetzen</string>
+    <string name="transfer_conflict">Diese Verbindungen können nicht zusammengeführt werden. Nichts wurde geändert. Quellen prüfen oder ausdrücklich ersetzen.</string>
+    <string name="transfer_inventory_failed">Einige Kameras konnten nicht aufgelistet werden. Erneut versuchen oder nur die Darstellung übertragen.</string>
+    <string name="transfer_code_hint">Die sechsstellige Nummer dient zum Abgleich. Die manuelle Eingabe erfordert die vollständige Einladung unten.</string>
+    <string name="transfer_ready">Empfangsbereit</string>
+</resources>

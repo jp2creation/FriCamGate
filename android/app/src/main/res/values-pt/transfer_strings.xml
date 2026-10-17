@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Transferência entre dispositivos</string>
+    <string name="transfer_receive">Receber neste dispositivo</string>
+    <string name="transfer_manual">Introduzir convite completo</string>
+    <string name="transfer_invitation">Código completo do convite</string>
+    <string name="transfer_choose">Escolher o que transferir</string>
+    <string name="transfer_all">Transferir tudo</string>
+    <string name="transfer_appearance_only">Apenas aparência</string>
+    <string name="transfer_cameras_only">Apenas câmaras</string>
+    <string name="transfer_custom">Personalizado</string>
+    <string name="transfer_appearance">Tema e aparência</string>
+    <string name="transfer_categories">Categorias e atribuições</string>
+    <string name="transfer_selection">Seleção de câmaras</string>
+    <string name="transfer_summary">%1$d câmaras · %2$d categorias · aparência: %3$s</string>
+    <string name="transfer_yes">sim</string>
+    <string name="transfer_no">não</string>
+    <string name="transfer_review">Rever transferência</string>
+    <string name="transfer_consent">Serão incluídas as credenciais necessárias. As permissões do servidor não mudam. Não serão enviados comandos de sirene, luz, microfone ou PTZ. Ambos os dispositivos precisam do Camnory 0.3.13 ou posterior.</string>
+    <string name="transfer_merge">Adicionar sem eliminar as câmaras existentes</string>
+    <string name="transfer_replace">Substituir as secções transferidas</string>
+    <string name="transfer_conflict">Estas ligações não podem ser combinadas. Nada foi alterado. Verifica as fontes ou escolhe a substituição.</string>
+    <string name="transfer_inventory_failed">Não foi possível listar algumas câmaras. Tenta novamente ou transfere apenas a aparência.</string>
+    <string name="transfer_code_hint">O número de seis dígitos serve para verificar. A introdução manual exige o convite completo abaixo.</string>
+    <string name="transfer_ready">Pronto para receber</string>
+</resources>

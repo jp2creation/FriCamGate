@@ -21,10 +21,27 @@ import com.google.zxing.qrcode.QRCodeReader
 import com.google.zxing.BarcodeFormat
 
 class TvPairingTransportTest {
+    @Test fun selectiveAppearanceProposalUsesTheSamePinnedSingleUseTlsTransport() {
+        val received = CountDownLatch(1)
+        val payload = ConfigurationTransfer(null, null, mapOf("theme" to "dark", "accent" to "blue")).encode()
+        var copy: ConfigurationTransfer? = null
+        TvPairingReceiver(InetAddress.getByName("127.0.0.1"), { bytes ->
+            copy = ConfigurationTransfer.decode(bytes); bytes.fill(0); received.countDown()
+        }, {}).use { receiver ->
+            receiver.start()
+            TvPairingSender().use { it.send(receiver.ticket, payload) }
+            assertTrue(received.await(3, TimeUnit.SECONDS))
+            assertNull(copy!!.config)
+            assertEquals("blue", copy!!.appearance!!["accent"])
+        }
+    }
     private val payload get() = TvConfiguration(emptyList(), emptyList(), null, listOf("fixture"), emptySet()).encode()
     @Test fun qrOnlyAcceptsPrivateNumericIpv4AndRedactsInvitation() {
         val ticket = TvPairingTicket("192.168.1.20", 23000, "a".repeat(64), "b".repeat(43) + "=")
         assertEquals(ticket.host, TvPairingTicket.parse(ticket.qr()).host)
+        assertEquals(ticket.qr(), TvPairingTicket.parse(ticket.manualCode()).qr())
+        assertTrue(runCatching { TvPairingTicket.parse(ticket.code()) }.isFailure)
+        assertTrue(runCatching { TvPairingTicket.parse("CTV1-invalid") }.isFailure)
         assertEquals(6, ticket.code().length)
         assertFalse(ticket.toString().contains(ticket.secret))
         listOf("127.0.0.1", "8.8.8.8", "169.254.169.254", "0.0.0.0", "example.com", "192.168.001.1", "192.168.1.2/path").forEach {

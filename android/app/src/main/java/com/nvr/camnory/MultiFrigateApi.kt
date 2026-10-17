@@ -10,6 +10,8 @@ import java.io.IOException
 /** Qualified identifiers never leave this router; transports receive native server names. */
 internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpClient, context: android.content.Context? = null) :
     FrigateNativeApi(servers.first().baseUrl, client) {
+    private val selection = context?.let { TvProviderStorage.read(it)?.selection }.orEmpty()
+    private fun permits(server: FrigateServer, name: String) = selection[server.baseUrl]?.contains(name) ?: true
     private val transports = servers.associate { it.id to FrigateNativeApi(it.baseUrl, client.newBuilder()
         .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).apply {
             if (context != null) {
@@ -43,9 +45,9 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
                     unavailable = results.filterValues { it.isFailure }.keys.toSet()
                     val loaded = servers.mapNotNull { s -> results[s.id]?.getOrNull()?.let { s to it } }
                     if (loaded.isEmpty()) Result.failure(IOException("Frigate unavailable")) else Result.success(DashboardData(
-                        loaded.flatMap { (s, data) -> data.cameras.map { it.copy(name = s.qualify(it.name), streamName = s.qualify(it.streamName), tvStreamName = s.qualify(it.tvStreamName),
+                        loaded.flatMap { (s, data) -> data.cameras.filter { permits(s, it.name) }.map { it.copy(name = s.qualify(it.name), streamName = s.qualify(it.streamName), tvStreamName = s.qualify(it.tvStreamName),
                             friendlyName = if (servers.size > 1) "${it.friendlyName} · ${s.name}" else it.friendlyName) } },
-                        loaded.flatMap { (s, data) -> data.events.map { qualify(s, it) } }.sortedByDescending { it.startTime ?: 0.0 }))
+                        loaded.flatMap { (s, data) -> data.events.filter { permits(s, it.camera) }.map { qualify(s, it) } }.sortedByDescending { it.startTime ?: 0.0 }))
                 }
             }
             combined?.let(callback)
@@ -53,6 +55,7 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
     }
     override fun loadEvents(token: String, cameraName: String, afterSec: Double, beforeSec: Double, callback: (Result<List<NativeEvent>>) -> Unit) {
         val s = serverFor(cameraName)
+        if (!permits(s, nativeName(cameraName))) { callback(Result.success(emptyList())); return }
         api(s).loadEvents(s.token, nativeName(cameraName), afterSec, beforeSec) { callback(it.map { events -> events.map { e -> qualify(s, e) } }) }
     }
     override fun searchEvents(token: String, search: EventSearch, now: Double, before: Double?, callback: (Result<List<NativeEvent>>) -> Unit) {
@@ -61,7 +64,7 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
         selected.forEach { s ->
             api(s).searchEvents(s.token, search.copy(camera = search.camera?.let(::nativeName)), now, before) { result ->
                 val combined = synchronized(results) {
-                    results[s.id] = result.map { it.map { e -> qualify(s, e) } }
+                    results[s.id] = result.map { it.filter { e -> permits(s, e.camera) }.map { e -> qualify(s, e) } }
                     if (results.size < selected.size) null else if (results.values.any { it.isFailure })
                         Result.failure(IOException("Frigate history unavailable"))
                     else Result.success(results.values.flatMap { it.getOrThrow() }.sortedByDescending { it.startTime ?: 0.0 }.take(100))

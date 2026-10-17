@@ -27,9 +27,24 @@ internal class TvPairingTicket internal constructor(val host: String, val port: 
         .put("pin", pin).put("secret", secret).toString()
     fun code(): String = (MessageDigest.getInstance("SHA-256").digest(secret.toByteArray()).take(3)
         .fold(0) { total, byte -> (total shl 8) or (byte.toInt() and 255) } % 1_000_000).toString().padStart(6, '0')
+    fun manualCode(): String {
+        val bytes = host.split('.').map { it.toInt().toByte() }.toByteArray() +
+            byteArrayOf((port shr 8).toByte(), port.toByte()) + pin.chunked(2).map { it.toInt(16).toByte() }.toByteArray() +
+            secret.toByteArray(Charsets.US_ASCII)
+        return "CTV1-" + bytes.toByteString().base64Url().trimEnd('=')
+    }
     companion object {
         fun parse(value: String): TvPairingTicket {
             require(value.length in 1..2048)
+            if (value.startsWith("CTV1-")) {
+                val bytes = requireNotNull(value.removePrefix("CTV1-").decodeBase64()).toByteArray()
+                require(bytes.size == 82)
+                val host = bytes.take(4).joinToString(".") { (it.toInt() and 255).toString() }
+                val port = ((bytes[4].toInt() and 255) shl 8) or (bytes[5].toInt() and 255)
+                val pin = bytes.copyOfRange(6, 38).joinToString("") { "%02x".format(it.toInt() and 255) }
+                val secret = String(bytes.copyOfRange(38, 82), Charsets.US_ASCII)
+                return parse(TvPairingTicket(host, port, pin, secret).qr())
+            }
             val o = JSONObject(value)
             require(o.keys().asSequence().toSet() == setOf("type", "host", "port", "pin", "secret"))
             require(o.getString("type") == "camnory-tv-1")
@@ -86,7 +101,7 @@ internal class TvPairingReceiver(address: InetAddress, private val onReceived: (
                         supplied.fill(0)
                         val size = input.readInt(); require(size in 2..TvConfiguration.MAX_BYTES)
                         val bytes = ByteArray(size).apply { input.readFully(this) }
-                        try { TvConfiguration.decode(bytes) } catch (e: Exception) { bytes.fill(0); throw e }
+                        try { ConfigurationTransfer.decode(bytes) } catch (e: Exception) { bytes.fill(0); throw e }
                         try { DataOutputStream(socket.outputStream).apply { writeInt(MAGIC); flush() } }
                         catch (e: Exception) { bytes.fill(0); throw e }
                         bytes
@@ -118,7 +133,7 @@ internal class TvPairingSender : AutoCloseable {
     @Volatile private var closed = false
     fun send(ticket: TvPairingTicket, payload: ByteArray) {
         check(!closed)
-        TvConfiguration.decode(payload)
+        ConfigurationTransfer.decode(payload)
         val trust = object : X509TrustManager {
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) { throw java.security.cert.CertificateException() }

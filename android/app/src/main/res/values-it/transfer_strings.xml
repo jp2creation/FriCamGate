@@ -1,0 +1,25 @@
+<resources>
+    <string name="transfer_title">Trasferimento tra dispositivi</string>
+    <string name="transfer_receive">Ricevi su questo dispositivo</string>
+    <string name="transfer_manual">Inserisci un invito completo</string>
+    <string name="transfer_invitation">Codice completo di invito</string>
+    <string name="transfer_choose">Scegli cosa trasferire</string>
+    <string name="transfer_all">Trasferisci tutto</string>
+    <string name="transfer_appearance_only">Solo aspetto</string>
+    <string name="transfer_cameras_only">Solo telecamere</string>
+    <string name="transfer_custom">Personalizzato</string>
+    <string name="transfer_appearance">Tema e aspetto</string>
+    <string name="transfer_categories">Categorie e assegnazioni</string>
+    <string name="transfer_selection">Selezione telecamere</string>
+    <string name="transfer_summary">%1$d telecamere · %2$d categorie · aspetto: %3$s</string>
+    <string name="transfer_yes">sì</string>
+    <string name="transfer_no">no</string>
+    <string name="transfer_review">Controlla trasferimento</string>
+    <string name="transfer_consent">Saranno incluse le credenziali necessarie. I permessi del server non cambiano. Nessun comando per sirena, luce, microfono o PTZ verrà inviato. Entrambi i dispositivi richiedono Camnory 0.3.13 o successivo.</string>
+    <string name="transfer_merge">Aggiungi senza eliminare le telecamere esistenti</string>
+    <string name="transfer_replace">Sostituisci le sezioni trasferite</string>
+    <string name="transfer_conflict">Queste connessioni non possono essere unite. Nessuna modifica effettuata. Controlla le sorgenti o scegli la sostituzione.</string>
+    <string name="transfer_inventory_failed">Alcune telecamere non sono state elencate. Riprova o trasferisci solo il tema.</string>
+    <string name="transfer_code_hint">Il numero a sei cifre serve per la verifica. Per inserire manualmente serve il codice completo qui sotto.</string>
+    <string name="transfer_ready">Pronto a ricevere</string>
+</resources>
