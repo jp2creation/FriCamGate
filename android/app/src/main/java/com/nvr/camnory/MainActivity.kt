@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private var activityBriefingSheet: ActivityBriefingSheet? = null
     private var timelineDateSheet: TimelineDateSheet? = null
     private var cameraButtonsSheet: CameraButtonsSheet? = null
+    private var appearanceResetSheet: ConfirmationSheet? = null
     private var homeSourceSheet: AppearanceChoiceSheet? = null
     private var eventFilterSheet: EventFilterSheet? = null
     private var chatDialog: NativeChatDialog? = null
@@ -264,6 +265,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        appearanceResetSheet?.dismiss(); appearanceResetSheet = null
         timelineDateSheet?.dismiss(); timelineDateSheet = null
         cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
         dismissCameraPicker()
@@ -666,7 +668,9 @@ class MainActivity : AppCompatActivity() {
         }
         val homeContent = FrameLayout(this).apply {
             addView(horizontal().apply {
-                addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+                addView(PullRefreshLayout(this@MainActivity, content,
+                    allowed = { homeVisible && !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) },
+                    refresh = { done -> refreshHomeDashboard(done) }), LinearLayout.LayoutParams(0, -1, 1f))
                 if (activitySidebar) {
                     addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(dp(1), -1))
                     addView(tabletActivitySidebar(), LinearLayout.LayoutParams(dp(tablet.activityWidthDp), -1))
@@ -681,6 +685,28 @@ class MainActivity : AppCompatActivity() {
         setShell(homeContent, Tab.Home, animateIn = true)
         onvifCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
         homeAssistantCards.forEach { it.setActive(!appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) }
+    }
+
+    private var homeRefreshGeneration = 0
+
+    private fun refreshHomeDashboard(done: () -> Unit) {
+        val refreshGeneration = ++homeRefreshGeneration
+        val activeSession = session
+        val activeApi = api
+        val generation = homeStreamGeneration
+        if (activeSession == null || activeApi == null) {
+            done(); if (homeVisible && !appLock.locked) renderHome()
+            return
+        }
+        activeApi.loadDashboard(activeSession.token) { result -> runOnUiThread {
+            done()
+            if (!homeVisible || appLock.locked || refreshGeneration != homeRefreshGeneration || generation != homeStreamGeneration || api !== activeApi || session != activeSession) return@runOnUiThread
+            result.onSuccess { data ->
+                cameras = data.cameras; events = data.events; dashboardErrorMessage = null
+                globalQueryGeneration++; globalResults = null; globalLoading = false
+                renderHome(if ((activeApi as? MultiFrigateApi)?.unavailable?.isNotEmpty() == true) getString(R.string.frigate_partial) else null)
+            }.onFailure { toast(it.message ?: getString(R.string.frigate_unavailable)) }
+        } }
     }
 
     private data class DashboardCamera(
@@ -1862,14 +1888,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderGlobalEvents() {
         releasePlayer()
-        setShell(globalEventList(globalResults.orEmpty()), Tab.Grid)
+        setShell(PullRefreshLayout(this, globalEventList(globalResults.orEmpty()),
+            allowed = { !appLock.locked && !globalLoading && activeTab == Tab.Grid },
+            refresh = { done -> loadGlobalEventPage(reset = true, onComplete = done) }), Tab.Grid)
         if (globalResults == null && !globalLoading) loadGlobalEventPage(reset = true)
     }
 
-    private fun loadGlobalEventPage(reset: Boolean) {
-        val activeSession = session ?: return
-        val activeApi = api ?: return
-        if (globalLoading) return
+    private fun loadGlobalEventPage(reset: Boolean, onComplete: () -> Unit = {}) {
+        val activeSession = session ?: return onComplete()
+        val activeApi = api ?: return onComplete()
+        if (globalLoading) return onComplete()
         globalLoading = true
         globalError = false
         if (reset) {
@@ -1883,6 +1911,7 @@ class MainActivity : AppCompatActivity() {
         refreshGlobalEventResults()
         activeApi.searchEvents(activeSession.token, search, globalQueryAnchor, before) { result ->
             runOnUiThread {
+                onComplete()
                 if (generation != globalQueryGeneration || session?.token != activeSession.token || search != eventSearch) return@runOnUiThread
                 globalLoading = false
                 result.onSuccess { page ->
@@ -3114,6 +3143,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        appearanceResetSheet?.dismiss(); appearanceResetSheet = null
         timelineDateSheet?.dismiss(); timelineDateSheet = null
         cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
         accessorySheet?.dismiss(); accessorySheet = null
@@ -3577,6 +3607,13 @@ class MainActivity : AppCompatActivity() {
                         appearanceChoiceSheet = sheet
                         sheet.setOnDismissListener { if (appearanceChoiceSheet === sheet) appearanceChoiceSheet = null }
                     }.show()
+            }, icon = when (key) {
+                "theme" -> R.drawable.ic_settings_palette
+                "backgroundStyle" -> R.drawable.ic_image
+                "textSize" -> R.drawable.ic_text_size
+                "activityBriefingStyle" -> R.drawable.ic_activity_wave
+                "homeCameraLayout", "tabletCameraLayout" -> R.drawable.ic_layout_selector
+                else -> R.drawable.ic_settings
             }).apply { tag = "appearance-$key" }
         }
         column.addView(sectionHeading(getString(R.string.appearance_ambience)))
@@ -3660,17 +3697,18 @@ class MainActivity : AppCompatActivity() {
             }
         }))
         column.addView(secondaryButton(getString(R.string.appearance_reset)).apply { setOnClickListener {
-            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle(R.string.appearance_reset)
-                .setMessage(R.string.appearance_reset_confirm)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
+            dismissTransientPopups()
+            val sheet = ConfirmationSheet(this@MainActivity, getString(R.string.appearance_reset),
+                getString(R.string.appearance_reset_confirm)) {
                     val edit = appearancePrefs.edit()
                     CameraButton.values().forEach { edit.remove("cameraButton:${it.preference}") }
                     listOf("theme", "backgroundStyle", "oledBlack", "accent", "timelineColor", "textSize", "homeCameraLayout", "showCameraSourceIcons", "showActivityBriefing", "activityBriefingStyle", "reducedMotion").forEach { edit.remove(it) }
                     edit.apply()
                     refreshAppearance()
-                }.show()
+                }
+            appearanceResetSheet = sheet
+            sheet.setOnDismissListener { if (appearanceResetSheet === sheet) appearanceResetSheet = null }
+            sheet.show()
         }; tag = "appearance-reset" })
         val restoreY = appearanceScrollY
         setShell(scroll, Tab.Settings)
@@ -3886,8 +3924,20 @@ class MainActivity : AppCompatActivity() {
     private fun preferenceToggleRow(title: String, detail: String, toggle: SwitchCompat): View = horizontal().apply {
         toggle.applyAccentTint()
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), dp(16), dp(12), dp(16))
+        setPadding(dp(14), dp(16), dp(12), dp(16))
         background = rounded(Palette.card, settingsMenuCornerRadiusDp(), Palette.divider, 1)
+        addView(ImageView(context).apply {
+            tag = "settings-row-icon"
+            setImageResource(when (toggle.tag) {
+                "appearance-oled-black" -> R.drawable.ic_image
+                "appearance-reduced-motion" -> R.drawable.ic_pause_outline
+                "show-activity-briefing" -> R.drawable.ic_activity_wave
+                "show-camera-source-icons" -> R.drawable.ic_settings_link
+                else -> R.drawable.ic_settings
+            })
+            setColorFilter(Palette.text)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) })
         addView(vertical().apply {
             setPadding(0, 0, dp(12), 0)
             addView(settingsTitleLabel(title).apply { maxLines = 2 })
@@ -3996,7 +4046,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true, icon: Int? = null, key: String? = null): View {
+    private fun settingsNavRow(title: String, detail: String, onClick: () -> Unit, showChevron: Boolean = true, icon: Int? = R.drawable.ic_settings, key: String? = null): View {
         return FrameLayout(this).apply {
             if (key != null) tag = "settings-entry-$key"
             isClickable = true
@@ -4010,6 +4060,7 @@ class MainActivity : AppCompatActivity() {
                 if (detail.isNotBlank()) addView(settingsDetailLabel(detail))
             }, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL))
             if (icon != null) addView(ImageView(context).apply {
+                tag = "settings-row-icon"
                 setImageResource(icon); setColorFilter(Palette.text)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(14) })

@@ -78,6 +78,27 @@ class SettingsNavigationInstrumentationTest {
         fail("Fixture dashboard did not load")
     }
 
+    @Test fun appearanceRowsHaveIconsAndResetUsesThemedConfirmationWithoutTouchingConnection() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                render(activity, "renderAppearanceSettings")
+                listOf("theme", "backgroundStyle", "textSize", "activityBriefingStyle", "homeCameraLayout").forEach { key ->
+                    val row = root(activity).findViewWithTag<View>("appearance-$key")
+                    assertNotNull(row)
+                    assertTrue(views(row).any { it.tag == "settings-row-icon" })
+                }
+                root(activity).findViewWithTag<View>("appearance-reset").performClick()
+                val field = MainActivity::class.java.getDeclaredField("appearanceResetSheet").apply { isAccessible = true }
+                val sheet = field.get(activity) as ConfirmationSheet
+                assertNotNull(sheet.window!!.decorView.findViewWithTag<View>("selection-sheet"))
+                sheet.window!!.decorView.findViewWithTag<View>("confirmation-cancel").performClick()
+                assertFalse(sheet.isShowing)
+                assertEquals("fixture-token", context.getSharedPreferences("fricamgate-native", 0).getString("token", null))
+            }
+        }
+    }
+
     @Test fun dateSheetDoesNotLoadUntilConfirmedAndStaysBelowSeventyPercent() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)
