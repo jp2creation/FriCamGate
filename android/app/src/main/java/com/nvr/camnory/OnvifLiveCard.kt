@@ -33,7 +33,8 @@ internal class OnvifLiveCard(
     private val accessories: (() -> Unit)? = null,
     private val playerOnly: Boolean = false,
     private val fillPreview: Boolean = false,
-    private val preloadLive: Boolean = false
+    private val preloadLive: Boolean = false,
+    private val displayName: String = camera.name
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService? = null
@@ -114,13 +115,13 @@ internal class OnvifLiveCard(
                 setOnClickListener { click(it) }
             }
             overlaySound = action(R.drawable.ic_volume_off, R.string.camera_enable_audio) { toggleSound() }.apply { isEnabled = false }
-            frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.Onvif, listOf(
+            frame.addView(CameraColumnOverlay(context, displayName, CameraSource.Onvif, listOf(
                 requireNotNull(overlaySound),
                 action(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
                 action(R.drawable.ic_settings, R.string.settings) { (accessories ?: manage)() },
                 action(R.drawable.ic_list, R.string.settings) { showMenu(it) }.apply {
                     cameraButton(CameraButton.More)
-                    tag = "onvif-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
+                    tag = "onvif-camera-overflow"; contentDescription = context.getString(R.string.camera_options, displayName)
                 }
             )), FrameLayout.LayoutParams(-1, -1))
         } else addView(LinearLayout(context).apply {
@@ -129,17 +130,17 @@ internal class OnvifLiveCard(
             setPadding(dp(8), 0, 0, 0)
             addView(CameraSource.Onvif.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
-                text = camera.name; setTextColor(Palette.text); textSize = 12f * textScale; maxLines = 1
+                text = displayName; setTextColor(Palette.text); textSize = 12f * textScale; maxLines = 1
                 gravity = Gravity.CENTER_VERTICAL
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                contentDescription = camera.name
-                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.name)
+                contentDescription = displayName
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, displayName)
             }, LayoutParams(0, -2, 1f))
             addView(ImageButton(context).apply {
                 tag = "onvif-camera-overflow"
                 visibility = if (CameraButton.More.visible(context)) View.VISIBLE else View.GONE
                 setImageResource(R.drawable.ic_more_vertical); setColorFilter(Palette.text); setBackgroundColor(Color.TRANSPARENT)
-                contentDescription = context.getString(R.string.camera_options, camera.name)
+                contentDescription = context.getString(R.string.camera_options, displayName)
                 androidx.appcompat.widget.TooltipCompat.setTooltipText(this, contentDescription)
                 setPadding(dp(13), dp(13), dp(13), dp(13))
                 setOnClickListener { showMenu(it) }

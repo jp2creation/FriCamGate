@@ -1,0 +1,13 @@
+<resources>
+    <string name="camera_personalize">Nome e categorias</string>
+    <string name="camera_categories">Categorias</string>
+    <string name="camera_display_name">Nome apresentado</string>
+    <string name="camera_restore_name">Usar nome original</string>
+    <string name="category_name">Nome da categoria</string>
+    <string name="category_add">Criar categoria</string>
+    <string name="category_rename">Renomear categoria</string>
+    <string name="category_delete">Eliminar categoria</string>
+    <string name="category_error">Não foi possível guardar. Escolha um nome único e não vazio.</string>
+    <string name="category_empty">Nenhuma câmara nesta categoria.</string>
+    <string name="category_filter">Filtrar por categoria</string>
+</resources>

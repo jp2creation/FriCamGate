@@ -41,7 +41,8 @@ internal class HomeAssistantCameraView(
     private val accessories: (() -> Unit)? = null,
     private val playerOnly: Boolean = false,
     private val fillPreview: Boolean = false,
-    private val preloadLive: Boolean = false
+    private val preloadLive: Boolean = false,
+    private val displayName: String = camera.name
 ) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private var worker: java.util.concurrent.ExecutorService? = null
@@ -121,28 +122,28 @@ internal class HomeAssistantCameraView(
             frame.addView(play, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
         }
         if (columnMode && !fullscreenMode) {
-            frame.addView(CameraColumnOverlay(context, camera.name, CameraSource.HomeAssistant, listOf(
+            frame.addView(CameraColumnOverlay(context, displayName, CameraSource.HomeAssistant, listOf(
                 sound,
                 icon(R.drawable.ic_fullscreen, R.string.camera_fullscreen) { fullscreen() },
                 icon(R.drawable.ic_settings, R.string.ha_camera_details) { accessories?.invoke() ?: showInformation() },
                 icon(R.drawable.ic_list, R.string.ha_camera_details) { showMenu(it) }.apply {
                     cameraButton(CameraButton.More)
-                    tag = "ha-camera-overflow"; contentDescription = context.getString(R.string.camera_options, camera.name)
+                    tag = "ha-camera-overflow"; contentDescription = context.getString(R.string.camera_options, displayName)
                 }
             )), FrameLayout.LayoutParams(-1, -1))
         } else if (!playerOnly) addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
             addView(CameraSource.HomeAssistant.iconView(context), LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(6) })
             addView(TextView(context).apply {
-                text = camera.name; textSize = 12f * textScale; setTextColor(Palette.text); maxLines = 1
+                text = displayName; textSize = 12f * textScale; setTextColor(Palette.text); maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                contentDescription = camera.name
-                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, camera.name)
+                contentDescription = displayName
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(this, displayName)
             }, LayoutParams(0, -2, 1f))
             addView(icon(R.drawable.ic_more_vertical, R.string.ha_camera_details) { showMenu(it) }.apply {
                 visibility = if (CameraButton.More.visible(context)) View.VISIBLE else View.GONE
                 tag = "ha-camera-overflow"
-                contentDescription = context.getString(R.string.camera_options, camera.name)
+                contentDescription = context.getString(R.string.camera_options, displayName)
             }, LayoutParams(dp(48), dp(48)))
         }, LayoutParams(-1, dp(48)))
         if (fullscreenMode && !playerOnly) addView(LinearLayout(context).apply {
@@ -161,7 +162,7 @@ internal class HomeAssistantCameraView(
     fun restorePlaybackSound(enabled: Boolean) { muted = !enabled; applyMute() }
 
     private fun showInformation() {
-        information = androidx.appcompat.app.AlertDialog.Builder(context).setTitle(camera.name)
+        information = androidx.appcompat.app.AlertDialog.Builder(context).setTitle(displayName)
             .setMessage("Home Assistant\n${camera.entityId}\n\n${state.contentDescription}")
             .setPositiveButton(android.R.string.ok, null).show()
     }

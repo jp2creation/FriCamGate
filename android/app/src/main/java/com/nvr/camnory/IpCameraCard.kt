@@ -22,7 +22,7 @@ internal class IpCameraCard(context: Context, private val camera: IpCamera,
     private val fullscreen: () -> Unit, private val manage: () -> Unit,
     private val onAudible: (IpCameraCard) -> Unit = {}, private val playerOnly: Boolean = false,
     private val fillPreview: Boolean = false, private val preload: Boolean = false,
-    private val compact: Boolean = false) : FrameLayout(context) {
+    private val compact: Boolean = false, private val displayName: String = camera.name) : FrameLayout(context) {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val image = ImageView(context).apply { scaleType = if (fillPreview) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER }
     private val video = LayoutInflater.from(context).inflate(R.layout.tv_live_player, this, false) as PlayerView
@@ -69,9 +69,9 @@ internal class IpCameraCard(context: Context, private val camera: IpCamera,
                 gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Palette.card); setPadding(dp(6), 0, 0, 0)
                 addView(CameraSource.Ip.iconView(context), LinearLayout.LayoutParams(dp(16), dp(16)))
                 addView(TextView(context).apply {
-                    text = camera.name; setTextColor(Palette.text); textSize = 12f
+                    text = displayName; setTextColor(Palette.text); textSize = 12f
                     maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-                    contentDescription = camera.name
+                    contentDescription = displayName
                 }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
                 addView(ImageButton(context).apply {
                     setImageResource(R.drawable.ic_settings); setColorFilter(Palette.text); setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -88,7 +88,7 @@ internal class IpCameraCard(context: Context, private val camera: IpCamera,
                 setOnClickListener { action() }
             }
             sound.cameraButton(CameraButton.Sound)
-            addView(CameraColumnOverlay(context, camera.name, CameraSource.Ip, listOf(sound,
+            addView(CameraColumnOverlay(context, displayName, CameraSource.Ip, listOf(sound,
                 button(R.drawable.ic_fullscreen, R.string.camera_fullscreen, fullscreen),
                 button(R.drawable.ic_settings, R.string.settings, manage))), LayoutParams(-1, -1))
             setOnClickListener { fullscreen() }

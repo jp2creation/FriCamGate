@@ -100,6 +100,11 @@ class MainActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("fricamgate-native", MODE_PRIVATE) }
     private val appearancePrefs by lazy { getSharedPreferences("camgate-settings", MODE_PRIVATE) }
     private val cameraArrangement by lazy { CameraArrangementStore(this) }
+    private var cameraCatalogStore: CameraCatalogStore? = null
+    private var cameraCatalogSheet: CameraCatalogSheet? = null
+    private fun catalogStore() = cameraCatalogStore ?: CameraCatalogStore(this).also { cameraCatalogStore = it }
+    private fun catalog() = runCatching { catalogStore().load() }.getOrDefault(CameraCatalog())
+    private fun cameraLabel(name: String): String = catalog().displayName(frigateCameraKey(name), cameras.firstOrNull { it.name == name }?.friendlyName ?: name)
     private val reducedMotion get() = appearancePrefs.getBoolean("reducedMotion", false)
     private var session: NativeSession? = null
     private var api: FrigateNativeApi? = null
@@ -291,6 +296,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        cameraCatalogSheet?.dismiss(); cameraCatalogSheet = null
         appearanceResetSheet?.dismiss(); appearanceResetSheet = null
         timelineDateSheet?.dismiss(); timelineDateSheet = null
         cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
@@ -665,7 +671,8 @@ class MainActivity : AppCompatActivity() {
         homeVisible = true
         val dashboardCameras = dashboardCameras()
         val sourceFilter = homeSourceFilter()
-        val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) && sourceFilter.includes(homeSourceKey(it)) }
+        val metadata = catalog()
+        val shownCameras = dashboardCameras.filter { dashboardCameraVisible(it) && sourceFilter.includes(homeSourceKey(it)) && metadata.includes(it.key) }
         val tablet = tabletLayout()
         val showHomeEvents = showHomeEvents()
         val activitySidebar = showHomeEvents && tablet.activityWidthDp > 0 && session != null
@@ -684,6 +691,10 @@ class MainActivity : AppCompatActivity() {
             column.addView(it, LinearLayout.LayoutParams(-1, -2))
         }
         if (showHomeToolbar()) column.addView(homeTitleRow(message).apply { tag = "home-camera-toolbar" })
+        if (metadata.categories.isNotEmpty()) column.addView(homeMenuRow(R.drawable.ic_server_filter,
+            metadata.categories.firstOrNull { it.id == metadata.selected }?.name ?: getString(R.string.all_cameras), metadata.selected != null) {
+                showCameraCategoryFilter()
+            }.apply { tag = "home-category-filter"; contentDescription = getString(R.string.category_filter) }, LinearLayout.LayoutParams(-1, dp(44)))
 
         val dashboardError = dashboardErrorMessage
         if (!dashboardError.isNullOrBlank()) {
@@ -692,7 +703,7 @@ class MainActivity : AppCompatActivity() {
         if (dashboardCameras.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else if (shownCameras.isEmpty()) {
-            column.addView(emptyMessage(getString(if (sourceFilter.selected != null) R.string.home_source_empty else R.string.all_hidden)))
+            column.addView(emptyMessage(getString(if (metadata.selected != null) R.string.category_empty else if (sourceFilter.selected != null) R.string.home_source_empty else R.string.all_hidden)))
         } else {
             val layout = homeCameraLayout()
             if (TelevisionMode.enabled(this)) {
@@ -805,7 +816,11 @@ class MainActivity : AppCompatActivity() {
         }.orEmpty() + savedIpCameras().map { camera ->
             DashboardCamera(CameraArrangement.key("ip", "", camera.id), camera.name, CameraSource.Ip, ip = camera)
         }
-        val byKey = items.associateBy { it.key }
+        val metadata = catalog()
+        val byKey = items.map { item ->
+            val name = metadata.displayName(item.key, item.name)
+            item.copy(name = name, frigate = item.frigate?.copy(friendlyName = name))
+        }.associateBy { it.key }
         return CameraArrangement.ordered(items.map { it.key }, cameraArrangement.savedOrder()).mapNotNull { byKey[it] }
     }
 
@@ -817,7 +832,7 @@ class MainActivity : AppCompatActivity() {
         val overlay = layout == HomeCameraLayout.Column || tabletLayout().tablet && layout == HomeCameraLayout.TwoColumns
         item.ip?.let { camera ->
             return IpCameraCard(this, camera, { renderExpandedLive(item) }, { openIpManager(camera.id) },
-                onAudible = ::silenceForIp, compact = !overlay).also { ipCards.add(it) }
+                onAudible = ::silenceForIp, compact = !overlay, displayName = item.name).also { ipCards.add(it) }
         }
         item.frigate?.let { return if (overlay) cameraCard(it) else cameraGridTile(it) }
         item.onvif?.let { camera ->
@@ -825,6 +840,7 @@ class MainActivity : AppCompatActivity() {
                 fullscreen = { renderExpandedLive(item) },
                 manage = { openOnvifManager(camera.id, manage = true) },
                 columnMode = overlay,
+                displayName = item.name,
                 accessories = { showAccessories(item.key, item.name) },
                 onAudible = { selected ->
                     homeAssistantCards.forEach { it.mute() }
@@ -840,6 +856,7 @@ class MainActivity : AppCompatActivity() {
         return HomeAssistantCameraView(this, connection, camera,
             fullscreen = { openHomeAssistantCamera(connection, camera) },
             columnMode = overlay,
+            displayName = item.name,
             accessories = { showAccessories(item.key, item.name) },
             onAudible = { silenceOtherSources(it) }).also { homeAssistantCards.add(it) }
     }
@@ -948,8 +965,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHomeAssistantCamera(connection: HomeAssistantConnection, camera: HomeAssistantCamera) {
-        renderExpandedLive(DashboardCamera(CameraArrangement.key("ha", connection.baseUrl, camera.entityId),
-            camera.name, CameraSource.HomeAssistant, haCamera = camera, haConnection = connection))
+        val key = CameraArrangement.key("ha", connection.baseUrl, camera.entityId)
+        renderExpandedLive(DashboardCamera(key,
+            catalog().displayName(key, camera.name), CameraSource.HomeAssistant, haCamera = camera, haConnection = connection))
     }
 
     private fun savedOnvifCameras(): List<OnvifSavedCamera> = runCatching { OnvifCameraStore(this).load() }
@@ -1073,7 +1091,7 @@ class MainActivity : AppCompatActivity() {
         val displayedCamera = cameras.firstOrNull { it.name == displayedCameraName }
             ?: cameras.firstOrNull { it.name == event.camera }
         val activeCameraName = displayedCamera?.name ?: event.camera
-        val activeCameraLabel = displayedCamera?.friendlyName ?: activeCameraName
+        val activeCameraLabel = cameraLabel(displayedCamera?.name ?: activeCameraName)
         val showingEventCamera = activeCameraName == event.camera
 
         val body = vertical().apply { setBackgroundColor(Palette.background) }
@@ -1962,7 +1980,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCameraFullscreen(camera: NativeCamera) {
-        renderExpandedLive(DashboardCamera(frigateCameraKey(camera.name), camera.friendlyName,
+        renderExpandedLive(DashboardCamera(frigateCameraKey(camera.name), cameraLabel(camera.name),
             CameraSource.Frigate, frigate = camera), immersive = TelevisionMode.enabled(this), audible = TelevisionMode.enabled(this))
     }
 
@@ -2260,7 +2278,7 @@ class MainActivity : AppCompatActivity() {
         val selected = if (inbox) tvNotificationSelectedId else tvEventSelectedId
         val filtered = source.filter { !inbox || !tvUnreadOnly || it.id in unread }
         val preview = TvEventPreview(this, inbox, ::eventDisplayText,
-            camera = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera },
+            camera = { event -> cameraLabel(event.camera) },
             thumbnail = { event, image, valid -> session?.let { active -> api?.let { transport ->
                 transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
                     runOnUiThread { if (valid() && bitmap != null) image.setImageBitmap(bitmap) }
@@ -2282,7 +2300,7 @@ class MainActivity : AppCompatActivity() {
             } })
         val history = TvHistoryView(this, filtered, inbox, unread, selected,
             title = ::eventDisplayText,
-            camera = { event -> cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera },
+            camera = { event -> cameraLabel(event.camera) },
             thumbnail = { event, image -> session?.let { active -> api?.let { transport ->
                 transport.loadBitmap(active.token, transport.eventSnapshotUrl(event.id)) { bitmap ->
                     runOnUiThread { if (image.isAttachedToWindow && bitmap != null) image.setImageBitmap(bitmap) }
@@ -3659,6 +3677,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dismissTransientPopups() {
+        cameraCatalogSheet?.dismiss(); cameraCatalogSheet = null
         appearanceResetSheet?.dismiss(); appearanceResetSheet = null
         timelineDateSheet?.dismiss(); timelineDateSheet = null
         cameraButtonsSheet?.dismiss(); cameraButtonsSheet = null
@@ -4509,15 +4528,20 @@ class MainActivity : AppCompatActivity() {
         val column = vertical().apply { setPadding(dp(12), dp(12), dp(12), dp(32)) }
         scroll.addView(column, responsiveScrollParams(760))
         column.addView(settingsPageHeader(getString(R.string.cameras)))
+        column.addView(settingsGroup(settingsNavRow(getString(R.string.camera_categories), "", {
+            showCameraCatalogSheet()
+        }, icon = R.drawable.ic_grid).apply { tag = "camera-categories" }))
         column.addView(sectionHeading(getString(R.string.camera_order_visibility)))
         val all = dashboardCameras()
+        val metadata = catalog()
         val summary = settingsDetailLabel(getString(R.string.camera_count_detail, all.count { dashboardCameraVisible(it) }, all.size))
         column.addView(summary)
         if (all.isEmpty()) {
             column.addView(emptyMessage(getString(R.string.no_cameras)))
         } else {
             column.addView(CameraArrangementView(this, all.map {
-                CameraArrangementRow(it.key, it.name, it.source, it.enabled, dashboardCameraVisible(it))
+                CameraArrangementRow(it.key, it.name, it.source, it.enabled, dashboardCameraVisible(it),
+                    metadata.categories.filter { c -> c.id in metadata.labels[it.key]?.categories.orEmpty() }.joinToString(" · ") { c -> c.name })
             }, onOrder = { cameraArrangement.saveOrder(it) }, onVisibility = { key, visible ->
                 cameraArrangement.setHidden(key, !visible)
                 all.firstOrNull { it.key == key }?.frigate?.let { setCameraHidden(it.name, !visible) }
@@ -4531,9 +4555,41 @@ class MainActivity : AppCompatActivity() {
                         else -> showAccessories(camera.key, camera.name, respectAppearance = false)
                     }
                 }
-            }))
+            }, onPersonalize = { key -> all.firstOrNull { it.key == key }?.let {
+                val original = it.frigate?.let { c -> cameras.firstOrNull { original -> original.name == c.name }?.friendlyName }
+                    ?: it.onvif?.name ?: it.haCamera?.name ?: it.ip?.name ?: it.name
+                showCameraCatalogSheet(key, original)
+            } }))
         }
         setShell(scroll, Tab.Settings)
+    }
+
+    private fun showCameraCatalogSheet(key: String? = null, original: String = "") {
+        if (appLock.locked) return
+        dismissTransientPopups()
+        val sheet = CameraCatalogSheet(this, catalogStore(), key, original, dashboardCameras().map { it.key to it.name }) { !appLock.locked }
+        cameraCatalogSheet = sheet
+        sheet.setOnDismissListener {
+            if (cameraCatalogSheet === sheet) {
+                cameraCatalogSheet = null
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) && activeTab == Tab.Settings && settingsPage == "cameras") renderCameraSettings()
+            }
+        }
+        sheet.show()
+    }
+
+    private fun showCameraCategoryFilter() {
+        if (appLock.locked) return
+        dismissTransientPopups()
+        val metadata = catalog()
+        val sheet = AppearanceChoiceSheet(this, getString(R.string.category_filter), "camera-category", metadata.selected ?: "all",
+            listOf(AppearanceSheetOption("all", getString(R.string.all_cameras))) + metadata.categories.map { AppearanceSheetOption(it.id, it.name) }) { id ->
+            if (!appLock.locked) runCatching { catalogStore().update { it.select(id.takeUnless { value -> value == "all" }) } }
+                .onSuccess { renderHome() }.onFailure { toast(getString(R.string.category_error)) }
+        }
+        homeSourceSheet = sheet
+        sheet.setOnDismissListener { if (homeSourceSheet === sheet) homeSourceSheet = null }
+        sheet.show()
     }
 
     private fun renderAboutSettings() {

@@ -16,7 +16,7 @@ import androidx.appcompat.widget.TooltipCompat
 
 internal data class CameraArrangementRow(
     val key: String, val name: String, val source: CameraSource,
-    val enabled: Boolean, val visible: Boolean
+    val enabled: Boolean, val visible: Boolean, val categories: String = ""
 )
 
 internal class CameraArrangementView(
@@ -24,7 +24,8 @@ internal class CameraArrangementView(
     rows: List<CameraArrangementRow>,
     private val onOrder: (List<String>) -> Unit,
     private val onVisibility: (String, Boolean) -> Unit,
-    private val onOpen: ((String, View) -> Unit)? = null
+    private val onOpen: ((String, View) -> Unit)? = null,
+    private val onPersonalize: ((String) -> Unit)? = null
 ) : LinearLayout(context) {
     private val keys = rows.map { it.key }.toMutableList()
     private val rowViews = mutableMapOf<String, View>()
@@ -36,7 +37,8 @@ internal class CameraArrangementView(
             val row = LinearLayout(context).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 tag = "camera-arrangement-row:${camera.key}"
-                if (onOpen != null) setOnClickListener { onOpen.invoke(camera.key, it) }
+                if (onPersonalize != null) setOnClickListener { onPersonalize.invoke(camera.key) }
+                else if (onOpen != null) setOnClickListener { onOpen.invoke(camera.key, it) }
                 addView(camera.source.iconView(context), LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
                 addView(LinearLayout(context).apply {
                     orientation = VERTICAL
@@ -45,9 +47,19 @@ internal class CameraArrangementView(
                         maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                     })
                     addView(TextView(context).apply {
-                        text = camera.source.title; textSize = 11f; setTextColor(Palette.muted)
+                        text = listOf(camera.source.title, camera.categories).filter { it.isNotBlank() }.joinToString(" · ")
+                        textSize = 11f; setTextColor(Palette.muted)
+                        maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                     })
                 }, LayoutParams(0, -2, 1f))
+                if (onPersonalize != null) addView(ImageButton(context).apply {
+                    tag = "camera-personalize:${camera.key}"
+                    setImageResource(R.drawable.ic_pencil); setColorFilter(Palette.text)
+                    setBackgroundColor(Color.TRANSPARENT); setPadding(dp(12), dp(12), dp(12), dp(12))
+                    contentDescription = context.getString(R.string.camera_display_name)
+                    TooltipCompat.setTooltipText(this, contentDescription)
+                    setOnClickListener { onPersonalize.invoke(camera.key) }
+                }, LayoutParams(dp(44), dp(44)))
                 if (onOpen != null) addView(ImageButton(context).apply {
                     tag = "camera-settings:${camera.key}"
                     setImageResource(R.drawable.ic_settings); setColorFilter(Palette.text)
