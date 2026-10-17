@@ -29,7 +29,7 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val screen = resources.displayMetrics.heightPixels
                 val desired = (chatView?.preferredHeight(View.MeasureSpec.getSize(widthMeasureSpec)) ?: dp(220)) + dp(24) + paddingBottom
-                val limit = minOf((screen * 0.85f).toInt(), View.MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: screen)
+                val limit = View.MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: screen
                 val height = chatPanelHeight(screen, limit, desired)
                 super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
             }
@@ -82,4 +82,4 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
 }
 
 internal fun chatPanelHeight(screen: Int, available: Int, desired: Int): Int =
-    desired.coerceAtLeast((screen * 0.33f).toInt()).coerceAtMost(minOf(available, (screen * 0.85f).toInt()))
+    desired.coerceAtLeast((screen * 0.33f).toInt()).coerceAtMost(minOf(available, (screen * 0.70f).toInt()))

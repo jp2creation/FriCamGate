@@ -19,6 +19,7 @@ internal class OnvifRelaySheet(context: Context, private val camera: OnvifSavedC
     private var catalog: OnvifRelayCatalog? = null
     private var picker: AppearanceChoiceSheet? = null
     private var confirmation: AlertDialog? = null
+    private var ptzSheet: OnvifPtzSheet? = null
     @Volatile private var closed = false
     private var started = false
     private var busy = false
@@ -45,6 +46,12 @@ internal class OnvifRelaySheet(context: Context, private val camera: OnvifSavedC
     private fun render(failed: Boolean = false) {
         val ui = ConnectionFormUi(context)
         rows.removeAllViews()
+        rows.addView(ui.action(context.getString(R.string.ptz_title), false) {
+            if (!closed && allowed()) {
+                ptzSheet?.dismiss()
+                ptzSheet = OnvifPtzSheet(context, camera, allowed).also { it.show() }
+            }
+        }.apply { tag = "native-ptz" })
         if (failed) {
             rows.addView(ui.text(context.getString(R.string.accessory_failed)))
             rows.addView(ui.action(context.getString(R.string.retry), false) { if (!busy) discover() })
@@ -96,7 +103,7 @@ internal class OnvifRelaySheet(context: Context, private val camera: OnvifSavedC
             }.show()
     }
     override fun dismiss() {
-        closed = true; confirmation?.dismiss(); picker?.dismiss()
+        closed = true; confirmation?.dismiss(); picker?.dismiss(); ptzSheet?.dismiss()
         handler.removeCallbacksAndMessages(null); client.close(); worker.shutdownNow(); super.dismiss()
     }
 }

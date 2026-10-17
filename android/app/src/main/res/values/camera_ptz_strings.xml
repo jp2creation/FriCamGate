@@ -1,0 +1,16 @@
+<resources>
+    <string name="camera_native_controls">Camera controls (ONVIF)</string>
+    <string name="camera_native_link">Link an existing ONVIF camera</string>
+    <string name="camera_native_link_hint">Choose the same physical camera. No connection is associated automatically.</string>
+    <string name="camera_only_warning">Only associate this camera’s own light or built-in siren, never your home alarm.</string>
+    <string name="ptz_title">Pan, tilt and zoom</string>
+    <string name="ptz_unavailable">This video profile does not declare supported PTZ movements or presets.</string>
+    <string name="ptz_up">Tilt up</string>
+    <string name="ptz_down">Tilt down</string>
+    <string name="ptz_left">Pan left</string>
+    <string name="ptz_right">Pan right</string>
+    <string name="ptz_stop">Stop movement</string>
+    <string name="ptz_zoom_in">Zoom in</string>
+    <string name="ptz_zoom_out">Zoom out</string>
+    <string name="ptz_preset_confirm">Move camera “%1$s” to this preset?</string>
+</resources>

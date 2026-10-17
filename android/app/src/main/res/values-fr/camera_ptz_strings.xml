@@ -1,0 +1,16 @@
+<resources>
+    <string name="camera_native_controls">Commandes de la caméra (ONVIF)</string>
+    <string name="camera_native_link">Associer une caméra ONVIF enregistrée</string>
+    <string name="camera_native_link_hint">Choisis la même caméra physique. Aucune connexion n’est associée automatiquement.</string>
+    <string name="camera_only_warning">Associe uniquement la lumière ou la sirène intégrée de cette caméra, jamais l’alarme de la maison.</string>
+    <string name="ptz_title">Orientation et zoom</string>
+    <string name="ptz_unavailable">Ce profil vidéo ne déclare aucun déplacement PTZ ou position prédéfinie compatible.</string>
+    <string name="ptz_up">Orienter vers le haut</string>
+    <string name="ptz_down">Orienter vers le bas</string>
+    <string name="ptz_left">Orienter vers la gauche</string>
+    <string name="ptz_right">Orienter vers la droite</string>
+    <string name="ptz_stop">Arrêter le mouvement</string>
+    <string name="ptz_zoom_in">Zoom avant</string>
+    <string name="ptz_zoom_out">Zoom arrière</string>
+    <string name="ptz_preset_confirm">Déplacer la caméra « %1$s » vers cette position ?</string>
+</resources>

@@ -719,7 +719,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
             contentDescription = getString(R.string.accessory_light)
             visibility = if (savedHomeAssistant()?.let { CameraAccessoryBindings(context, camera.key, it.baseUrl).get("light") } != null ||
-                camera.onvif?.let { OnvifRelayBindings(context, it).get("light") } != null) View.VISIBLE else View.GONE
+                (camera.onvif ?: OnvifCameraLinks(context, camera.key).resolve(savedOnvifCameras()))?.let { OnvifRelayBindings(context, it).get("light") } != null) View.VISIBLE else View.GONE
             setOnClickListener { showAccessories(camera.key, camera.name) }
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { marginStart = dp(8); topMargin = dp(8) })
     }
@@ -731,10 +731,11 @@ class MainActivity : AppCompatActivity() {
         val native = dashboardCameras().firstOrNull { it.key == key }?.onvif
         val sheet = CameraAccessorySheet(this, key, name, connection,
             nativeCamera = native,
+            nativeCameras = savedOnvifCameras(),
             allowed = { !appLock.locked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) }) {
             window.decorView.findViewWithTag<View>("camera-light:$key")?.visibility =
                 if (connection != null && CameraAccessoryBindings(this, key, connection.baseUrl).get("light") != null ||
-                    native?.let { OnvifRelayBindings(this, it).get("light") } != null) View.VISIBLE else View.GONE
+                    (native ?: OnvifCameraLinks(this, key).resolve(savedOnvifCameras()))?.let { OnvifRelayBindings(this, it).get("light") } != null) View.VISIBLE else View.GONE
         }
         accessorySheet = sheet
         sheet.setOnDismissListener { if (accessorySheet === sheet) accessorySheet = null }

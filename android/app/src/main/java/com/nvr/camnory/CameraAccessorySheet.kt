@@ -10,9 +10,10 @@ import androidx.appcompat.app.AlertDialog
 import java.util.concurrent.Executors
 
 /** Discovery and association are read-only. Commands exist only behind the confirmation action. */
-internal class CameraAccessorySheet(context: Context, cameraKey: String, private val cameraName: String,
+internal class CameraAccessorySheet(context: Context, private val cameraKey: String, private val cameraName: String,
     private val connection: HomeAssistantConnection?, private val allowed: () -> Boolean,
     private val nativeCamera: OnvifSavedCamera? = null,
+    private val nativeCameras: List<OnvifSavedCamera> = emptyList(),
     private val onChanged: () -> Unit = {}
 ) : SelectionBottomSheet(context, cameraName) {
     private val handler = Handler(Looper.getMainLooper())
@@ -35,14 +36,33 @@ internal class CameraAccessorySheet(context: Context, cameraKey: String, private
     }
 
     private fun nativeEntry() {
-        nativeCamera?.let { camera ->
-            rows.addView(ConnectionFormUi(context).action(context.getString(R.string.onvif_native_outputs), false) {
+        val ui = ConnectionFormUi(context)
+        val links = OnvifCameraLinks(context, cameraKey)
+        val linked = nativeCamera ?: links.resolve(nativeCameras)
+        linked?.let { camera ->
+            rows.addView(ui.action(context.getString(R.string.camera_native_controls), false) {
                 if (!closed && allowed()) {
                     nativeSheet?.dismiss()
                     nativeSheet = OnvifRelaySheet(context, camera, allowed, onChanged).also { it.show() }
                 }
             }.apply { tag = "accessory-native-onvif" })
         }
+        if (nativeCamera == null && nativeCameras.isNotEmpty()) {
+            rows.addView(ui.action(linked?.name ?: context.getString(R.string.camera_native_link), false) {
+                if (!closed && !busy && allowed()) {
+                    picker?.dismiss()
+                    picker = AppearanceChoiceSheet(context, context.getString(R.string.camera_native_link), "native-camera-link", linked?.id ?: "",
+                        listOf(AppearanceSheetOption("", context.getString(R.string.accessory_none))) +
+                            nativeCameras.map { AppearanceSheetOption(it.id, it.name) }) { id ->
+                        if (!closed && allowed()) runCatching { links.set(nativeCameras.firstOrNull { it.id == id }) }
+                            .onSuccess { if (client == null) { rows.removeAllViews(); nativeEntry() } else render(); onChanged() }
+                            .onFailure { render(true) }
+                    }.also { it.show() }
+                }
+            }.apply { tag = "accessory-native-link" })
+            rows.addView(ui.text(context.getString(R.string.camera_native_link_hint)))
+        }
+        rows.addView(ui.text(context.getString(R.string.camera_only_warning)))
     }
 
     override fun onStart() {
