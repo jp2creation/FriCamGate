@@ -2,7 +2,6 @@ package com.nvr.camnory
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.net.ConnectivityManager
 import android.os.Bundle
 import android.view.Gravity
@@ -29,6 +28,8 @@ class TvActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         TelevisionMode.adoptAppearance(this)
         super.onCreate(savedInstanceState)
+        if (TelevisionMode.enabled(this)) requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         lock = BiometricAppLock(this) { if (intent.action == "com.nvr.camnory.TV_PAIR") startPairing() else showHome() }
         TvRemoteSupport.start(application)
         val appearance = getSharedPreferences("camgate-settings", MODE_PRIVATE)
@@ -69,20 +70,29 @@ class TvActivity : AppCompatActivity() {
         text = value; textSize = size.toFloat(); setTextColor(Palette.text)
     }
     private fun root(title: String): LinearLayout {
+        val padding = if (resources.configuration.screenWidthDp < 700) 24 else 32
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(Palette.background)
-            setPadding(dp(32), dp(18), dp(32), dp(18))
+            setPadding(dp(padding), dp(18), dp(padding), dp(18))
             addView(BrandWordmarkView(this@TvActivity, 180, darkBackground = Palette.dark), LinearLayout.LayoutParams(dp(180), dp(60)))
             addView(text(title, 22))
         }
-        setContentView(ScrollView(this).apply { setBackgroundColor(Palette.background); addView(body) })
+        val scroll = ScrollView(this).apply { setBackgroundColor(Palette.background); addView(body) }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            val keyboard = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
+            insets
+        }
+        setContentView(scroll)
+        androidx.core.view.ViewCompat.requestApplyInsets(scroll)
         if (::lock.isInitialized) lock.protectContent()
         TvRemoteSupport.install(window.decorView)
         return body
     }
     private fun action(label: String, click: () -> Unit) = Button(this).apply {
         text = label; textSize = 16f; isAllCaps = false
-        setTextColor(Color.WHITE); minimumHeight = dp(48)
+        setTextColor(Palette.text); minimumHeight = dp(48)
         setBackgroundColor(Palette.surface)
         setPadding(dp(20), dp(8), dp(20), dp(8))
         setOnClickListener { click() }
@@ -109,13 +119,15 @@ class TvActivity : AppCompatActivity() {
                 result.onSuccess { pairing ->
                     receiver = pairing
                     val page = root(getString(R.string.tv_pair))
+                    val wide = resources.configuration.screenWidthDp >= 700
+                    val qrSize = dp(minOf(280, resources.configuration.screenWidthDp - 48).coerceAtLeast(1))
                     val qr = BarcodeEncoder().encodeBitmap(pairing.ticket.qr(), BarcodeFormat.QR_CODE, 768, 768)
                     page.addView(LinearLayout(this).apply {
-                        orientation = if (resources.configuration.screenWidthDp < 700) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(ImageView(this@TvActivity).apply { setImageBitmap(qr); contentDescription = getString(R.string.tv_pair) }, LinearLayout.LayoutParams(dp(280), dp(280)))
+                        orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                        gravity = if (wide) Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
+                        addView(ImageView(this@TvActivity).apply { setImageBitmap(qr); contentDescription = getString(R.string.tv_pair) }, LinearLayout.LayoutParams(qrSize, qrSize))
                         addView(LinearLayout(this@TvActivity).apply {
-                            orientation = LinearLayout.VERTICAL; setPadding(dp(28), 0, 0, 0)
+                            orientation = LinearLayout.VERTICAL; setPadding(if (wide) dp(28) else 0, if (wide) 0 else dp(20), 0, 0)
                             addView(text(getString(R.string.tv_pair_code, pairing.ticket.code()), 28))
                             addView(text(getString(R.string.tv_pair_instructions), 18).apply { setPadding(0, dp(20), 0, dp(20)) })
                             addView(action(getString(R.string.transfer_manual)) {
@@ -131,7 +143,7 @@ class TvActivity : AppCompatActivity() {
                                 }
                             })
                             addView(action(getString(android.R.string.cancel)) { showHome() }.apply { requestFocus() })
-                        }, if (resources.configuration.screenWidthDp < 700) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f))
+                        }, if (!wide) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f))
                     }, LinearLayout.LayoutParams(-1, -2))
                     pairing.start()
                 }.onFailure { showHome(getString(R.string.tv_network_required)) }
