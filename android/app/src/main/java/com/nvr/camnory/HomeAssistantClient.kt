@@ -52,8 +52,8 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String, c
             if (!sameOrigin(chain.request().url)) throw IOException("External camera URL refused")
             chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
         }.apply {
-            if (context != null && localRoute != null) {
-                retryOnConnectionFailure(false)
+            if (context != null) {
+                if (localRoute != null) retryOnConnectionFailure(false)
                 addInterceptor(LocalRouteInterceptor.create(context, baseUrl, localRoute, token, "/api/"))
             }
         }.build()

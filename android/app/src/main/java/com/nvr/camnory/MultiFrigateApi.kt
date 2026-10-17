@@ -12,8 +12,8 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
     FrigateNativeApi(servers.first().baseUrl, client) {
     private val transports = servers.associate { it.id to FrigateNativeApi(it.baseUrl, client.newBuilder()
         .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).apply {
-            if (context != null && it.localRoute != null) {
-                retryOnConnectionFailure(false)
+            if (context != null) {
+                if (it.localRoute != null) retryOnConnectionFailure(false)
                 addInterceptor(LocalRouteInterceptor.create(context, it.baseUrl, it.localRoute, it.token, "/api/version"))
             }
         }.build(), it.localRoute) }

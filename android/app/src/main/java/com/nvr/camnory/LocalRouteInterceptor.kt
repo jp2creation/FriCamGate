@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 /** Last application interceptor: origin checks and authentication run on the canonical URL first. */
 internal class LocalRouteInterceptor(
     private val baseUrl: String,
-    private val route: LocalServerRoute,
+    private val route: LocalServerRoute?,
     private val token: String,
     private val probePath: String,
     private val network: () -> Pair<String, List<String>>?,
@@ -22,14 +22,16 @@ internal class LocalRouteInterceptor(
         .readTimeout(1200, TimeUnit.MILLISECONDS).callTimeout(1800, TimeUnit.MILLISECONDS)
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build(),
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val boundProbe: ((String) -> OkHttpClient)? = null
+    private val boundProbe: ((String) -> OkHttpClient)? = null,
+    private val networkIdentity: () -> String? = { network()?.first }
 ) : Interceptor {
     private val base = baseUrl.toHttpUrl()
     private var networkId: String? = null
     private var until = 0L
     private var local = false
-    init { route.validate() }
+    init { route?.validate() }
     @Synchronized private fun useLocal(): Boolean {
+        val route = route ?: return false
         val current = network()
         if (current == null || !route.matches(current.second)) { networkId = null; until = 0; local = false; return false }
         val now = clock()
@@ -48,11 +50,27 @@ internal class LocalRouteInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         // Never route a foreign origin (including update checks or third-party media).
-        val rewritten = runCatching { route.rewrite(base, original.url) }.getOrNull() ?: return chain.proceed(original)
-        if (!useLocal()) return chain.proceed(original)
+        val prefix = base.encodedPath.trimEnd('/')
+        val url = original.url
+        if (url.scheme != base.scheme || url.host != base.host || url.port != base.port ||
+            !(url.encodedPath == prefix || url.encodedPath.startsWith("$prefix/"))) return chain.proceed(original)
+        fun proceed(request: Request, local: Boolean): Response {
+            val network = networkIdentity()
+            val address = if (local) route!!.localUrl else baseUrl
+            try {
+                return chain.proceed(request).also { response ->
+                    ServerRouteStatus.shared.record(baseUrl, probePath, local, response.isSuccessful || response.code == 101, network, address)
+                }
+            } catch (error: IOException) {
+                if (!chain.call().isCanceled()) ServerRouteStatus.shared.record(baseUrl, probePath, local, false, network, address)
+                throw error
+            }
+        }
+        if (!useLocal()) return proceed(original, false)
+        val rewritten = route!!.rewrite(base, original.url)
         val readOnly = original.method in setOf("GET", "HEAD") && original.header("Upgrade") == null
         try {
-            val response = chain.proceed(original.newBuilder().url(rewritten).build())
+            val response = proceed(original.newBuilder().url(rewritten).build(), true)
             if (!readOnly || response.code < 500) return response
             response.close()
         } catch (error: IOException) {
@@ -60,10 +78,10 @@ internal class LocalRouteInterceptor(
             if (!readOnly || chain.call().isCanceled()) throw error
         }
         invalidate()
-        return chain.proceed(original)
+        return proceed(original, false)
     }
     companion object {
-        fun create(context: Context, base: String, route: LocalServerRoute, token: String, probe: String): LocalRouteInterceptor {
+        fun create(context: Context, base: String, route: LocalServerRoute?, token: String, probe: String): LocalRouteInterceptor {
             val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             return LocalRouteInterceptor(base, route, token, probe, {
                 val net = cm.activeNetwork
@@ -78,7 +96,7 @@ internal class LocalRouteInterceptor(
                 })
                     .connectTimeout(1200, TimeUnit.MILLISECONDS).readTimeout(1200, TimeUnit.MILLISECONDS).callTimeout(1800, TimeUnit.MILLISECONDS)
                     .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build()
-            })
+            }, networkIdentity = { cm.activeNetwork?.toString() })
         }
     }
 }

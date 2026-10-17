@@ -81,6 +81,7 @@ class HomeAssistantActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     addView(ui.text(android.net.Uri.parse(saved.baseUrl).host ?: "Home Assistant", 15, Palette.text))
                     addView(ui.text(saved.baseUrl, 12).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                    addView(ServerRouteStatusView(this@HomeAssistantActivity, saved.baseUrl, "/api/", saved.localRoute))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted)

@@ -158,10 +158,22 @@ class TvActivity : AppCompatActivity() {
     private fun showTvSettings() {
         clear(); mode = "settings"
         val body = root(getString(R.string.tv_settings))
+        val statuses = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(ScrollView(this).apply { addView(statuses) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        configuration?.let { config ->
+            config.frigate.forEach { server ->
+                statuses.addView(text(server.name))
+                statuses.addView(ServerRouteStatusView(this, server.baseUrl, "/api/version", server.localRoute))
+            }
+            config.ha?.let { server ->
+                statuses.addView(text("Home Assistant"))
+                statuses.addView(ServerRouteStatusView(this, server.baseUrl, "/api/", server.localRoute))
+            }
+        }
         body.addView(action(getString(R.string.tv_pair)) { startPairing() })
         body.addView(action(getString(R.string.tv_setup_manual)) { showManualSources() })
         body.addView(action(getString(R.string.onvif_back)) { showHome() })
-        (body.getChildAt(1) as View).requestFocus()
+        body.getChildAt(body.childCount - 3).requestFocus()
     }
     private fun showManualSources() {
         clear(); mode = "manual"

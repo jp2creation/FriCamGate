@@ -1,0 +1,9 @@
+<resources>
+    <string name="route_unverified">Not checked in this session</string>
+    <string name="route_network_changed">Network changed · waiting for a new access</string>
+    <string name="route_failed">Last access failed</string>
+    <string name="route_last_success">Last successful access: %1$s</string>
+    <string name="route_local">Local</string>
+    <string name="route_external">External</string>
+    <string name="route_primary">Primary address</string>
+</resources>

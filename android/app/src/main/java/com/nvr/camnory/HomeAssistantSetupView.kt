@@ -43,6 +43,7 @@ internal class HomeAssistantSetupView(
 
     fun showForm() {
         cancel(); choosing = false; selectionDraft = null; selectionBase = null; removeAllViews()
+        connection?.let { addView(ServerRouteStatusView(context, it.baseUrl, "/api/", it.localRoute)) }
         val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", addressDraft, key = "connection-ha-server")
         val local = LocalRouteFields(context, this, routeDraft)
         val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (connection == null) R.string.ha_token_hint else R.string.ha_keep_token),

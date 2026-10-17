@@ -24,8 +24,10 @@ class LocalRouteInterceptorTest {
         fun read() { client.newCall(Request.Builder().url("https://external.example/frigate/api/config").build()).execute().close() }
         read(); read()
         assertEquals(1, probes); assertEquals("192.168.0.144", requests.last().url.host)
+        assertEquals("http://192.168.0.144:5000/nvr", ServerRouteStatus.shared.get("https://external.example/frigate", "/api/version")!!.address)
         network = "other" to listOf("192.168.1.20"); read()
         assertEquals("external.example", requests.last().url.host); assertEquals(1, probes)
+        assertFalse(ServerRouteStatus.shared.get("https://external.example/frigate", "/api/version")!!.local)
         network = null; read(); assertEquals("external.example", requests.last().url.host)
     }
     @Test fun failedProbeUsesExternalAndNeverFollowsRedirect() {
@@ -36,6 +38,8 @@ class LocalRouteInterceptorTest {
                 { "home" to listOf("192.168.0.20") }, probe)).addInterceptor { host = it.request().url.host; reply(it.request()) }.build()
             client.newCall(Request.Builder().url("https://external.example/api/config").build()).execute().close()
             assertEquals("external.example", host)
+            assertTrue(ServerRouteStatus.shared.get("https://external.example", "/api/version")!!.success)
+            assertFalse(ServerRouteStatus.shared.get("https://external.example", "/api/version")!!.local)
         }
     }
     @Test fun interruptedReadsFallBackButCommandsAreNeverReplayed() {

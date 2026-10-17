@@ -94,13 +94,15 @@ class FrigateServersActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     addView(ui.text(server.name, 16, Palette.text))
                     addView(ui.text(server.baseUrl, 12).apply { maxLines = 2 })
+                    addView(ServerRouteStatusView(this@FrigateServersActivity, server.baseUrl, "/api/version", server.localRoute))
                     addView(state)
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(ImageView(context).apply { setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted) }, LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)))
                 setOnClickListener { showForm(server) }
             })
             body.addView(View(this).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(-1, ui.dp(1)))
-            FrigateNativeApi(server.baseUrl, client).loadNvrVersion(server.token) { result -> runOnUiThread {
+            val routed = client.newBuilder().addInterceptor(LocalRouteInterceptor.create(this, server.baseUrl, server.localRoute, server.token, "/api/version")).build()
+            FrigateNativeApi(server.baseUrl, routed).loadNvrVersion(server.token) { result -> runOnUiThread {
                 if (generation == request && state.isAttachedToWindow && !lock.locked) {
                     state.text = if (result.isSuccess) getString(R.string.connected, server.name) else getString(R.string.frigate_offline)
                     state.setTextColor(if (result.isSuccess) Palette.muted else Palette.accent)
@@ -112,6 +114,7 @@ class FrigateServersActivity : AppCompatActivity() {
     private fun showForm(server: FrigateServer?) {
         generation++; inForm = true; editing = server
         val (ui, body) = page(server?.name ?: getString(R.string.frigate_add_server))
+        server?.let { body.addView(ServerRouteStatusView(this, it.baseUrl, "/api/version", it.localRoute)) }
         val name = ui.field(body, getString(R.string.frigate_server_name), getString(R.string.frigate_server_name_hint), server?.name.orEmpty(), key = "frigate-name")
         val url = ui.field(body, getString(R.string.frigate_server), "https://frigate.example.com", server?.baseUrl.orEmpty(), key = "frigate-server")
         val local = LocalRouteFields(this, body, server?.localRoute)
