@@ -857,6 +857,7 @@ class MainActivity : AppCompatActivity() {
             useController = false
             visibility = View.GONE
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            tintVideoBuffering()
             setBackgroundColor(Color.TRANSPARENT)
             setShutterBackgroundColor(Color.TRANSPARENT)
         }
@@ -937,6 +938,7 @@ class MainActivity : AppCompatActivity() {
         val playerView = PlayerView(this).apply {
             useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            tintVideoBuffering()
             setBackgroundColor(Color.TRANSPARENT)
             setShutterBackgroundColor(Color.TRANSPARENT)
         }

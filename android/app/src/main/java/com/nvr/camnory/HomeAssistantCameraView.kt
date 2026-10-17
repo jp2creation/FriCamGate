@@ -102,7 +102,7 @@ internal class HomeAssistantCameraView(
             stopLive()
             if (restartLive) startLive() else { loaded = false; loadImage() }
         }
-        progress = ProgressBar(context).apply { visibility = View.GONE; indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE) }
+        progress = ProgressBar(context).apply { visibility = View.GONE; indeterminateTintList = android.content.res.ColorStateList.valueOf(Palette.accent) }
         frame.addView(progress, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
         if (!fullscreenMode) {
             play.setColorFilter(Color.WHITE)
@@ -285,7 +285,7 @@ internal class HomeAssistantCameraView(
             handler.post {
                 if (request != generation || !visible()) return@post
                 result.onSuccess { url ->
-                    val preview = android.view.LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView
+                    val preview = (android.view.LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
                     frame.addView(preview, 1, FrameLayout.LayoutParams(-1, -1))
                     val current = ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(OkHttpDataSource.Factory(api.http))).build()

@@ -171,7 +171,7 @@ class OnvifActivity : AppCompatActivity() {
         job?.cancel(true); client.cancel()
         player?.release(); player = null; playingCamera = null
         val root = root(camera.name) { list() }
-        root.addView(ProgressBar(this))
+        root.addView(ProgressBar(this).apply { indeterminateTintList = android.content.res.ColorStateList.valueOf(Palette.accent) })
         setContentView(root)
         val request = ++generation
         job?.cancel(true)
@@ -219,6 +219,7 @@ class OnvifActivity : AppCompatActivity() {
         val root = root(camera.name) { list() }
         val view = (layoutInflater.inflate(R.layout.onvif_live_preview, root, false) as PlayerView).apply {
             keepScreenOn = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            tintVideoBuffering()
         }
         root.addView(view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val sound = icon(if (muted) R.drawable.ic_volume_off else R.drawable.ic_volume, getString(R.string.playback_sound)) {

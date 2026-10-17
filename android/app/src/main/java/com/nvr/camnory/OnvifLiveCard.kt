@@ -62,7 +62,7 @@ internal class OnvifLiveCard(
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(if (columnMode) dp(218) else MeasureSpec.getSize(widthMeasureSpec) * 9 / 16, MeasureSpec.EXACTLY))
             }
         }
-        preview = LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView
+        preview = (LayoutInflater.from(context).inflate(R.layout.onvif_live_preview, frame, false) as PlayerView).apply { tintVideoBuffering() }
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
         status = TextView(context).apply {
             text = context.getString(R.string.onvif_connecting); setTextColor(Color.WHITE); textSize = 12f

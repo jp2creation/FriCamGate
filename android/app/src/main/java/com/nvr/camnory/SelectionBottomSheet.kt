@@ -30,11 +30,21 @@ internal open class SelectionBottomSheet(
     protected open fun createSheetToolbar(): View? = null
     protected open fun createSheetFooter(): View? = null
     protected open fun createHeaderAccessory(): View? = null
+    protected open val maxHeightFraction: Float? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val body = SheetDragLayout(context) { dismiss() }.apply {
+        val body = object : SheetDragLayout(context, { dismiss() }) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val fraction = maxHeightFraction
+                if (fraction == null) { super.onMeasure(widthMeasureSpec, heightMeasureSpec); return }
+                val available = MeasureSpec.getSize(heightMeasureSpec).takeIf { MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED }
+                    ?: resources.displayMetrics.heightPixels
+                val limit = minOf(available, (resources.displayMetrics.heightPixels * fraction).toInt())
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             tag = "selection-sheet"
             background = GradientDrawable().apply {
@@ -80,7 +90,7 @@ internal open class SelectionBottomSheet(
             }
         }.apply { tag = "sheet-scroll"; addView(rows); isFillViewport = false }
         body.scrollView = list
-        body.addView(list, LinearLayout.LayoutParams(-1, -2))
+        body.addView(list, LinearLayout.LayoutParams(-1, -2, if (maxHeightFraction != null) 1f else 0f))
         createSheetFooter()?.let { body.addView(it) }
         ViewCompat.setOnApplyWindowInsetsListener(body) { view, insets ->
             view.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom)

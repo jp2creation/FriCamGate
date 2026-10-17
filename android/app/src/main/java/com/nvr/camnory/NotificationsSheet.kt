@@ -27,6 +27,7 @@ internal class NotificationsSheet(
     private val onHistory: () -> Unit,
     private val onSettings: () -> Unit
 ) : SelectionBottomSheet(context, context.getString(R.string.notifications)) {
+    override val maxHeightFraction = 0.70f
     private val unread = unreadIds.toMutableSet()
     private var kind = EventKind.Any
     private lateinit var rows: LinearLayout
