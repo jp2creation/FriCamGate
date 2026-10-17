@@ -1,0 +1,12 @@
+<resources>
+    <string name="activity_since_visit">Since your last visit</string>
+    <string name="activity_period">Unread detections · Last 24 hours</string>
+    <string name="activity_listen">Listen to summary</string>
+    <string name="activity_listening">Reading summary</string>
+    <string name="activity_pause">Pause</string>
+    <string name="activity_stop">Stop</string>
+    <string name="activity_voice_loading">Preparing voice…</string>
+    <string name="activity_voice_unavailable">Install an offline voice for this language in Android text-to-speech settings.</string>
+    <string name="activity_review_all">Review all</string>
+    <string name="activity_mark_read">Mark as read</string>
+</resources>

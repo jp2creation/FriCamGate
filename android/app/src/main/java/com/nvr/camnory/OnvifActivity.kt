@@ -37,14 +37,24 @@ class OnvifActivity : AppCompatActivity() {
     private var stopped = false
     private var pendingCamera: OnvifSavedCamera? = null
     private var pendingEdit: OnvifSavedCamera? = null
+    private var editing = false
+    private var passwordInput: EditText? = null
     private val fullscreen get() = intent.getBooleanExtra("fullscreen", false)
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        val appearance = getSharedPreferences("camgate-settings", MODE_PRIVATE)
+        Palette.backgroundStyle = BackgroundStyle.fromPreference(appearance.getString("backgroundStyle", null))
+        Palette.dark = Appearance.isDark(appearance.getString("theme", "system"),
+            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
+        Palette.accent = Appearance.accent(appearance.getString("accent", null))
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !Palette.dark; isAppearanceLightNavigationBars = !Palette.dark
+        }
         appLock = BiometricAppLock(this) { resumePendingCamera() }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { if (fullscreen) finish() else if (playingCamera != null) list() else finish() }
+            override fun handleOnBackPressed() { if (fullscreen) finish() else if (editing || playingCamera != null) list() else finish() }
         })
         store = OnvifCameraStore(this)
         try {
@@ -74,13 +84,16 @@ class OnvifActivity : AppCompatActivity() {
             addView(bar)
             androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
                 val system = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                view.setPadding(dp(12) + system.left, dp(12) + system.top, dp(12) + system.right, dp(12) + system.bottom)
+                val keyboard = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+                view.setPadding(dp(12) + system.left, dp(12) + system.top, dp(12) + system.right,
+                    dp(12) + maxOf(system.bottom, keyboard.bottom))
                 insets
             }
         }
     }
 
     private fun list() {
+        passwordInput?.text?.clear(); passwordInput = null; editing = false
         stopDiscovery()
         generation++; job?.cancel(true); client.cancel(); player?.release(); player = null; playingCamera = null
         val root = root(getString(R.string.onvif_cameras)) { finish() }
@@ -111,35 +124,45 @@ class OnvifActivity : AppCompatActivity() {
     }
 
     private fun add(existing: OnvifSavedCamera? = null, discovered: OnvifDiscoveredCamera? = null) {
-        val form = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
-        fun input(hint: String, password: Boolean = false) = EditText(this).apply {
-            this.hint = hint; isSingleLine = true
-            inputType = if (password) 129 else android.text.InputType.TYPE_CLASS_TEXT
-            form.addView(this)
+        editing = true
+        val ui = ConnectionFormUi(this)
+        val root = root(existing?.name ?: getString(R.string.onvif_add)) { list() }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(24))
         }
-        val name = input(getString(R.string.onvif_name))
-        val address = input(getString(R.string.onvif_address))
-        val username = input(getString(R.string.username))
-        val password = input(getString(R.string.password), true)
+        val name = ui.field(form, getString(R.string.onvif_name), getString(R.string.onvif_name),
+            existing?.name ?: discovered?.name.orEmpty(), key = "onvif-name")
+        val address = ui.field(form, getString(R.string.onvif_address), "http://192.168.1.100:8000",
+            existing?.endpoint ?: discovered?.endpoint.orEmpty(), key = "onvif-server")
+        val username = ui.field(form, getString(R.string.username), getString(R.string.username),
+            existing?.credentials?.username.orEmpty(), key = "onvif-username")
+        val password = ui.field(form, getString(R.string.password),
+            getString(if (existing != null) R.string.onvif_keep_password else R.string.password),
+            secret = true, key = "onvif-password")
+        passwordInput = password
         if (existing != null) {
-            name.setText(existing.name); address.setText(existing.endpoint); username.setText(existing.credentials.username)
-            password.hint = getString(R.string.onvif_keep_password)
+            password.hint = ""
+            form.addView(ui.text(getString(R.string.onvif_keep_password)).apply {
+                setPadding(0, dp(8), 0, 0)
+            })
         }
-        if (discovered != null) { name.setText(discovered.name); address.setText(discovered.endpoint) }
-        val dialog = AlertDialog.Builder(this).setTitle(R.string.onvif_add).setView(form)
-            .setNegativeButton(android.R.string.cancel, null).setPositiveButton(R.string.onvif_connect, null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        form.addView(ui.action(getString(R.string.onvif_connect)) {
                 val endpoint = runCatching { onvifEndpoint(address.text.toString()).toASCIIString() }.getOrNull()
-                if (endpoint == null || name.text.isBlank()) { address.error = getString(R.string.onvif_invalid_address); return@setOnClickListener }
+                if (name.text.isBlank()) { name.error = getString(R.string.onvif_name); name.requestFocus(); return@action }
+                if (endpoint == null) { address.error = getString(R.string.onvif_invalid_address); address.requestFocus(); return@action }
                 val camera = OnvifSavedCamera(existing?.id ?: UUID.randomUUID().toString(), name.text.toString().trim(), endpoint,
                     OnvifCredentials(username.text.toString(), password.text.toString().ifEmpty { existing?.credentials?.password.orEmpty() }),
                     existing?.profileToken)
-                password.text.clear(); dialog.dismiss(); connect(camera, adding = true)
-            }
-        }
-        this.dialog = dialog
-        dialog.show()
+                password.text.clear(); passwordInput = null; editing = false
+                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .hideSoftInputFromWindow(password.windowToken, 0)
+                connect(camera, adding = true)
+        })
+        root.addView(ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false; addView(form)
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        setContentView(root)
     }
 
     private fun connect(camera: OnvifSavedCamera, adding: Boolean = false, autoProfile: Boolean = false) {
@@ -259,6 +282,7 @@ class OnvifActivity : AppCompatActivity() {
         if (::appLock.isInitialized) appLock.protectContent()
     }
     override fun onStop() {
+        passwordInput?.text?.clear()
         stopDiscovery()
         stopped = true
         resumedPlayback = player?.playWhenReady == true

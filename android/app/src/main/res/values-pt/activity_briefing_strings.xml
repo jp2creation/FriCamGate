@@ -1,0 +1,12 @@
+<resources>
+    <string name="activity_since_visit">Desde a sua última visita</string>
+    <string name="activity_period">Deteções não lidas · Últimas 24 horas</string>
+    <string name="activity_listen">Ouvir o resumo</string>
+    <string name="activity_listening">A ler o resumo</string>
+    <string name="activity_pause">Pausa</string>
+    <string name="activity_stop">Parar</string>
+    <string name="activity_voice_loading">A preparar a voz…</string>
+    <string name="activity_voice_unavailable">Instale uma voz offline para este idioma nas definições de síntese de voz do Android.</string>
+    <string name="activity_review_all">Examinar tudo</string>
+    <string name="activity_mark_read">Marcar como lido</string>
+</resources>

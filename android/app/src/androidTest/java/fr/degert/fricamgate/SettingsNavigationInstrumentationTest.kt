@@ -78,6 +78,36 @@ class SettingsNavigationInstrumentationTest {
         fail("Fixture dashboard did not load")
     }
 
+    @Test fun activityBriefingIsSilentUntilRequestedAndActionsDismissTheSheet() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitDashboard(scenario)
+            scenario.onActivity { activity ->
+                var read = false
+                var reviewed = false
+                fun sheet() = ActivityBriefingSheet(activity, "3 detections", TextView(activity).apply {
+                    text = "Front camera: person at 07:08"
+                }, listOf("3 detections"), { read = true }, { reviewed = true })
+                val panel = sheet()
+                panel.show()
+                assertTrue(panel.isShowing)
+                assertNull(ActivityBriefingSheet::class.java.getDeclaredField("engine").apply { isAccessible = true }.get(panel))
+                val contents = views(panel.window!!.decorView)
+                assertTrue(contents.filterIsInstance<TextView>().any { it.text == "Front camera: person at 07:08" })
+                contents.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.activity_mark_read) }.performClick()
+                assertTrue(read); assertFalse(reviewed); assertFalse(panel.isShowing)
+                val second = sheet()
+                second.show()
+                views(second.window!!.decorView).filterIsInstance<TextView>()
+                    .first { it.text == activity.getString(R.string.activity_review_all) }.performClick()
+                assertTrue(reviewed); assertFalse(second.isShowing)
+                val canceled = sheet()
+                canceled.show(); canceled.cancel()
+                assertFalse(canceled.isShowing)
+                assertTrue(ActivityBriefingSheet::class.java.getDeclaredField("closed").apply { isAccessible = true }.getBoolean(canceled))
+            }
+        }
+    }
+
     @Test fun submenuNavigationAndRecreationKeepSettingsContext() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitDashboard(scenario)

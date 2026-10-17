@@ -128,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     private var timelineFrameGeneration = 0
     private var cameraPickerPopup: PopupWindow? = null
     private var cameraPickerSheet: SelectionBottomSheet? = null
+    private var activityBriefingSheet: ActivityBriefingSheet? = null
     private var alertsPopup: NotificationsSheet? = null
     private var nvrVersion: String? = null
     private var updateResult: NativeUpdateResult? = null
@@ -251,6 +252,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         super.onStop()
         notificationHandler.removeCallbacks(notificationPoll)
         if (!isChangingConfigurations) appLock.onBackground()
@@ -329,6 +331,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        activityBriefingSheet?.dismiss(); activityBriefingSheet = null
         dismissAlertsPopup()
         dismissCameraPicker()
         appearanceChoiceSheet?.dismiss()
@@ -2313,46 +2316,78 @@ class MainActivity : AppCompatActivity() {
         val acknowledged = prefs.getStringSet(key, emptySet()).orEmpty()
         val unread = unreadActivities(recent.map { ActivityItem(it.id, it.camera, it.startTime!!,
             EventFacts(it.objectLabel, it.subLabel, it.description)) }, acknowledged)
-        val groups = groupActivities(unread).take(3)
+        val groups = groupActivities(unread)
         if (groups.isEmpty()) return null
-        val summary = groups.joinToString(" · ") { group ->
+        val summary = groups.take(3).joinToString(" · ") { group ->
             val event = recent.first { it.id == group.latest.id }
             val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' ')
             getString(R.string.activity_compact_item, eventDisplayText(event), camera, group.count)
         }
-        return vertical().apply {
-            val card = this
-            setPadding(dp(12), dp(8), dp(12), 0)
-            background = rounded(Palette.card, 8, Palette.border, 1)
+        return horizontal().apply {
+            val entry = this
+            tag = "activity-briefing-entry"
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(52)
+            setPadding(0, dp(4), 0, dp(4))
+            isFocusable = true
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(12)
+                topMargin = dp(8)
                 bottomMargin = dp(4)
             }
-            addView(horizontal().apply {
-                gravity = Gravity.CENTER_VERTICAL
-                addView(label(getString(R.string.recent_activity), 13, Palette.text), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 10, Palette.muted))
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_list); setColorFilter(Palette.accent)
+            }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(10) })
+            addView(label(getString(R.string.activity_since_visit), 13, Palette.text), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label(resources.getQuantityString(R.plurals.activity_detections, unread.size, unread.size), 11, Palette.muted).apply {
+                setPadding(dp(8), 0, dp(8), 0)
             })
-            addView(label(summary, 12, Palette.muted).apply {
-                maxLines = 2
-                ellipsize = TextUtils.TruncateAt.END
-                setPadding(0, dp(4), 0, 0)
-            })
-            addView(horizontal().apply {
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                fun action(titleRes: Int, run: () -> Unit): View = label(getString(titleRes), 13, Palette.accent).apply {
-                    gravity = Gravity.CENTER
-                    setPadding(dp(14), 0, dp(14), 0)
-                    minimumHeight = dp(48)
-                    isFocusable = true
-                    setOnClickListener { run() }
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_chevron_right); setColorFilter(Palette.muted)
+            }, LinearLayout.LayoutParams(dp(18), dp(18)))
+            setOnClickListener {
+                if (appLock.locked) return@setOnClickListener
+                activityBriefingSheet?.dismiss()
+                val rows = vertical()
+                val byId = recent.associateBy { it.id }
+                groups.forEach { group ->
+                    val event = byId.getValue(group.latest.id)
+                    rows.addView(horizontal().apply {
+                        gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(80)
+                        setPadding(0, dp(10), 0, dp(10)); isFocusable = true
+                        tag = "activity-group:${event.id}"
+                        addView(ImageView(context).apply {
+                            setImageResource(eventObjectIcon(event)); setColorFilter(Palette.muted)
+                        }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) })
+                        addView(vertical().apply {
+                            val camera = cameras.firstOrNull { it.name == event.camera }?.friendlyName ?: event.camera.replace('_', ' ')
+                            addView(label(getString(R.string.activity_compact_item, eventDisplayText(event), camera, group.count), 14, Palette.text))
+                            addView(label(eventSentence(event), 12, Palette.muted).apply { setPadding(0, dp(4), dp(8), 0) })
+                            event.description?.takeIf { it.isNotBlank() }?.let {
+                                addView(label(it, 12, Palette.muted).apply { setPadding(0, dp(4), dp(8), 0) })
+                            }
+                        }, LinearLayout.LayoutParams(0, -2, 1f))
+                        val thumbnail = ImageView(context).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            background = rounded(Palette.surface, 6); applyRoundedClip(6)
+                        }
+                        addView(thumbnail, LinearLayout.LayoutParams(dp(88), dp(52)))
+                        loadEventPreview(event, thumbnail)
+                        setOnClickListener { activityBriefingSheet?.dismiss(); renderEventDetail(event) }
+                    }, LinearLayout.LayoutParams(-1, -2))
+                    rows.addView(View(context).apply { setBackgroundColor(Palette.divider) }, LinearLayout.LayoutParams(-1, dp(1)))
                 }
-                addView(action(R.string.activity_understood) {
-                    prefs.edit().putStringSet(key, (unread.map { it.id } + acknowledged).take(1000).toSet()).apply()
-                    card.visibility = View.GONE
-                })
-                addView(action(R.string.activity_review) { changeEventSearch(EventSearch()) })
-            })
+                val speech = listOf(getString(R.string.recent_activity), summary) + groups.map {
+                    val event = byId.getValue(it.latest.id)
+                    eventSentence(event) + event.description?.takeIf { description -> description.isNotBlank() }?.let { description -> " $description" }.orEmpty()
+                }
+                activityBriefingSheet = ActivityBriefingSheet(this@MainActivity, summary, rows, speech,
+                    acknowledge = {
+                        val current = prefs.getStringSet(key, emptySet()).orEmpty()
+                        prefs.edit().putStringSet(key, (unread.map { it.id } + current).take(1000).toSet()).apply()
+                        entry.visibility = View.GONE
+                        window.decorView.findViewWithTag<View>("activity-briefing-entry")?.visibility = View.GONE
+                    }, review = { changeEventSearch(EventSearch()) }).also { it.show() }
+            }
         }
     }
 
