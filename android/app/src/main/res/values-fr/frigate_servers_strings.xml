@@ -6,7 +6,7 @@
     <string name="frigate_servers_detail">Vos serveurs et leurs caméras</string>
     <string name="frigate_remove_server">Retirer ce serveur</string>
     <string name="frigate_remove_confirm">Retirer %1$s de Camnory ? Le serveur et ses enregistrements ne seront pas modifiés.</string>
-    <string name="frigate_save_name">Enregistrer le nom</string>
+    <string name="frigate_save_name">Enregistrer les réglages</string>
     <string name="frigate_duplicate">Cette adresse est déjà enregistrée.</string>
     <string name="frigate_storage_error">Impossible de lire ou enregistrer les connexions Frigate. Les connexions existantes sont conservées.</string>
     <string name="frigate_bad_fields">Renseignez un nom, une adresse HTTP(S) valide, un utilisateur et un mot de passe.</string>

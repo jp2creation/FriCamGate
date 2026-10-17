@@ -8,10 +8,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
 
 /** Qualified identifiers never leave this router; transports receive native server names. */
-internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpClient) :
+internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpClient, context: android.content.Context? = null) :
     FrigateNativeApi(servers.first().baseUrl, client) {
     private val transports = servers.associate { it.id to FrigateNativeApi(it.baseUrl, client.newBuilder()
-        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()) }
+        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).apply {
+            if (context != null && it.localRoute != null) {
+                retryOnConnectionFailure(false)
+                addInterceptor(LocalRouteInterceptor.create(context, it.baseUrl, it.localRoute, it.token, "/api/version"))
+            }
+        }.build(), it.localRoute) }
     @Volatile var unavailable: Set<String> = emptySet()
         private set
     fun serverFor(value: String): FrigateServer = if (value.startsWith("@")) {
@@ -38,7 +43,7 @@ internal class MultiFrigateApi(val servers: List<FrigateServer>, client: OkHttpC
                     unavailable = results.filterValues { it.isFailure }.keys.toSet()
                     val loaded = servers.mapNotNull { s -> results[s.id]?.getOrNull()?.let { s to it } }
                     if (loaded.isEmpty()) Result.failure(IOException("Frigate unavailable")) else Result.success(DashboardData(
-                        loaded.flatMap { (s, data) -> data.cameras.map { it.copy(name = s.qualify(it.name), streamName = s.qualify(it.streamName),
+                        loaded.flatMap { (s, data) -> data.cameras.map { it.copy(name = s.qualify(it.name), streamName = s.qualify(it.streamName), tvStreamName = s.qualify(it.tvStreamName),
                             friendlyName = if (servers.size > 1) "${it.friendlyName} · ${s.name}" else it.friendlyName) } },
                         loaded.flatMap { (s, data) -> data.events.map { qualify(s, it) } }.sortedByDescending { it.startTime ?: 0.0 }))
                 }

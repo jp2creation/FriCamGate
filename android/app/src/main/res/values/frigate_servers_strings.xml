@@ -6,7 +6,7 @@
     <string name="frigate_servers_detail">Your servers and their cameras</string>
     <string name="frigate_remove_server">Remove this server</string>
     <string name="frigate_remove_confirm">Remove %1$s from Camnory? This does not change the server or its recordings.</string>
-    <string name="frigate_save_name">Save name</string>
+    <string name="frigate_save_name">Save settings</string>
     <string name="frigate_duplicate">This address is already registered.</string>
     <string name="frigate_storage_error">Unable to read or save Frigate connections. Existing connections have been kept.</string>
     <string name="frigate_bad_fields">Enter a name, a valid HTTP(S) address, a user and a password.</string>

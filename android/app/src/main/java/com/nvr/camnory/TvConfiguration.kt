@@ -19,11 +19,11 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
     fun encode(): ByteArray {
         val servers = JSONArray()
         frigate.forEach { servers.put(JSONObject().put("id", it.id).put("name", it.name).put("url", it.baseUrl)
-            .put("user", it.username).put("token", it.token).put("legacy", it.legacy)) }
+            .put("user", it.username).put("token", it.token).put("legacy", it.legacy).put("localRoute", it.localRoute?.json())) }
         val cameras = JSONArray()
         onvif.forEach { cameras.put(JSONObject().put("id", it.id).put("name", it.name).put("url", it.endpoint)
             .put("user", it.credentials.username).put("password", it.credentials.password).put("profile", it.profileToken)) }
-        val assistant = ha?.let { connection -> JSONObject().put("url", connection.baseUrl).put("token", connection.token)
+        val assistant = ha?.let { connection -> JSONObject().put("url", connection.baseUrl).put("token", connection.token).put("localRoute", connection.localRoute?.json())
             .put("cameras", JSONArray().apply { connection.cameras.forEach { put(JSONObject()
                 .put("id", it.entityId).put("name", it.name)) } }) }
         return JSONObject().put("version", 1).put("frigate", servers).put("onvif", cameras)
@@ -48,7 +48,7 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
                 val id = text(o, "id", 64).also { require(it.matches(Regex("[a-zA-Z0-9-]+"))) }
                 val token = text(o, "token", 32768).also { require('\n' !in it && '\r' !in it) }
                 FrigateServer(id, text(o, "name", 160), frigateServerUrl(text(o, "url", 4096)),
-                    text(o, "user", 160), token, o.getBoolean("legacy"))
+                    text(o, "user", 160), token, o.getBoolean("legacy"), LocalServerRoute.decode(o.optJSONObject("localRoute")))
             } }
             require(servers.map { it.id }.distinct().size == servers.size && servers.count { it.legacy } <= 1)
             require(servers.map { it.baseUrl }.distinct().size == servers.size)
@@ -66,7 +66,7 @@ internal class TvConfiguration(val frigate: List<FrigateServer>, val onvif: List
                 } }
                 require(haCameras.map { it.entityId }.distinct().size == haCameras.size)
                 HomeAssistantConnection(homeAssistantBaseUrl(text(o, "url", 4096)), text(o, "token", 32768)
-                    .also { require('\r' !in it && '\n' !in it) }, haCameras)
+                    .also { require('\r' !in it && '\n' !in it) }, haCameras, LocalServerRoute.decode(o.optJSONObject("localRoute")))
             }
             return TvConfiguration(servers, cameras, ha, strings(root, "order"), strings(root, "hidden").toSet())
         }

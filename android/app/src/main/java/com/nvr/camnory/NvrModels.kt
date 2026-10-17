@@ -17,7 +17,8 @@ internal data class NativeCamera(
     val snapshotsEnabled: Boolean?,
     val audioEnabled: Boolean?,
     val notificationsEnabled: Boolean?,
-    val audioTranscriptionEnabled: Boolean?
+    val audioTranscriptionEnabled: Boolean?,
+    val tvStreamName: String = streamName
 )
 
 internal data class NativeEvent(

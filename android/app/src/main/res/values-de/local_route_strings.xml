@@ -1,0 +1,7 @@
+<resources>
+    <string name="local_use_network">Dieses Netzwerk verwenden</string>
+    <string name="local_address">Lokale Adresse (optional)</string>
+    <string name="local_network">Lokales Netzwerk (IPv4/CIDR)</string>
+    <string name="local_route_detail">In diesem WLAN oder Ethernet zuerst die lokale Adresse testen. Sonst die Serveradresse oben verwenden. Beispiel: 192.168.0.0/24. HTTP ist unverschlüsselt; nur in vertrauenswürdigen Netzen.</string>
+    <string name="local_route_invalid">Private IPv4-Adresse und Netzwerk prüfen (Beispiel: 192.168.0.0/24).</string>
+</resources>

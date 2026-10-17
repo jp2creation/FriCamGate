@@ -245,7 +245,7 @@ internal class HomeAssistantCameraView(
         if (!visible()) return
         loaded = true
         val request = ++generation
-        val api = HomeAssistantClient(connection.baseUrl, connection.token).also { client = it }
+        val api = HomeAssistantClient(connection.baseUrl, connection.token, context, connection.localRoute).also { client = it }
         executor().submit {
             val result = runCatching { api.image(camera.entityId) }
             handler.post {
@@ -269,7 +269,7 @@ internal class HomeAssistantCameraView(
         live = true; play.isEnabled = false; if (!fullscreenMode || playerOnly) play.visibility = View.GONE
         progress.visibility = View.VISIBLE; setState(R.string.connecting)
         val request = generation
-        val api = HomeAssistantClient(connection.baseUrl, connection.token).also { client = it }
+        val api = HomeAssistantClient(connection.baseUrl, connection.token, context, connection.localRoute).also { client = it }
         val channel = api.socket().also { socket = it }
         handler.postDelayed(timeout, 30_000)
         executor().submit {

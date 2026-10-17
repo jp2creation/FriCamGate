@@ -28,7 +28,7 @@ internal class CameraControlsView(context: Context, private val target: CameraCo
     private val ui = ConnectionFormUi(context)
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private val ha = target.homeAssistant?.let { HomeAssistantClient(it.baseUrl, it.token) }
+    private val ha = target.homeAssistant?.let { HomeAssistantClient(it.baseUrl, it.token, context, it.localRoute) }
     private var probe: CameraPtzDriver? = null
     private var capabilities: CameraPtzState? = null
     private var entities = emptyList<CameraAccessory>()

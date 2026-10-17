@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createFrigateApi(): FrigateNativeApi? = runCatching {
-        frigateServers.load().takeIf { it.isNotEmpty() }?.let { MultiFrigateApi(it, httpClient) }
+        frigateServers.load().takeIf { it.isNotEmpty() }?.let { MultiFrigateApi(it, httpClient, this) }
     }.getOrElse { toast(getString(R.string.frigate_storage_error)); null }
     private var cameras: List<NativeCamera> = emptyList()
     private var events: List<NativeEvent> = emptyList()
@@ -1331,6 +1331,10 @@ class MainActivity : AppCompatActivity() {
         val mediaClient = httpClient.newBuilder().followRedirects(false).followSslRedirects(false).addInterceptor { chain ->
             val server = router.serverForUrl(chain.request().url.toString()) ?: throw java.io.IOException("Unknown Frigate media source")
             chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer ${server.token}").build())
+        }.apply {
+            router.servers.forEach { server -> server.localRoute?.let {
+                addInterceptor(LocalRouteInterceptor.create(this@MainActivity, server.baseUrl, it, server.token, "/api/version"))
+            } }
         }.build()
         return androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(mediaClient).setUserAgent("Camnory")
     }
@@ -1988,7 +1992,6 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(toolbarIcon(R.drawable.ic_refresh) { loadGlobalEventPage(reset = true) })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         column.addView(eventFilterBar())

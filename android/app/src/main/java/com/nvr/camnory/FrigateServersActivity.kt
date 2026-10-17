@@ -43,7 +43,7 @@ class FrigateServersActivity : AppCompatActivity() {
         })
         if (state?.getBoolean("frigate-form", false) == true) {
             showForm(load()?.firstOrNull { it.id == state.getString("frigate-edit") })
-            listOf("frigate-name", "frigate-server", "frigate-user").forEach { tag ->
+            listOf("frigate-name", "frigate-server", "frigate-user", "local-route-url", "local-route-network").forEach { tag ->
                 state.getString(tag)?.let { findViewById<android.view.ViewGroup>(android.R.id.content).findViewWithTag<EditText>(tag)?.setText(it) }
             }
         } else showServers()
@@ -114,6 +114,7 @@ class FrigateServersActivity : AppCompatActivity() {
         val (ui, body) = page(server?.name ?: getString(R.string.frigate_add_server))
         val name = ui.field(body, getString(R.string.frigate_server_name), getString(R.string.frigate_server_name_hint), server?.name.orEmpty(), key = "frigate-name")
         val url = ui.field(body, getString(R.string.frigate_server), "https://frigate.example.com", server?.baseUrl.orEmpty(), key = "frigate-server")
+        val local = LocalRouteFields(this, body, server?.localRoute)
         val user = ui.field(body, getString(R.string.username), "admin", server?.username.orEmpty(), key = "frigate-user")
         val password = ui.field(body, getString(R.string.password), getString(R.string.password_hint), secret = true, key = "frigate-password")
         val status = ui.text("", 13, Palette.accent).apply { tag = "frigate-status" }
@@ -125,6 +126,7 @@ class FrigateServersActivity : AppCompatActivity() {
             val address = runCatching { frigateServerUrl(url.text.toString()) }.getOrNull()
             val title = name.text.toString().trim(); val username = user.text.toString().trim()
             val secret = password.text.toString()
+            val localRoute = try { local.value() } catch (_: Exception) { status.text = getString(R.string.local_route_invalid); return@action }
             if (address == null || title.isBlank() || title.length > 160 || username.isBlank() || secret.isBlank()) {
                 status.text = getString(R.string.frigate_bad_fields); return@action
             }
@@ -136,7 +138,7 @@ class FrigateServersActivity : AppCompatActivity() {
                 if (request != generation || !status.isAttachedToWindow || isFinishing || isDestroyed || lock.locked) return@runOnUiThread
                 busy = false; connect.isEnabled = true
                 result.onSuccess { login ->
-                    val next = FrigateServer(server?.id ?: FrigateServerStore.newId(), title, address, login.username, login.token, server?.legacy ?: false)
+                    val next = FrigateServer(server?.id ?: FrigateServerStore.newId(), title, address, login.username, login.token, server?.legacy ?: false, localRoute)
                     if (save { store.upsert(next) }) { password.text.clear(); showServers() }
                 }.onFailure { status.text = getString(R.string.login_failed) }
             } }
@@ -146,7 +148,8 @@ class FrigateServersActivity : AppCompatActivity() {
         if (server != null) {
             body.addView(ui.action(getString(R.string.frigate_save_name), false) {
                 val title = name.text.toString().trim()
-                if (!busy && title.isNotEmpty() && title.length <= 160 && save { store.upsert(server.copy(name = title)) }) showServers()
+                val route = try { local.value() } catch (_: Exception) { status.text = getString(R.string.local_route_invalid); return@action }
+                if (!busy && title.isNotEmpty() && title.length <= 160 && save { store.upsert(server.copy(name = title, localRoute = route)) }) showServers()
             }.apply { tag = "frigate-rename" })
             body.addView(ui.action(getString(R.string.frigate_remove_server), false) {
                 if (!busy) androidx.appcompat.app.AlertDialog.Builder(this).setTitle(R.string.frigate_remove_server)
@@ -165,7 +168,7 @@ class FrigateServersActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("frigate-form", inForm)
         outState.putString("frigate-edit", editing?.id)
-        if (inForm) listOf("frigate-name", "frigate-server", "frigate-user").forEach { tag ->
+        if (inForm) listOf("frigate-name", "frigate-server", "frigate-user", "local-route-url", "local-route-network").forEach { tag ->
             outState.putString(tag, findViewById<android.view.ViewGroup>(android.R.id.content).findViewWithTag<EditText>(tag)?.text?.toString())
         }
         super.onSaveInstanceState(outState)

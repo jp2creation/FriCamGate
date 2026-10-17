@@ -5,6 +5,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TvConfigurationTest {
+    @Test fun localRoutesSurviveTransferWithoutChangingServerIdentity() {
+        val route = LocalServerRoute("http://192.168.0.144:5000", "192.168.0.0/24")
+        val value = fixture()
+        val config = TvConfiguration(value.frigate.map { it.copy(localRoute = route) }, value.onvif,
+            HomeAssistantConnection(value.ha!!.baseUrl, value.ha.token, value.ha.cameras, route), value.order, value.hidden)
+        val copy = TvConfiguration.decode(config.encode())
+        assertEquals(route, copy.frigate.single().localRoute)
+        assertEquals(route, copy.ha!!.localRoute)
+        assertEquals(value.frigate.single().baseUrl, copy.frigate.single().baseUrl)
+    }
     private fun fixture() = TvConfiguration(
         listOf(FrigateServer("one", "Fixture", "https://nvr.example", "test", "dummy-token")),
         listOf(OnvifSavedCamera("two", "Camera", "http://192.168.1.50/onvif/device_service", OnvifCredentials("test", "dummy-password"))),

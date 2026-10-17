@@ -49,7 +49,13 @@ internal class NativeChatDialog(context: Context, private val server: FrigateSer
                 background = GradientDrawable().apply { setColor(Palette.muted); cornerRadius = dp(2).toFloat() }
             }, FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER))
         }, LinearLayout.LayoutParams(-1, dp(24)))
-        val chat = NativeChatView(context, server.baseUrl, server.token, server.username, client) { dismiss() }
+        val routedClient = client.newBuilder().apply {
+            server.localRoute?.let {
+                retryOnConnectionFailure(false)
+                addInterceptor(LocalRouteInterceptor.create(context, server.baseUrl, it, server.token, "/api/version"))
+            }
+        }.build()
+        val chat = NativeChatView(context, server.baseUrl, server.token, server.username, routedClient) { dismiss() }
         chatView = chat
         body.scrollView = chat.messageScroll
         body.addView(chat, LinearLayout.LayoutParams(-1, 0, 1f))

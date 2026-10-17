@@ -16,7 +16,7 @@ import javax.crypto.spec.GCMParameterSpec
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
 internal data class FrigateServer(val id: String, val name: String, val baseUrl: String,
-    val username: String, val token: String, val legacy: Boolean = false) {
+    val username: String, val token: String, val legacy: Boolean = false, val localRoute: LocalServerRoute? = null) {
     fun qualify(value: String) = if (legacy) value else "@$id:$value"
     override fun toString() = "FrigateServer($id, [redacted])"
 }
@@ -53,14 +53,14 @@ internal class FrigateServerStore(context: Context) {
         require(array.length() <= 20)
         (0 until array.length()).map { index -> array.getJSONObject(index).let {
             FrigateServer(it.getString("id"), it.getString("name"), frigateServerUrl(it.getString("baseUrl")),
-                it.getString("username"), it.getString("token"), it.optBoolean("legacy"))
+                it.getString("username"), it.getString("token"), it.optBoolean("legacy"), LocalServerRoute.decode(it.optJSONObject("localRoute")))
         } }.also(::validate)
     }
     fun save(servers: List<FrigateServer>) = synchronized(LOCK) {
         validate(servers)
         val array = JSONArray()
         servers.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("baseUrl", frigateServerUrl(it.baseUrl))
-            .put("username", it.username).put("token", it.token).put("legacy", it.legacy)) }
+            .put("username", it.username).put("token", it.token).put("legacy", it.legacy).put("localRoute", it.localRoute?.json())) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key())
         val stream = file.startWrite()
         try { stream.write(cipher.iv + cipher.doFinal(array.toString().toByteArray(Charsets.UTF_8))); file.finishWrite(stream) }
@@ -84,6 +84,7 @@ internal class FrigateServerStore(context: Context) {
         private val LOCK = Any()
         fun newId() = UUID.randomUUID().toString()
         private fun validate(servers: List<FrigateServer>) {
+            servers.forEach { it.localRoute?.validate() }
             require(servers.size <= 20 && servers.count { it.legacy } <= 1)
             require(servers.map { it.id }.distinct().size == servers.size)
             require(servers.map { frigateServerUrl(it.baseUrl) }.distinct().size == servers.size)

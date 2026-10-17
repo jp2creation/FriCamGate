@@ -35,14 +35,16 @@ internal class HomeAssistantStore(context: Context) {
             (0 until cameras.length()).map { cameras.getJSONObject(it) }.map {
                 val entity = it.getString("entityId"); require(validHomeAssistantCamera(entity))
                 HomeAssistantCamera(entity, it.getString("name").take(160), it.optBoolean("available", true))
-            })
+            }, LocalServerRoute.decode(value.optJSONObject("localRoute")))
     }
     fun save(connection: HomeAssistantConnection?) {
         if (connection == null) { file.delete(); return }
         require(connection.cameras.size <= 200 && connection.cameras.all { validHomeAssistantCamera(it.entityId) })
         val cameras = JSONArray()
         connection.cameras.forEach { cameras.put(JSONObject().put("entityId", it.entityId).put("name", it.name).put("available", it.available)) }
+        connection.localRoute?.validate()
         val value = JSONObject().put("baseUrl", homeAssistantBaseUrl(connection.baseUrl)).put("token", connection.token).put("cameras", cameras)
+            .put("localRoute", connection.localRoute?.json())
         val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key())
         val stream = file.startWrite()
         try {

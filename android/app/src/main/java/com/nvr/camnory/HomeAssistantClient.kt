@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 internal data class HomeAssistantCamera(val entityId: String, val name: String, val available: Boolean)
-internal class HomeAssistantConnection(val baseUrl: String, val token: String, val cameras: List<HomeAssistantCamera>) {
+internal class HomeAssistantConnection(val baseUrl: String, val token: String, val cameras: List<HomeAssistantCamera>, val localRoute: LocalServerRoute? = null) {
     override fun toString() = "HomeAssistantConnection([redacted])"
 }
 internal class HomeAssistantAuthException : IOException("Home Assistant authentication failed")
@@ -41,7 +41,7 @@ internal fun homeAssistantBaseUrl(value: String): String {
 }
 
 /** Camera reads/playback plus strictly allowlisted, explicitly requested light/siren commands. */
-internal class HomeAssistantClient(baseUrl: String, private val token: String) : Closeable {
+internal class HomeAssistantClient(baseUrl: String, private val token: String, context: android.content.Context? = null, private val localRoute: LocalServerRoute? = null) : Closeable {
     @Volatile private var closed = false
     private val base = (homeAssistantBaseUrl(baseUrl) + "/").toHttpUrl()
     private val sockets = java.util.concurrent.CopyOnWriteArrayList<HomeAssistantSocket>()
@@ -51,6 +51,11 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
             if (closed) throw IOException("Home Assistant client closed")
             if (!sameOrigin(chain.request().url)) throw IOException("External camera URL refused")
             chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
+        }.apply {
+            if (context != null && localRoute != null) {
+                retryOnConnectionFailure(false)
+                addInterceptor(LocalRouteInterceptor.create(context, baseUrl, localRoute, token, "/api/"))
+            }
         }.build()
 
     init { require(token.length in 1..8192 && token.all { it.code in 33..126 }) }
@@ -58,7 +63,8 @@ internal class HomeAssistantClient(baseUrl: String, private val token: String) :
     private fun sameOrigin(url: HttpUrl) = url.scheme == base.scheme && url.host == base.host && url.port == base.port &&
         url.username.isEmpty() && url.password.isEmpty()
     internal fun mediaUrl(value: String): String {
-        val url = base.resolve(value) ?: throw IOException("Invalid camera URL")
+        val resolved = base.resolve(value) ?: throw IOException("Invalid camera URL")
+        val url = localRoute?.canonical(base, resolved) ?: resolved
         require(sameOrigin(url) && url.fragment == null)
         require(url.encodedPath.startsWith(base.encodedPath + "api/hls/"))
         return url.toString()

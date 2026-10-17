@@ -14,6 +14,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,7 +26,8 @@ import java.util.Locale
 
 internal open class FrigateNativeApi(
     private val baseUrl: String,
-    private val client: OkHttpClient
+    private val client: OkHttpClient,
+    private val localRoute: LocalServerRoute? = null
 ) : NvrConnector, NvrPlaybackMedia, NvrLiveFrames, NvrEventHistory {
     override fun login(username: String, password: String, callback: (Result<NativeLogin>) -> Unit) {
         postLogin(username, password, listOf("/api/login", "/login"), callback)
@@ -367,6 +369,9 @@ internal open class FrigateNativeApi(
                 friendlyName = camera.optString("friendly_name").ifBlank { titleFromName(name) },
                 enabled = !camera.has("enabled") || camera.optBoolean("enabled", true),
                 streamName = selectStreamName(name, camera),
+                tvStreamName = TvStreamPolicy.select(name, camera.optJSONObject("live")?.optJSONObject("streams")?.let { streams ->
+                    streams.keys().asSequence().associateWith { streams.optString(it) }
+                }.orEmpty()),
                 detectEnabled = cameraFeatureEnabled(camera, "detect"),
                 motionEnabled = cameraFeatureEnabled(camera, "motion"),
                 recordingsEnabled = cameraFeatureEnabled(camera, "record"),
@@ -462,7 +467,7 @@ internal open class FrigateNativeApi(
             .map { it.trim() }
             .firstOrNull { it.contains("hls/playlist.m3u8") && !it.startsWith("#") }
             ?: return null
-        if (path.startsWith("http://") || path.startsWith("https://")) return path
+        if (path.startsWith("http://") || path.startsWith("https://")) return localRoute?.canonical(baseUrl.toHttpUrl(), path.toHttpUrl())?.toString() ?: path
         return endpoint("/live/mse/api/${path.trimStart('/')}")
     }
 

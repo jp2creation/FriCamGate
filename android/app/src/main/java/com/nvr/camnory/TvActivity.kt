@@ -51,6 +51,7 @@ class TvActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var mode = "home"
+    private var homePage = 0
     private val manualSetup = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val imported = runCatching {
             TvConfiguration.fromPhone(this).takeIf { it.frigate.isNotEmpty() || it.onvif.isNotEmpty() || it.ha != null }
@@ -120,6 +121,10 @@ class TvActivity : AppCompatActivity() {
         setPadding(dp(20), dp(8), dp(20), dp(8))
         focus(this); setOnClickListener { click() }
     }
+    private fun iconAction(icon: Int, label: String, click: () -> Unit) = ImageButton(this).apply {
+        setImageResource(icon); setColorFilter(Color.WHITE); contentDescription = label
+        setPadding(dp(12), dp(12), dp(12), dp(12)); focus(this); setOnClickListener { click() }
+    }
     private fun showHome(message: String? = null) {
         clear(); mode = "home"
         api = null
@@ -130,19 +135,17 @@ class TvActivity : AppCompatActivity() {
             return
         }
         val body = root(getString(R.string.cameras))
-        body.addView(LinearLayout(this).apply {
-            addView(action(getString(R.string.tv_pair)) { startPairing() }.apply { tag = "tv-pair" })
-            addView(action(getString(R.string.reload)) { showHome() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
-        })
+        val header = body.getChildAt(0) as LinearLayout
+        header.addView(iconAction(R.drawable.ic_refresh, getString(R.string.reload)) { showHome() }, LinearLayout.LayoutParams(dp(52), dp(48)))
+        header.addView(iconAction(R.drawable.ic_settings, getString(R.string.tv_settings)) { showTvSettings() }, LinearLayout.LayoutParams(dp(52), dp(48)).apply { marginStart = dp(12) })
         message?.let { body.addView(text(it)) }
-        val scroll = ScrollView(this)
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(grid); body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        body.addView(grid, LinearLayout.LayoutParams(-1, 0, 1f))
         val items = config.onvif.map { Item(CameraArrangement.key("onvif", "", it.id), it.name, CameraSource.Onvif, onvif = it) } +
             config.ha?.cameras.orEmpty().map { Item(CameraArrangement.key("ha", config.ha!!.baseUrl, it.entityId), it.name, CameraSource.HomeAssistant, ha = it) }
         populate(grid, items)
         if (config.frigate.isNotEmpty()) {
-            val transport = MultiFrigateApi(config.frigate, http).also { api = it }
+            val transport = MultiFrigateApi(config.frigate, http, this).also { api = it }
             val request = generation
             transport.loadDashboard(config.frigate.first().token) { result -> runOnUiThread {
                 if (request != generation || mode != "home") return@runOnUiThread
@@ -151,7 +154,14 @@ class TvActivity : AppCompatActivity() {
                 }.onFailure { body.addView(text(getString(R.string.frigate_unavailable))) }
             } }
         }
-        body.findViewWithTag<View>("tv-pair").requestFocus()
+    }
+    private fun showTvSettings() {
+        clear(); mode = "settings"
+        val body = root(getString(R.string.tv_settings))
+        body.addView(action(getString(R.string.tv_pair)) { startPairing() })
+        body.addView(action(getString(R.string.tv_setup_manual)) { showManualSources() })
+        body.addView(action(getString(R.string.onvif_back)) { showHome() })
+        (body.getChildAt(1) as View).requestFocus()
     }
     private fun showManualSources() {
         clear(); mode = "manual"
@@ -174,32 +184,40 @@ class TvActivity : AppCompatActivity() {
         val config = configuration ?: return
         val byKey = all.associateBy { it.key }
         val items = CameraArrangement.ordered(all.map { it.key }, config.order).mapNotNull { byKey[it] }.filter { it.key !in config.hidden }
-        val columns = if (resources.configuration.screenWidthDp >= 1200) 3 else 2
-        items.chunked(columns).forEach { group ->
+        val pages = maxOf(1, (items.size + 3) / 4)
+        homePage = homePage.coerceIn(0, pages - 1)
+        val columns = 2
+        items.drop(homePage * 4).take(4).chunked(columns).forEach { group ->
             grid.addView(LinearLayout(this).apply {
                 group.forEach { item ->
-                    val card = LinearLayout(this@TvActivity).apply {
-                        orientation = LinearLayout.VERTICAL; setPadding(dp(3), dp(3), dp(3), dp(3))
+                    val card = FrameLayout(this@TvActivity).apply {
+                        setPadding(dp(3), dp(3), dp(3), dp(3))
                         descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                         contentDescription = item.name
                         tag = "tv-camera:${item.key}"
                         focus(this); setOnClickListener { openCamera(item) }
                     }
-                    val video = object : FrameLayout(this@TvActivity) {
-                        override fun onMeasure(w: Int, h: Int) { super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(View.MeasureSpec.getSize(w) * 9 / 16, View.MeasureSpec.EXACTLY)) }
-                    }
-                    card.addView(video, LinearLayout.LayoutParams(-1, -2))
+                    val video = FrameLayout(this@TvActivity)
+                    card.addView(video, FrameLayout.LayoutParams(-1, -1))
                     addSource(video, item, false)
                     card.addView(text(item.name, 17).apply {
-                        maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(10), dp(8), dp(10), dp(8))
-                    })
-                    addView(card, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(5), dp(8), dp(5), 0) })
+                        maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(10), dp(6), dp(10), dp(6))
+                        setBackgroundColor(0xb0000000.toInt())
+                    }, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+                    addView(card, LinearLayout.LayoutParams(0, -1, 1f).apply { setMargins(dp(5), dp(6), dp(5), dp(6)) })
                 }
                 repeat(columns - group.size) { addView(View(this@TvActivity), LinearLayout.LayoutParams(0, 1, 1f)) }
-            }, LinearLayout.LayoutParams(-1, -2))
+            }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
+        if (items.size > 4) grid.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            addView(action("‹") { homePage--; populate(grid, all) }.apply { isEnabled = homePage > 0; contentDescription = "Previous page" })
+            addView(text("${homePage + 1} / $pages").apply { setPadding(dp(24), 0, dp(24), 0) })
+            addView(action("›") { homePage++; populate(grid, all) }.apply { isEnabled = homePage + 1 < pages; contentDescription = "Next page" })
+        }, LinearLayout.LayoutParams(-1, dp(48)))
         if (items.isEmpty()) grid.addView(text(getString(R.string.no_cameras)))
         onvifCards.forEach { it.setActive(true) }; haCards.forEach { it.setActive(true) }
+        grid.post { grid.findViewWithTag<View>("tv-camera:${items.getOrNull(homePage * 4)?.key}")?.requestFocus() }
     }
     private fun openCamera(item: Item) {
         clear(); mode = "live"
@@ -236,13 +254,18 @@ class TvActivity : AppCompatActivity() {
                 val server = transport.serverFor(camera.name)
                 val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
                 frame.addView(image, FrameLayout.LayoutParams(-1, -1))
+                val quality = text(getString(R.string.tv_preview_quality), 14).apply {
+                    tag = "tv-preview-quality"; setBackgroundColor(0xb0000000.toInt())
+                    setPadding(dp(10), dp(5), dp(10), dp(5))
+                }
+                if (live) frame.addView(quality, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(18), dp(18), 0) })
                 fun startMjpeg() { stream = transport.openMjpegStream(server.token, camera.streamName,
                     { bitmap -> runOnUiThread { if (request == generation) image.setImageBitmap(bitmap) } },
                     { runOnUiThread { if (request == generation && player?.isPlaying != true) frame.addView(text(getString(R.string.frigate_unavailable)), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)) } }) }
                 if (live) {
                     startMjpeg()
-                    startFrigateHls(frame, server, transport.nativeName(camera.streamName), request, ::startMjpeg)
-                } else transport.loadBitmap(server.token, transport.latestFrameUrl(camera.name)) { bitmap ->
+                    startFrigateHls(frame, server, transport.nativeName(camera.tvStreamName), request, ::startMjpeg)
+                } else transport.loadBitmap(server.token, transport.latestFrameUrl(camera.name).toHttpUrl().newBuilder().setQueryParameter("h", "720").build().toString()) { bitmap ->
                     runOnUiThread { if (request == generation && image.isAttachedToWindow) image.setImageBitmap(bitmap) }
                 }
             }
@@ -257,11 +280,13 @@ class TvActivity : AppCompatActivity() {
             if (url.scheme != base.scheme || url.host != base.host || url.port != base.port ||
                 !(url.encodedPath == prefix || url.encodedPath.startsWith("$prefix/"))) throw java.io.IOException("Invalid media origin")
             chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer ${server.token}").build())
+        }.apply {
+            server.localRoute?.let { addInterceptor(LocalRouteInterceptor.create(this@TvActivity, server.baseUrl, it, server.token, "/api/version")) }
         }.build().also { mediaHttp = it }
         val timeout = Runnable { client.dispatcher.cancelAll() }
         var resolved = false
         handler.postDelayed(timeout, 10_000)
-        FrigateNativeApi(server.baseUrl, client).requestHlsUrl(server.token, name) { result -> runOnUiThread {
+        FrigateNativeApi(server.baseUrl, client, server.localRoute).requestHlsUrl(server.token, name) { result -> runOnUiThread {
             if (request != generation) return@runOnUiThread
             if (resolved) return@runOnUiThread
             resolved = true
@@ -288,11 +313,13 @@ class TvActivity : AppCompatActivity() {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (request == generation && state == Player.STATE_READY) {
                         sound.isEnabled = true; stream?.cancel(); stream = null
+                        frame.findViewWithTag<View>("tv-preview-quality")?.visibility = View.GONE
                     }
                 }
                 override fun onPlayerError(error: PlaybackException) {
                     if (request == generation) {
                         view.visibility = View.GONE; sound.visibility = View.GONE
+                        frame.findViewWithTag<View>("tv-preview-quality")?.visibility = View.VISIBLE
                         playback.release(); if (player === playback) player = null
                         if (stream == null) fallback()
                     }

@@ -32,6 +32,7 @@ internal class HomeAssistantSetupView(
     private var selectionDraft: Set<String>? = null
     private var selectionBase: String? = null
     private var allowHttpDraft = saved?.baseUrl?.startsWith("http://") == true
+    private var routeDraft = saved?.localRoute
     var choosing = false
         private set
 
@@ -43,6 +44,7 @@ internal class HomeAssistantSetupView(
     fun showForm() {
         cancel(); choosing = false; selectionDraft = null; selectionBase = null; removeAllViews()
         val address = ui.field(this, context.getString(R.string.ha_server), "https://maison.example.fr", addressDraft, key = "connection-ha-server")
+        val local = LocalRouteFields(context, this, routeDraft)
         val token = ui.field(this, context.getString(R.string.ha_token), context.getString(if (connection == null) R.string.ha_token_hint else R.string.ha_keep_token),
             tokenDraft, secret = true, key = "connection-ha-token")
         address.doAfterTextChanged {
@@ -84,7 +86,8 @@ internal class HomeAssistantSetupView(
             }
             val secret = token.text.toString().trim().ifBlank { connection?.takeIf { it.baseUrl == base }?.token.orEmpty() }
             if (secret.isBlank()) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
-            val api = runCatching { HomeAssistantClient(base, secret) }.getOrNull()
+            routeDraft = try { local.value() } catch (_: Exception) { message.text = context.getString(R.string.local_route_invalid); return@setOnClickListener }
+            val api = runCatching { HomeAssistantClient(base, secret, context, routeDraft) }.getOrNull()
             if (api == null) { token.error = context.getString(R.string.ha_token_hint); return@setOnClickListener }
             discover(base, secret, api, button, message)
         }
@@ -103,14 +106,14 @@ internal class HomeAssistantSetupView(
                 busy = false; button.isEnabled = true; onBusy(false)
                 result.onSuccess { cameras ->
                     val previous = connection?.takeIf { it.baseUrl == base }?.cameras.orEmpty()
-                    val validated = HomeAssistantConnection(base, secret, previous)
+                    val validated = HomeAssistantConnection(base, secret, previous, routeDraft)
                     runCatching {
                         if (connectionOnly || connection == null || connection?.baseUrl == base) {
                             HomeAssistantStore(context).save(validated)
                             connection = validated
                         }
                     }.onSuccess {
-                        if (connectionOnly) onSaved() else showSelection(HomeAssistantConnection(base, secret, cameras))
+                        if (connectionOnly) onSaved() else showSelection(HomeAssistantConnection(base, secret, cameras, routeDraft))
                     }.onFailure { message.text = context.getString(R.string.ha_storage_failed) }
                 }.onFailure { message.text = context.getString(if (it is HomeAssistantAuthException) R.string.ha_auth_failed else R.string.ha_connection_failed) }
                 api.close()
@@ -143,7 +146,7 @@ internal class HomeAssistantSetupView(
                     val stored = this@HomeAssistantSetupView.connection
                     val message = status
                     if (stored != null && message != null && canInteract() && !busy) {
-                        discover(stored.baseUrl, stored.token, HomeAssistantClient(stored.baseUrl, stored.token), this, message)
+                        discover(stored.baseUrl, stored.token, HomeAssistantClient(stored.baseUrl, stored.token, context, stored.localRoute), this, message)
                     }
                 }
             }, LayoutParams(ui.dp(48), ui.dp(48)))
@@ -264,7 +267,7 @@ internal class HomeAssistantSetupView(
         saveButton = ui.action(context.getString(R.string.ha_save_selection)) {
             if (canInteract() && selected.isNotEmpty()) runCatching {
                 HomeAssistantStore(context).save(HomeAssistantConnection(connection.baseUrl, connection.token,
-                    connection.cameras.filter { it.entityId in selected }))
+                    connection.cameras.filter { it.entityId in selected }, connection.localRoute))
             }.onSuccess { onSaved() }.onFailure { Toast.makeText(context, R.string.ha_storage_failed, Toast.LENGTH_LONG).show() }
         }
         addView(saveButton)
